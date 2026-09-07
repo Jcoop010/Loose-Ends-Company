@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from '../router'
-import { Zap, LayoutDashboard, Users, DollarSign, Bell, CalendarCheck, Megaphone, ClipboardList, MessageSquare, Settings, Menu, Search, ChevronRight, BriefcaseBusiness } from 'lucide-react'
+import { Zap, LayoutDashboard, Users, DollarSign, Bell, CalendarCheck, Megaphone, ClipboardList, MessageSquare, Settings, Menu, Search, ChevronRight, BriefcaseBusiness, ShoppingCart, CalendarDays } from 'lucide-react'
 
 const navItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
   { label: 'CRM', path: '/dashboard/crm', icon: <BriefcaseBusiness className="w-5 h-5" /> },
+  { label: 'Sales Orders', path: '/dashboard/sales', icon: <ShoppingCart className="w-5 h-5" /> },
+  { label: 'Calendar', path: '/dashboard/calendar', icon: <CalendarDays className="w-5 h-5" /> },
   { label: 'Customers', path: '/dashboard/customers', icon: <Users className="w-5 h-5" /> },
   { label: 'Revenue Recovery', path: '/dashboard/revenue-recovery', icon: <DollarSign className="w-5 h-5" /> },
   { label: 'Alerts', path: '/dashboard/alerts', icon: <Bell className="w-5 h-5" /> },
