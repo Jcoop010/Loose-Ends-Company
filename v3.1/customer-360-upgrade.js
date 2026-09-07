@@ -5,11 +5,7 @@
   function money(n){return '$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0})}
   function date(v){return v?new Date(v).toLocaleString():'—'}
   function client(){return window.LE&&window.LE.supabase||window.LESupabase||null}
-  async function wid(c){
-    var r=await c.auth.getUser(),u=r.data&&r.data.user;if(!u)return null;
-    var m=await c.from('workspace_members').select('workspace_id').eq('user_id',u.id).limit(1).maybeSingle();
-    return m.data&&m.data.workspace_id||null;
-  }
+  async function wid(c){var r=await c.auth.getUser(),u=r.data&&r.data.user;if(!u)return null;var m=await c.from('workspace_members').select('workspace_id').eq('user_id',u.id).limit(1).maybeSingle();return m.data&&m.data.workspace_id||null}
   async function open(customerId){
     var c=client();if(!c)return;
     var workspaceId=await wid(c);if(!workspaceId)return;
@@ -25,7 +21,7 @@
     var customer=results[0].data;if(!customer)return;
     var opps=results[1].data||[],loose=results[2].data||[],docs=results[3].data||[],appts=results[4].data||[],tasks=results[5].data||[],events=results[6].data||[];
     var openValue=opps.filter(function(x){return !['recovered','closed','won'].includes(String(x.status||'').toLowerCase())}).reduce(function(a,x){return a+Number(x.amount||0)},0)+loose.filter(function(x){return ['open','in_progress'].includes(String(x.status||'').toLowerCase())}).reduce(function(a,x){return a+Number(x.amount||0)},0);
-    var recovered=events.reduce(function(a,x){return a+Number(x.amount||0)},0);
+    var recovered=events.filter(function(x){return ['collected','recover','recovered','payment_collected'].includes(String(x.source||'').toLowerCase())}).reduce(function(a,x){return a+Number(x.amount||0)},0);
     var name=[customer.first_name,customer.last_name].filter(Boolean).join(' ')||'Customer';
     var timeline=[];
     events.forEach(function(x){timeline.push({d:x.created_at||x.occurred_at||null,t:'Recovery',s:x.source||'recovery event',n:x.note||'',a:x.amount})});
@@ -35,10 +31,10 @@
     timeline.sort(function(a,b){return new Date(b.d||0)-new Date(a.d||0)});
     var box=document.getElementById('v4modal');if(!box)return;
     box.className='v4-modal';
-    box.innerHTML='<div class="v4-modal-card"><div class="v4-section-head"><div><div class="v4-eyebrow">CUSTOMER 360</div><div class="v4-title">'+esc(name)+'</div><div class="v4-sub">'+esc(customer.phone||customer.email||'Customer record')+'</div></div><button class="v4-icon" onclick="V4.close()">×</button></div>'+
-      '<div class="v4-kpis"><div class="v4-card v4-kpi"><div class="v4-kpi-value">'+money(openValue)+'</div><div class="v4-kpi-note">Open revenue context</div></div><div class="v4-card v4-kpi"><div class="v4-kpi-value">'+money(recovered)+'</div><div class="v4-kpi-note">Recovery recorded</div></div><div class="v4-card v4-kpi"><div class="v4-kpi-value">'+events.length+'</div><div class="v4-kpi-note">Recovery events</div></div></div>'+
+    box.innerHTML='<div class="v4-modal-card"><div class="v4-section-head"><div><div class="v4-eyebrow">CUSTOMER 360</div><div class="v4-title">'+esc(name)+'</div><div class="v4-sub">'+esc(customer.phone||customer.email||'Customer record')+'</div></div><button class="v4-icon" onclick="if(window.V4&&V4.close)V4.close();else this.closest(\'.v4-modal\').remove()">×</button></div>'+
+      '<div class="v4-kpis"><div class="v4-card v4-kpi"><div class="v4-kpi-value">'+money(openValue)+'</div><div class="v4-kpi-note">Open revenue context</div></div><div class="v4-card v4-kpi"><div class="v4-kpi-value">'+money(recovered)+'</div><div class="v4-kpi-note">Revenue recovered</div></div><div class="v4-card v4-kpi"><div class="v4-kpi-value">'+events.length+'</div><div class="v4-kpi-note">Recovery events</div></div></div>'+
       '<div class="v4-section-title">Recovery history</div><div class="v4-docs">'+(timeline.length?timeline.slice(0,30).map(function(x){return '<div class="v4-doc"><div><strong>'+esc(x.t)+' · '+esc(x.s)+'</strong><small>'+esc(date(x.d))+(x.n?' · '+esc(x.n):'')+'</small></div><b>'+((Number(x.a)||0)?money(x.a):'')+'</b></div>'}).join(''):'<div class="v4-empty">No activity recorded yet.</div>')+'</div>'+
-      '<div class="v4-section-title" style="margin-top:18px">Customer context</div><div class="v4-docs"><div class="v4-doc"><strong>Open opportunities</strong><span>'+opps.length+'</span></div><div class="v4-doc"><strong>Loose Ends</strong><span>'+loose.filter(function(x){return x.status!=='dismissed'}).length+'</span></div><div class="v4-doc"><strong>Appointments</strong><span>'+appts.length+'</span></div><div class="v4-doc"><strong>Open tasks</strong><span>'+tasks.filter(function(x){return x.status==='open'}).length+'</span></div><div class="v4-doc"><strong>Documents</strong><span>'+docs.length+'</span></div></div></div>';
+      '<div class="v4-section-title" style="margin-top:18px">Customer context</div><div class="v4-docs"><div class="v4-doc"><strong>Open opportunities</strong><span>'+opps.filter(function(x){return !['closed','won','recovered'].includes(String(x.status||'').toLowerCase())}).length+'</span></div><div class="v4-doc"><strong>Loose Ends</strong><span>'+loose.filter(function(x){return x.status!=='dismissed'}).length+'</span></div><div class="v4-doc"><strong>Appointments</strong><span>'+appts.length+'</span></div><div class="v4-doc"><strong>Open tasks</strong><span>'+tasks.filter(function(x){return x.status==='open'}).length+'</span></div><div class="v4-doc"><strong>Documents</strong><span>'+docs.length+'</span></div></div></div>';
   }
   function attach(){
     var table=[].slice.call(document.querySelectorAll('.v4-table')).find(function(t){return /Customer/i.test((t.querySelector('thead')||{}).innerText||'')});
