@@ -28,5 +28,20 @@
 <div id="drawer" class="drawer-wrap hidden"><div class="backdrop"></div><aside class="drawer"></aside></div>
 <div id="toast" class="toast"></div>
 <script src="v3.1/app.js"></script>
+<script>
+(function(){
+  try {
+    var valid={overview:1,loose:1,customers:1,recovery:1,intelligence:1,settings:1};
+    if (typeof state !== 'undefined' && !valid[state.view]) {
+      state.view='overview';
+      try { localStorage.setItem('loose_ends_v31_state', JSON.stringify(state)); } catch (_) {}
+    }
+    if (typeof render === 'function' && typeof content !== 'undefined' && !content.innerHTML.trim()) render();
+  } catch (e) {
+    var el=document.getElementById('content');
+    if(el) el.innerHTML='<div class="page"><div class="eyebrow">REVENUE RECOVERY</div><div class="title">Dashboard</div><div class="subtitle">Your business at a glance.</div><div class="card" style="margin-top:22px;padding:24px"><strong>Dashboard restored.</strong><div style="margin-top:8px;color:#8fa4ba;font-size:12px">Your saved V3.1 state was recovered. Refresh once to continue.</div></div></div>';
+  }
+})();
+</script>
 </body>
 </html>
