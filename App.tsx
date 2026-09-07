@@ -16,13 +16,21 @@ import { ErrorBoundary } from './ErrorBoundary'
 function Routes() {
   const { route } = useRouter()
 
-  if (route === '/' || route === '') return <LandingPage />
+  // V4 launches directly into the operating system. The marketing landing page
+  // remains available at /home so the product URL is immediately presentation-ready.
+  if (route === '/home') return <LandingPage />
 
   if (route.startsWith('/dashboard')) {
     let page
     if (route === '/dashboard') page = <Dashboard />
     else if (route.startsWith('/dashboard/customers')) page = <Customers />
+    else if (route.startsWith('/dashboard/sales')) page = <RevenueRecovery />
+    else if (route.startsWith('/dashboard/calendar')) page = <FollowUpCenter />
+    else if (route.startsWith('/dashboard/documents')) page = <BusinessRequests />
+    else if (route.startsWith('/dashboard/revenue')) page = <Dashboard />
     else if (route.startsWith('/dashboard/revenue-recovery')) page = <RevenueRecovery />
+    else if (route.startsWith('/dashboard/tasks')) page = <FollowUpCenter />
+    else if (route.startsWith('/dashboard/intelligence')) page = <AskAssistant />
     else if (route.startsWith('/dashboard/alerts')) page = <Alerts />
     else if (route.startsWith('/dashboard/follow-ups')) page = <FollowUpCenter />
     else if (route.startsWith('/dashboard/marketing')) page = <Marketing />
@@ -34,7 +42,7 @@ function Routes() {
     return <DashboardLayout currentPath={route}>{page}</DashboardLayout>
   }
 
-  return <LandingPage />
+  return <DashboardLayout currentPath="/dashboard"><Dashboard /></DashboardLayout>
 }
 
 export default function App() {
