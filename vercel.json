@@ -1,4 +1,6 @@
 {
+  "buildCommand": "echo 'Loose Ends V4 static production entrypoint'",
+  "outputDirectory": ".",
   "rewrites": [
     { "source": "/dashboard", "destination": "/" },
     { "source": "/dashboard/:path*", "destination": "/" }
