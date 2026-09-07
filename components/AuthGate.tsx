@@ -24,9 +24,14 @@ const buttonStyle: React.CSSProperties = {
   width: '100%', border: 0, borderRadius: 14, background: '#f97316', color: '#fff',
   padding: '15px 16px', fontSize: 16, fontWeight: 800, cursor: 'pointer',
 }
+const secondaryButtonStyle: React.CSSProperties = {
+  ...buttonStyle, background: 'transparent', border: '1px solid rgba(255,255,255,.16)', color: '#cbd5e1',
+}
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [sessionReady, setSessionReady] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true)
+  const [localMode, setLocalMode] = useState(false)
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -34,7 +39,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true
-    supabase.auth.getSession().then(({ data }) => { if (mounted) setSessionReady(!!data.session) })
+    supabase.auth.getSession()
+      .then(({ data }) => { if (mounted) setSessionReady(!!data.session) })
+      .catch(() => { if (mounted) setError('Supabase Auth is unavailable right now. You can still open the local workspace.') })
+      .finally(() => { if (mounted) setCheckingSession(false) })
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (mounted) setSessionReady(!!nextSession)
     })
@@ -43,34 +51,56 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   async function sendMagicLink(e: React.FormEvent) {
     e.preventDefault()
-    if (!email.trim()) return
+    if (!email.trim() || busy) return
     setBusy(true); setError(''); setMessage('')
-    const { error: authError } = await supabase.auth.signInWithOtp({
-      email: email.trim(), options: { emailRedirectTo: window.location.origin },
-    })
-    if (authError) setError(authError.message)
-    else setMessage('Check your email for your secure sign-in link.')
-    setBusy(false)
+    try {
+      const { error: authError } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: window.location.origin, shouldCreateUser: true },
+      })
+      if (authError) setError(authError.message)
+      else setMessage('Check your email for your secure sign-in link.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to contact Supabase Auth.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  if (!sessionReady) {
+  if (sessionReady || localMode) return <>{children}</>
+
+  if (checkingSession) {
     return (
       <div style={pageStyle}>
-        <main style={cardStyle} aria-label="Loose Ends sign in">
+        <main style={cardStyle} aria-label="Loading Loose Ends">
           <div style={labelStyle}>Loose Ends</div>
           <h1 style={titleStyle}>Revenue Recovery OS</h1>
-          <p style={bodyStyle}>Sign in to keep your customers, opportunities, and recovered revenue synced securely.</p>
-          <form onSubmit={sendMagicLink} style={{ marginTop: 28, display: 'grid', gap: 12 }}>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" placeholder="you@company.com" style={inputStyle} />
-            <button disabled={busy} type="submit" style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? 'Sending…' : 'Send secure sign-in link'}</button>
-          </form>
-          {message && <p style={{ marginTop: 16, color: '#86efac', fontSize: 14 }}>{message}</p>}
-          {error && <p style={{ marginTop: 16, color: '#fca5a5', fontSize: 14 }}>{error}</p>}
-          <p style={{ margin: '22px 0 0', color: '#94a3b8', fontSize: 12, lineHeight: 1.6 }}>No password to remember. Your account and workspace are protected by Supabase Auth.</p>
+          <p style={bodyStyle}>Connecting your secure workspace…</p>
         </main>
       </div>
     )
   }
 
-  return <>{children}</>
+  return (
+    <div style={pageStyle}>
+      <main style={cardStyle} aria-label="Loose Ends sign in">
+        <div style={labelStyle}>Loose Ends</div>
+        <h1 style={titleStyle}>Revenue Recovery OS</h1>
+        <p style={bodyStyle}>Sign in to keep your customers, opportunities, and recovered revenue synced securely.</p>
+        <form onSubmit={sendMagicLink} style={{ marginTop: 28, display: 'grid', gap: 12 }}>
+          <input value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" placeholder="you@company.com" style={inputStyle} />
+          <button disabled={busy} type="submit" style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? 'Sending…' : 'Send secure sign-in link'}</button>
+        </form>
+        {message && <p style={{ marginTop: 16, color: '#86efac', fontSize: 14 }}>{message}</p>}
+        {error && <p style={{ marginTop: 16, color: '#fca5a5', fontSize: 14 }}>{error}</p>}
+        <button type="button" onClick={() => { setError(''); setLocalMode(true) }} style={{ ...secondaryButtonStyle, marginTop: 12 }}>
+          Open local workspace
+        </button>
+        <p style={{ margin: '14px 0 0', color: '#64748b', fontSize: 11, lineHeight: 1.55 }}>
+          Local workspace keeps your current app usable on this device. Secure cloud sync becomes available after Supabase sign-in is working.
+        </p>
+        <p style={{ margin: '18px 0 0', color: '#94a3b8', fontSize: 12, lineHeight: 1.6 }}>No password to remember. Your account and workspace are protected by Supabase Auth.</p>
+      </main>
+    </div>
+  )
 }
