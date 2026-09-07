@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { AppData, Business, Opportunity, FollowUp, Request, Lead, MarketingTask, Customer, RevenueEvent } from './types'
 import { seedData, STORAGE_KEY } from './data'
+import { supabase } from './supabase'
+import { getOrCreateWorkspace, loadCloudData, persistCustomer, persistOpportunity, persistFollowUp, persistRecovery } from './cloud'
 
 function genId(prefix = 'id'): string {
   const randomUUID = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -9,19 +11,16 @@ function genId(prefix = 'id'): string {
   return `${prefix}_${randomUUID}`
 }
 
-function cloneSeed(): AppData {
-  return JSON.parse(JSON.stringify(seedData)) as AppData
-}
+function cloneSeed(): AppData { return JSON.parse(JSON.stringify(seedData)) as AppData }
 
-function loadData(): AppData {
+function loadLocalData(): AppData {
   try {
     if (typeof window === 'undefined') return cloneSeed()
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<AppData>
       return {
-        ...cloneSeed(),
-        ...parsed,
+        ...cloneSeed(), ...parsed,
         business: { ...seedData.business, ...(parsed.business || {}) },
         customers: Array.isArray(parsed.customers) ? parsed.customers : cloneSeed().customers,
         vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : cloneSeed().vehicles,
@@ -38,14 +37,13 @@ function loadData(): AppData {
         leads: Array.isArray(parsed.leads) ? parsed.leads : cloneSeed().leads,
       }
     }
-  } catch {
-    // Corrupt or unavailable browser storage should never prevent the app from loading.
-  }
+  } catch { /* fall back to seed */ }
   return cloneSeed()
 }
 
 interface StoreContextValue {
   data: AppData
+  cloudReady: boolean
   updateBusiness: (updates: Partial<Business>) => void
   updateOpportunity: (id: string, updates: Partial<Opportunity>) => void
   updateFollowUp: (id: string, updates: Partial<FollowUp>) => void
@@ -68,163 +66,117 @@ interface StoreContextValue {
 const StoreContext = createContext<StoreContextValue | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(loadData)
+  const [data, setData] = useState<AppData>(loadLocalData)
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [cloudReady, setCloudReady] = useState(false)
 
   useEffect(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    let active = true
+    async function hydrate() {
+      try {
+        const workspace = await getOrCreateWorkspace()
+        if (!active) return
+        setWorkspaceId(workspace.id)
+        const cloud = await loadCloudData(workspace.id, loadLocalData())
+        if (active) setData(cloud)
+        if (active) setCloudReady(true)
+      } catch (error) {
+        console.warn('Loose Ends cloud sync unavailable; using local data.', error)
+        if (active) setCloudReady(false)
       }
-    } catch {
-      // ignore
     }
+    hydrate()
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch { /* ignore */ }
   }, [data])
 
-  const updateBusiness = useCallback((updates: Partial<Business>) => {
-    setData(prev => ({ ...prev, business: { ...prev.business, ...updates } }))
-  }, [])
+  const updateBusiness = useCallback((updates: Partial<Business>) => setData(prev => ({ ...prev, business: { ...prev.business, ...updates } })), [])
 
   const updateOpportunity = useCallback((id: string, updates: Partial<Opportunity>) => {
-    setData(prev => ({
-      ...prev,
-      opportunities: prev.opportunities.map(o => (o.id === id ? { ...o, ...updates } : o)),
-    }))
-  }, [])
+    setData(prev => {
+      const next = prev.opportunities.map(o => o.id === id ? { ...o, ...updates } : o)
+      const changed = next.find(o => o.id === id)
+      if (workspaceId && changed) void persistOpportunity(changed, workspaceId).catch(console.error)
+      return { ...prev, opportunities: next }
+    })
+  }, [workspaceId])
 
   const updateFollowUp = useCallback((id: string, updates: Partial<FollowUp>) => {
-    setData(prev => ({
-      ...prev,
-      followUps: prev.followUps.map(f => (f.id === id ? { ...f, ...updates } : f)),
-    }))
-  }, [])
+    setData(prev => {
+      const next = prev.followUps.map(f => f.id === id ? { ...f, ...updates } : f)
+      const changed = next.find(f => f.id === id)
+      if (workspaceId && changed) void persistFollowUp(changed, workspaceId).catch(console.error)
+      return { ...prev, followUps: next }
+    })
+  }, [workspaceId])
 
-  const dismissAlert = useCallback((id: string) => {
-    setData(prev => ({
-      ...prev,
-      alerts: prev.alerts.map(a => (a.id === id ? { ...a, dismissed: true } : a)),
-    }))
-  }, [])
-
-  const addRequest = useCallback((req: Omit<Request, 'id' | 'createdAt'>) => {
-    setData(prev => ({
-      ...prev,
-      requests: [{ ...req, id: genId('r'), createdAt: new Date().toISOString() }, ...prev.requests],
-    }))
-  }, [])
-
-  const updateRequest = useCallback((id: string, updates: Partial<Request>) => {
-    setData(prev => ({
-      ...prev,
-      requests: prev.requests.map(r => (r.id === id ? { ...r, ...updates } : r)),
-    }))
-  }, [])
-
-  const updateMarketingTask = useCallback((id: string, updates: Partial<MarketingTask>) => {
-    setData(prev => ({ ...prev, marketingTasks: prev.marketingTasks.map(task => task.id === id ? { ...task, ...updates } : task) }))
-  }, [])
-
-  const toggleIntegration = useCallback((id: string) => {
-    setData(prev => ({ ...prev, integrations: prev.integrations.map(item => item.id === id ? { ...item, status: item.status === 'Connected' ? 'Not Connected' : 'Connected' } : item) }))
-  }, [])
-
-  const addLead = useCallback((lead: Omit<Lead, 'id' | 'createdAt'>) => {
-    setData(prev => ({
-      ...prev,
-      leads: [{ ...lead, id: genId('lead'), createdAt: new Date().toISOString() }, ...prev.leads],
-    }))
-  }, [])
+  const dismissAlert = useCallback((id: string) => setData(prev => ({ ...prev, alerts: prev.alerts.map(a => a.id === id ? { ...a, dismissed: true } : a) })), [])
+  const addRequest = useCallback((req: Omit<Request, 'id' | 'createdAt'>) => setData(prev => ({ ...prev, requests: [{ ...req, id: genId('r'), createdAt: new Date().toISOString() }, ...prev.requests] })), [])
+  const updateRequest = useCallback((id: string, updates: Partial<Request>) => setData(prev => ({ ...prev, requests: prev.requests.map(r => r.id === id ? { ...r, ...updates } : r) })), [])
+  const updateMarketingTask = useCallback((id: string, updates: Partial<MarketingTask>) => setData(prev => ({ ...prev, marketingTasks: prev.marketingTasks.map(task => task.id === id ? { ...task, ...updates } : task) })), [])
+  const toggleIntegration = useCallback((id: string) => setData(prev => ({ ...prev, integrations: prev.integrations.map(item => item.id === id ? { ...item, status: item.status === 'Connected' ? 'Not Connected' : 'Connected' } : item) })), [])
+  const addLead = useCallback((lead: Omit<Lead, 'id' | 'createdAt'>) => setData(prev => ({ ...prev, leads: [{ ...lead, id: genId('lead'), createdAt: new Date().toISOString() }, ...prev.leads] })), [])
 
   const addCustomer = useCallback((customer: Omit<Customer, 'id' | 'createdAt'>) => {
     const id = genId('c')
-    setData(prev => ({
-      ...prev,
-      customers: [{ ...customer, id, createdAt: new Date().toISOString() }, ...prev.customers],
-    }))
+    const created = { ...customer, id, createdAt: new Date().toISOString() }
+    setData(prev => ({ ...prev, customers: [created, ...prev.customers] }))
+    if (workspaceId) void persistCustomer(created, workspaceId).catch(console.error)
     return id
-  }, [])
+  }, [workspaceId])
 
   const updateCustomer = useCallback((id: string, updates: Partial<Customer>) => {
-    setData(prev => ({
-      ...prev,
-      customers: prev.customers.map(c => c.id === id ? { ...c, ...updates } : c),
-    }))
-  }, [])
+    setData(prev => {
+      const next = prev.customers.map(c => c.id === id ? { ...c, ...updates } : c)
+      const changed = next.find(c => c.id === id)
+      if (workspaceId && changed) void persistCustomer(changed, workspaceId).catch(console.error)
+      return { ...prev, customers: next }
+    })
+  }, [workspaceId])
 
   const addNoteToCustomer = useCallback((customerId: string, note: string) => {
-    setData(prev => ({
-      ...prev,
-      customers: prev.customers.map(c =>
-        c.id === customerId ? { ...c, notes: [...(c.notes || []), note] } : c,
-      ),
-    }))
-  }, [])
+    setData(prev => {
+      const next = prev.customers.map(c => c.id === customerId ? { ...c, notes: [...(c.notes || []), note] } : c)
+      const changed = next.find(c => c.id === customerId)
+      if (workspaceId && changed) void persistCustomer(changed, workspaceId).catch(console.error)
+      return { ...prev, customers: next }
+    })
+  }, [workspaceId])
 
   const addOpportunity = useCallback((opp: Omit<Opportunity, 'id'>) => {
-    setData(prev => ({
-      ...prev,
-      opportunities: [{ ...opp, id: genId('o') }, ...prev.opportunities],
-    }))
-  }, [])
+    const created = { ...opp, id: genId('o') }
+    setData(prev => ({ ...prev, opportunities: [created, ...prev.opportunities] }))
+    if (workspaceId) void persistOpportunity(created, workspaceId).catch(console.error)
+  }, [workspaceId])
 
   const addFollowUp = useCallback((fu: Omit<FollowUp, 'id'>) => {
-    setData(prev => ({
-      ...prev,
-      followUps: [{ ...fu, id: genId('f') }, ...prev.followUps],
-    }))
-  }, [])
+    const created = { ...fu, id: genId('f') }
+    setData(prev => ({ ...prev, followUps: [created, ...prev.followUps] }))
+    if (workspaceId) void persistFollowUp(created, workspaceId).catch(console.error)
+  }, [workspaceId])
 
   const addRevenueEvent = useCallback((event: Omit<RevenueEvent, 'id'>) => {
-    setData(prev => ({
-      ...prev,
-      revenueEvents: [{ ...event, id: genId('rev') }, ...prev.revenueEvents],
-    }))
-  }, [])
+    const created = { ...event, id: genId('rev') }
+    setData(prev => ({ ...prev, revenueEvents: [created, ...prev.revenueEvents] }))
+    if (workspaceId) void persistRecovery(created, workspaceId).catch(console.error)
+  }, [workspaceId])
 
-  const dismissFollowUp = useCallback((id: string) => {
-    setData(prev => ({
-      ...prev,
-      followUps: prev.followUps.map(f => (f.id === id ? { ...f, status: 'Dismissed' as const } : f)),
-    }))
-  }, [])
+  const dismissFollowUp = useCallback((id: string) => updateFollowUp(id, { status: 'Dismissed' }), [updateFollowUp])
 
   const resetData = useCallback(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(STORAGE_KEY)
-        window.localStorage.removeItem(`${STORAGE_KEY}_notifications`)
-      }
-    } catch {
-      // ignore
-    }
+    try { if (typeof window !== 'undefined') { window.localStorage.removeItem(STORAGE_KEY); window.localStorage.removeItem(`${STORAGE_KEY}_notifications`) } } catch { /* ignore */ }
     setData(cloneSeed())
   }, [])
 
-  return (
-    <StoreContext.Provider
-      value={{
-        data,
-        updateBusiness,
-        updateOpportunity,
-        updateFollowUp,
-        dismissAlert,
-        addRequest,
-        updateRequest,
-        updateMarketingTask,
-        toggleIntegration,
-        addLead,
-        addNoteToCustomer,
-        addCustomer,
-        updateCustomer,
-        addOpportunity,
-        addFollowUp,
-        addRevenueEvent,
-        dismissFollowUp,
-        resetData,
-      }}
-    >
-      {children}
-    </StoreContext.Provider>
-  )
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {})
+    return () => listener.subscription.unsubscribe()
+  }, [])
+
+  return <StoreContext.Provider value={{ data, cloudReady, updateBusiness, updateOpportunity, updateFollowUp, dismissAlert, addRequest, updateRequest, updateMarketingTask, toggleIntegration, addLead, addNoteToCustomer, addCustomer, updateCustomer, addOpportunity, addFollowUp, addRevenueEvent, dismissFollowUp, resetData }}>{children}</StoreContext.Provider>
 }
 
 export function useStore(): StoreContextValue {
