@@ -36,7 +36,8 @@ async function bootstrapDemoData(workspaceId: string) {
   const customers = seedData.customers.map(c => ({
     id: uuid(), workspace_id: workspaceId, external_id: c.id,
     first_name: splitName(c.name).first_name, last_name: splitName(c.name).last_name,
-    email: c.email || null, phone: c.phone || null, notes: (c.notes || []).join('\n'),
+    email: c.email || null, phone: c.phone || null,
+    notes: [`[LE_STATUS=${c.status}]`, `[LE_LTV=${c.lifetimeValue}]`, `[LE_LAST_SERVICE=${c.lastService}]`, ...(c.notes || [])].join('\n'),
   }))
   const customerIds = new Map(seedData.customers.map((c, i) => [c.id, customers[i].id]))
 
@@ -78,11 +79,27 @@ const splitName = (name: string) => {
 
 function dbCustomer(c: Customer, workspaceId: string) {
   const name = splitName(c.name)
-  return { id: c.id, workspace_id: workspaceId, first_name: name.first_name, last_name: name.last_name, email: c.email || null, phone: c.phone || null, notes: (c.notes || []).join('\n'), external_id: null }
+  const notes = (c.notes || []).filter(n => !n.startsWith('[LE_')).join('\n')
+  return { id: c.id, workspace_id: workspaceId, first_name: name.first_name, last_name: name.last_name, email: c.email || null, phone: c.phone || null, notes, external_id: null }
 }
 
 function uiCustomer(c: any): Customer {
-  return { id: c.id, name: [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed Customer', phone: c.phone || '', email: c.email || '', status: 'Active', lastService: '', lastServiceDescription: '', lifetimeValue: 0, notes: c.notes ? c.notes.split('\n').filter(Boolean) : [], createdAt: c.created_at }
+  const rawNotes = c.notes ? c.notes.split('\n').filter(Boolean) : []
+  const statusMatch = rawNotes.find((n: string) => n.startsWith('[LE_STATUS='))
+  const ltvMatch = rawNotes.find((n: string) => n.startsWith('[LE_LTV='))
+  const serviceMatch = rawNotes.find((n: string) => n.startsWith('[LE_LAST_SERVICE='))
+  const validStatus: Customer['status'][] = ['Active', 'Follow-Up Due', 'Inactive', 'Maintenance Due']
+  const parsedStatus = statusMatch?.slice(11, -1) as Customer['status']
+  const status = validStatus.includes(parsedStatus) ? parsedStatus : 'Active'
+  return {
+    id: c.id,
+    name: [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Unnamed Customer',
+    phone: c.phone || '', email: c.email || '', status,
+    lastService: serviceMatch ? serviceMatch.slice(18, -1) : '',
+    lastServiceDescription: '', lifetimeValue: ltvMatch ? Number(ltvMatch.slice(8, -1)) || 0 : 0,
+    notes: rawNotes.filter((n: string) => !n.startsWith('[LE_')),
+    createdAt: c.created_at,
+  }
 }
 
 function uiOpportunity(o: any, customers: Customer[]): Opportunity {
