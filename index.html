@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Loose Ends — Revenue Recovery</title>
+<meta name="theme-color" content="#071017">
+<meta name="description" content="Loose Ends — Revenue Recovery Operating System for service businesses">
+<title>Loose Ends — Revenue Recovery OS</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -17,17 +19,18 @@
       <button class="nav-item" data-view="intelligence"><span>▥</span>Intelligence</button>
       <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
     </nav>
-    <div class="sidebar-callout"><strong>More customers.<br>More work.<br>Less money left behind.</strong><div class="line"></div></div>
-    <div class="demo-note">DEMO MODE<br><span>Riverside Auto Repair</span></div>
+    <div class="sidebar-callout"><strong>Find the money.<br>Take the action.<br>Recover the revenue.</strong><div class="line"></div></div>
+    <div class="demo-note">LIVE DEMO<br><span>Riverside Auto Repair · Revenue Recovery</span></div>
   </aside>
   <main class="main">
-    <header class="topbar"><div class="mobile-brand">LOOSE ENDS</div><div class="search">⌕ <input id="globalSearch" placeholder="Search customers, vehicles, or loose ends..."></div><div class="top-actions"><button class="icon-btn">♧<i>3</i></button><button class="shop-btn">Riverside Auto Repair <small>Shop Owner</small>⌄</button><div class="avatar">RA</div></div></header>
+    <header class="topbar"><div class="mobile-brand">LOOSE ENDS</div><div class="search">⌕ <input id="globalSearch" aria-label="Search" placeholder="Search customers, vehicles, or loose ends..."></div><div class="top-actions"><button class="icon-btn" aria-label="Notifications">♧<i>3</i></button><button class="shop-btn">Riverside Auto Repair <small>Shop Owner</small>⌄</button><div class="avatar">RA</div></div></header>
     <section id="content"></section>
   </main>
 </div>
 <div id="drawer" class="drawer-wrap hidden"><div class="backdrop"></div><aside class="drawer"></aside></div>
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="v3.1/app.js"></script>
+<script src="v3.1/sales-upgrade.js"></script>
 <script>
 (function(){
   try {
