@@ -1,0 +1,1 @@
+Production build repair: the original approved interface files live at repository root while tsconfig was restricted to src. Keep the original UI intact; build configuration must include the root TypeScript/TSX files.
