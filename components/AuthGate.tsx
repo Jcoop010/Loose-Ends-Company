@@ -1,6 +1,30 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../supabase'
 
+const pageStyle: React.CSSProperties = {
+  minHeight: '100vh', background: '#020617', color: '#fff', display: 'flex',
+  alignItems: 'center', justifyContent: 'center', padding: 24, boxSizing: 'border-box',
+  fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+}
+const cardStyle: React.CSSProperties = {
+  width: '100%', maxWidth: 440, boxSizing: 'border-box', borderRadius: 28,
+  border: '1px solid rgba(255,255,255,.12)', background: 'rgba(15,23,42,.92)',
+  padding: 32, boxShadow: '0 30px 80px rgba(0,0,0,.45)', backdropFilter: 'blur(18px)',
+}
+const labelStyle: React.CSSProperties = {
+  color: '#fb923c', fontSize: 12, fontWeight: 800, letterSpacing: '.18em', textTransform: 'uppercase',
+}
+const titleStyle: React.CSSProperties = { margin: '10px 0 0', fontSize: 32, lineHeight: 1.15, fontWeight: 800, letterSpacing: '-.03em' }
+const bodyStyle: React.CSSProperties = { margin: '12px 0 0', color: '#cbd5e1', fontSize: 15, lineHeight: 1.65 }
+const inputStyle: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box', borderRadius: 14, border: '1px solid rgba(255,255,255,.14)',
+  background: '#020617', color: '#fff', padding: '15px 16px', fontSize: 16, outline: 'none',
+}
+const buttonStyle: React.CSSProperties = {
+  width: '100%', border: 0, borderRadius: 14, background: '#f97316', color: '#fff',
+  padding: '15px 16px', fontSize: 16, fontWeight: 800, cursor: 'pointer',
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const [sessionReady, setSessionReady] = useState(false)
   const [email, setEmail] = useState('')
@@ -10,9 +34,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true
-    supabase.auth.getSession().then(({ data }) => {
-      if (mounted) setSessionReady(!!data.session)
-    })
+    supabase.auth.getSession().then(({ data }) => { if (mounted) setSessionReady(!!data.session) })
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (mounted) setSessionReady(!!nextSession)
     })
@@ -24,8 +46,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (!email.trim()) return
     setBusy(true); setError(''); setMessage('')
     const { error: authError } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      email: email.trim(), options: { emailRedirectTo: window.location.origin },
     })
     if (authError) setError(authError.message)
     else setMessage('Check your email for your secure sign-in link.')
@@ -34,19 +55,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (!sessionReady) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/[0.06] p-8 shadow-2xl">
-          <div className="text-sm font-semibold tracking-[0.2em] text-orange-400 uppercase">Loose Ends</div>
-          <h1 className="mt-3 text-3xl font-bold">Revenue Recovery OS</h1>
-          <p className="mt-3 text-slate-300">Sign in to keep your customers, opportunities, and recovered revenue synced securely.</p>
-          <form onSubmit={sendMagicLink} className="mt-7 space-y-3">
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" required placeholder="you@company.com" className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-orange-400" />
-            <button disabled={busy} className="w-full rounded-xl bg-orange-500 px-4 py-3 font-semibold text-white disabled:opacity-60">{busy ? 'Sending…' : 'Send secure sign-in link'}</button>
+      <div style={pageStyle}>
+        <main style={cardStyle} aria-label="Loose Ends sign in">
+          <div style={labelStyle}>Loose Ends</div>
+          <h1 style={titleStyle}>Revenue Recovery OS</h1>
+          <p style={bodyStyle}>Sign in to keep your customers, opportunities, and recovered revenue synced securely.</p>
+          <form onSubmit={sendMagicLink} style={{ marginTop: 28, display: 'grid', gap: 12 }}>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" placeholder="you@company.com" style={inputStyle} />
+            <button disabled={busy} type="submit" style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? 'Sending…' : 'Send secure sign-in link'}</button>
           </form>
-          {message && <p className="mt-4 text-sm text-emerald-300">{message}</p>}
-          {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
-          <p className="mt-6 text-xs text-slate-400">No password to remember. Your account and workspace are protected by Supabase Auth.</p>
-        </div>
+          {message && <p style={{ marginTop: 16, color: '#86efac', fontSize: 14 }}>{message}</p>}
+          {error && <p style={{ marginTop: 16, color: '#fca5a5', fontSize: 14 }}>{error}</p>}
+          <p style={{ margin: '22px 0 0', color: '#94a3b8', fontSize: 12, lineHeight: 1.6 }}>No password to remember. Your account and workspace are protected by Supabase Auth.</p>
+        </main>
       </div>
     )
   }
