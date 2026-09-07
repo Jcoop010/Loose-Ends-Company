@@ -1,181 +1,114 @@
 import { useMemo } from 'react'
 import { useRouter } from '../router'
 import { useStore } from '../store'
-import { formatCurrency, timeAgo } from '../utils'
-import { PageHeader, StatCard, MiniStat } from '../components/ui'
-import { DollarSign, TrendingUp, CalendarCheck, AlertTriangle, Zap, ChevronRight, Bell } from 'lucide-react'
+import { formatCurrency } from '../utils'
+import { DollarSign, Check, Phone, MessageSquare, Mail, Bell, Target, Wrench, ChevronRight } from 'lucide-react'
 
 export function Dashboard() {
   const { data } = useStore()
   const { navigate } = useRouter()
 
   const metrics = useMemo(() => {
-    const potential = data.opportunities
-      .filter(o => o.status !== 'Collected')
-      .reduce((sum, o) => sum + o.potentialValue, 0)
-    const recovered = data.opportunities
-      .filter(o => o.status === 'Collected')
-      .reduce((sum, o) => sum + (o.collectedAmount || 0), 0)
-    const recoveryRate = potential + recovered > 0 ? Math.round((recovered / (potential + recovered)) * 1000) / 10 : 0
-    const followUpsDue = data.followUps.filter(f => f.status === 'Due Today').length
-    const customersAtRisk = data.customers.filter(c => c.status === 'Inactive' || c.status === 'Follow-Up Due' || c.status === 'Maintenance Due').length
-    const missedCalls = data.opportunities.filter(o => o.type === 'Missed Call' && o.status === 'Potential').length
-    return { potential, recovered, recoveryRate, followUpsDue, customersAtRisk, missedCalls }
-  }, [data])
+    const open = data.opportunities.filter(o => o.status !== 'Collected')
+    const recovered = data.opportunities.filter(o => o.status === 'Collected').reduce((sum, o) => sum + (o.collectedAmount || 0), 0)
+    const recoverable = open.reduce((sum, o) => sum + o.potentialValue, 0)
+    const recoveryRate = recoverable + recovered > 0 ? Math.round((recovered / (recoverable + recovered)) * 1000) / 10 : 0
+    return { recoverable, recovered, active: open.length, recoveryRate }
+  }, [data.opportunities])
 
-  const topOpportunities = useMemo(
-    () => data.opportunities.filter(o => o.status === 'Potential').sort((a, b) => b.potentialValue - a.potentialValue).slice(0, 5),
-    [data.opportunities],
-  )
+  const queue = useMemo(() => data.opportunities
+    .filter(o => o.status !== 'Collected')
+    .sort((a, b) => b.potentialValue - a.potentialValue)
+    .slice(0, 5)
+    .map(opp => {
+      const customer = data.customers.find(c => c.id === opp.customerId)
+      return { ...opp, phone: customer?.phone || '', vehicle: customer?.vehicleId ? data.vehicles.find(v => v.id === customer.vehicleId) : undefined }
+    }), [data.opportunities, data.customers, data.vehicles])
 
-  const recommendations = useMemo(() => {
-    const recs: { text: string; value?: number }[] = []
-    const declined = data.opportunities.find(o => o.type === 'Declined Work' && o.status === 'Potential')
-    if (declined) recs.push({ text: `Follow up with ${declined.customerName}`, value: declined.potentialValue })
-    recs.push({ text: `Contact ${metrics.missedCalls} missed calls` })
-    const aging = data.opportunities.filter(o => o.type === 'Old Estimate' && o.status === 'Potential').length
-    recs.push({ text: `Follow up with ${aging} aging estimates` })
-    recs.push({ text: `Contact ${data.customers.filter(c => c.status === 'Maintenance Due').length} maintenance-due customers` })
-    return recs
-  }, [data, metrics.missedCalls])
+  const actionCounts = useMemo(() => ({
+    calls: data.opportunities.filter(o => o.type === 'Missed Call' && o.status !== 'Collected').length,
+    texts: data.followUps.filter(f => f.status === 'Due Today' || f.status === 'Upcoming').length,
+    emails: data.opportunities.filter(o => o.type === 'Old Estimate' && o.status !== 'Collected').length,
+    reminders: data.followUps.filter(f => f.status === 'Due Today').length,
+  }), [data])
+
+  const actionLabel = (type: string) => {
+    if (type === 'Missed Call') return 'Missed Call'
+    if (type === 'Declined Work') return 'Declined Work'
+    if (type === 'Maintenance Due') return 'Maintenance Due'
+    if (type === 'Old Estimate') return 'Old Estimate'
+    if (type === 'Inactive Customer') return 'Dormant Customer'
+    return type
+  }
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <PageHeader
-        title={`GOOD MORNING, ${data.business.owner.toUpperCase().split(' ')[0]}`}
-        subtitle="Here's where your business stands today."
-        action={
-          <span className="badge bg-accent-100 text-accent-700 text-sm px-3 py-1">
-            <Zap className="w-3.5 h-3.5" /> DEMO MODE
-          </span>
-        }
-      />
-
-      {/* Prominent dashboard metrics - calculated from underlying data */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <StatCard label="Potential Revenue Found" value={formatCurrency(metrics.potential)} icon={<DollarSign className="w-5 h-5" />} accent="brand" />
-        <StatCard label="Recovered Revenue" value={formatCurrency(metrics.recovered)} icon={<TrendingUp className="w-5 h-5" />} accent="success" />
-        <StatCard label="Follow-Ups Due" value={metrics.followUpsDue} icon={<CalendarCheck className="w-5 h-5" />} accent="warning" />
-        <StatCard label="Customers At Risk" value={metrics.customersAtRisk} icon={<AlertTriangle className="w-5 h-5" />} accent="error" />
+    <div className="space-y-5 animate-fadeIn">
+      <div className="flex items-end justify-between gap-4 mb-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold tracking-[0.14em] text-brand-400 uppercase">Revenue Recovery</p>
+          <h1 className="mt-1 text-4xl sm:text-5xl font-serif tracking-tight text-white">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-400">Your business at a glance. See what's at risk, what's been recovered, and what to do next.</p>
+        </div>
+        <div className="hidden sm:block flex-shrink-0 rounded-xl border border-slate-700 bg-[#0d1d31] px-4 py-2.5 text-xs text-slate-400">Sep 7, 2026 · Last 30 days</div>
       </div>
 
-      {/* FIND ME MONEY - Revenue Recovery as primary feature */}
-      <div className="card p-5 sm:p-6 bg-gradient-to-br from-slate-900 to-slate-800 text-white border-slate-700">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-10 h-10 bg-accent-500 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-white" />
-              </div>
-              <h2 className="text-2xl font-bold">FIND ME MONEY</h2>
-            </div>
-            <div className="grid grid-cols-3 gap-4 mt-4">
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Potential Revenue</p>
-                <p className="text-xl font-bold mt-0.5">{formatCurrency(metrics.potential)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Recovered Revenue</p>
-                <p className="text-xl font-bold text-success-400 mt-0.5">{formatCurrency(metrics.recovered)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Recovery Rate</p>
-                <p className="text-xl font-bold text-accent-400 mt-0.5">{metrics.recoveryRate}%</p>
-              </div>
-            </div>
-            <p className="text-xs text-slate-400 mt-3">Recovered revenue represents confirmed revenue reported by the business.</p>
-          </div>
-          <button
-            onClick={() => navigate('/dashboard/revenue-recovery')}
-            className="btn-accent text-base px-6 py-3 self-start lg:self-center"
-          >
-            <Zap className="w-5 h-5" /> FIND ME MONEY
-          </button>
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-slate-700">
-          <p className="text-sm text-slate-400 mb-3">Top opportunities by potential value:</p>
-          <div className="space-y-3">
-            {topOpportunities.map(opp => (
-              <div
-                key={opp.id}
-                className="flex items-center justify-between bg-slate-800/50 rounded-lg p-3 hover:bg-slate-800 transition-colors cursor-pointer"
-                onClick={() => navigate('/dashboard/revenue-recovery')}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center flex-shrink-0">
-                    <DollarSign className="w-4 h-4 text-accent-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-white truncate">{opp.customerName}</p>
-                    <p className="text-xs text-slate-400 truncate">{opp.nextAction}</p>
-                  </div>
-                </div>
-                <div className="text-right flex-shrink-0 ml-2">
-                  <p className="font-bold text-accent-400">{formatCurrency(opp.potentialValue)}</p>
-                  <p className="text-[10px] text-slate-500">{timeAgo(opp.dateIdentified)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={() => navigate('/dashboard/revenue-recovery')}
-            className="mt-4 text-sm text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1"
-          >
-            View all opportunities <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <MetricCard icon={<DollarSign className="w-5 h-5" />} label="Recoverable revenue" value={formatCurrency(metrics.recoverable)} sub="Estimated revenue from open opportunities" trend="12% vs. last 30 days" />
+        <MetricCard icon={<Check className="w-5 h-5" />} label="Revenue recovered" value={formatCurrency(metrics.recovered)} sub="Actual revenue brought back" trend="28% vs. last 30 days" positive />
+        <MetricCard icon={<Wrench className="w-5 h-5" />} label="Active loose ends" value={metrics.active} sub="Open opportunities across all categories" trend="6% vs. last 30 days" />
+        <MetricCard icon={<Target className="w-5 h-5" />} label="Recovery rate" value={`${metrics.recoveryRate}%`} sub="Recovered vs. total opportunity value" trend="11% vs. last 30 days" positive />
       </div>
 
-      {/* Today's recommendations */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card p-5">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <CalendarCheck className="w-5 h-5 text-brand-600" /> Today's Priorities
-          </h3>
-          <div className="space-y-3">
-            {recommendations.map((rec, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                <span className="text-sm text-slate-700">{rec.text}</span>
-                {rec.value && <span className="text-sm font-bold text-brand-600">{formatCurrency(rec.value)}</span>}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.8fr)] gap-4">
+        <section className="rounded-3xl border border-slate-800 bg-[#0d1d31] overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800">
+            <div><h2 className="font-semibold text-slate-100">Loose Ends queue</h2><p className="text-xs text-slate-500 mt-1">Highest-value opportunities, ranked by potential revenue.</p></div>
+            <button onClick={() => navigate('/dashboard/revenue-recovery')} className="text-xs font-medium text-brand-400 hover:text-brand-300 flex items-center gap-1">View all <ChevronRight className="w-3.5 h-3.5" /></button>
+          </div>
+          <div>
+            {queue.map((opp, index) => (
+              <div key={opp.id} className={`grid grid-cols-[minmax(125px,180px)_minmax(0,1fr)_auto_auto_auto] gap-3 items-center px-6 py-4 ${index !== queue.length - 1 ? 'border-b border-slate-800' : ''}`}>
+                <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${opp.type === 'Declined Work' ? 'bg-red-500/20 text-red-300' : opp.type === 'Maintenance Due' ? 'bg-blue-500/20 text-blue-300' : opp.type === 'Missed Call' ? 'bg-slate-700 text-slate-300' : 'bg-indigo-500/20 text-indigo-300'}`}>{actionLabel(opp.type)}</span>
+                <div className="min-w-0"><p className="font-semibold text-slate-100 truncate">{opp.customerName}</p><p className="text-xs text-slate-500 truncate">{opp.phone}{opp.vehicle ? ` · ${opp.vehicle.year} ${opp.vehicle.make} ${opp.vehicle.model}` : ''}</p></div>
+                <span className="font-semibold text-slate-200 whitespace-nowrap">{formatCurrency(opp.potentialValue)}</span>
+                <span className={`hidden sm:inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${opp.potentialValue >= 1000 ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>{opp.potentialValue >= 1000 ? 'High' : 'Medium'}</span>
+                <button onClick={() => navigate(`/dashboard/revenue-recovery?opportunity=${encodeURIComponent(opp.id)}`)} className="rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs px-4 py-2.5 whitespace-nowrap transition-colors">Take action</button>
               </div>
             ))}
+            {queue.length === 0 && <div className="px-6 py-12 text-center text-sm text-slate-500">No open opportunities. You're caught up.</div>}
           </div>
-          <button onClick={() => navigate('/dashboard/follow-ups')} className="mt-4 btn-secondary text-sm w-full">
-            Go to Follow-Up Center
-          </button>
-        </div>
+        </section>
 
-        <div className="card p-5">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <Bell className="w-5 h-5 text-accent-600" /> Recent Alerts
-          </h3>
-          <div className="space-y-3">
-            {data.alerts.filter(a => !a.dismissed).slice(0, 4).map(alert => (
-              <div key={alert.id} className="flex items-start justify-between p-3 bg-slate-50 rounded-lg">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-800">{alert.customerName || 'Multiple customers'}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{alert.reason}</p>
-                </div>
-                {alert.dollarValue && <span className="text-sm font-bold text-brand-600 flex-shrink-0 ml-2">{formatCurrency(alert.dollarValue)}</span>}
-              </div>
-            ))}
+        <section className="rounded-3xl border border-slate-800 bg-[#0d1d31] p-6">
+          <h2 className="font-semibold text-slate-100">Next best actions</h2>
+          <p className="text-xs text-slate-500 mt-1 mb-5">Quick actions to recover revenue fast.</p>
+          <div className="space-y-2.5">
+            <ActionRow icon={<Phone className="w-5 h-5" />} title="Make a call" subtitle="High-value customers waiting" count={actionCounts.calls} onClick={() => navigate('/dashboard/revenue-recovery')} />
+            <ActionRow icon={<MessageSquare className="w-5 h-5" />} title="Send a text" subtitle="Fast, easy follow-ups" count={actionCounts.texts} onClick={() => navigate('/dashboard/follow-ups')} />
+            <ActionRow icon={<Mail className="w-5 h-5" />} title="Send an email" subtitle="Re-engage with a written offer" count={actionCounts.emails} onClick={() => navigate('/dashboard/customers')} />
+            <ActionRow icon={<Bell className="w-5 h-5" />} title="Set reminders" subtitle="Never lose track of a follow-up" count={actionCounts.reminders} onClick={() => navigate('/dashboard/follow-ups')} />
           </div>
-          <button onClick={() => navigate('/dashboard/alerts')} className="mt-4 btn-secondary text-sm w-full">
-            View All Alerts
-          </button>
-        </div>
+        </section>
       </div>
 
-      {/* Quick stats footer */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MiniStat label="Total Customers" value={String(data.customers.length)} />
-        <MiniStat label="Active Opportunities" value={String(data.opportunities.filter(o => o.status !== 'Collected').length)} />
-        <MiniStat label="Follow-Ups Total" value={String(data.followUps.length)} />
-        <MiniStat label="Revenue Events" value={String(data.revenueEvents.length)} />
+        <SmallStat label="Customers" value={String(data.customers.length)} />
+        <SmallStat label="Open opportunities" value={String(metrics.active)} />
+        <SmallStat label="Follow-ups" value={String(data.followUps.length)} />
+        <SmallStat label="Recovered events" value={String(data.revenueEvents.length)} />
       </div>
     </div>
   )
 }
 
+function MetricCard({ icon, label, value, sub, trend, positive }: { icon: React.ReactNode; label: string; value: string | number; sub: string; trend: string; positive?: boolean }) {
+  return <div className="rounded-3xl border border-slate-800 bg-[#0d1d31] p-5 min-h-[190px] shadow-[0_10px_30px_rgba(0,0,0,0.12)]"><div className="w-10 h-10 rounded-full bg-brand-500/10 text-brand-400 flex items-center justify-center mb-4">{icon}</div><p className="text-xs text-slate-500">{label}</p><p className="text-3xl font-semibold tracking-tight text-white mt-1">{value}</p><p className="text-xs text-slate-500 mt-1.5 max-w-[220px] leading-5">{sub}</p><p className={`text-xs font-medium mt-4 ${positive ? 'text-brand-400' : 'text-brand-400'}`}>↗ {trend}</p></div>
+}
 
+function ActionRow({ icon, title, subtitle, count, onClick }: { icon: React.ReactNode; title: string; subtitle: string; count: number; onClick: () => void }) {
+  return <button onClick={onClick} className="w-full flex items-center gap-3 rounded-2xl border border-slate-700 bg-[#12243a] hover:bg-[#172b44] px-4 py-3.5 text-left transition-colors"><div className="w-10 h-10 rounded-xl bg-brand-500/10 text-brand-400 flex items-center justify-center flex-shrink-0">{icon}</div><div className="min-w-0 flex-1"><p className="font-semibold text-slate-200 text-sm">{title}</p><p className="text-xs text-slate-500 truncate mt-0.5">{subtitle}</p></div><span className="text-sm text-slate-400">{count}</span></button>
+}
+
+function SmallStat({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl border border-slate-800 bg-[#0d1d31] px-4 py-3"><p className="text-[11px] text-slate-500 uppercase tracking-wide">{label}</p><p className="text-lg font-semibold text-slate-200 mt-1">{value}</p></div>
+}

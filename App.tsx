@@ -11,6 +11,7 @@ import { Marketing } from './pages/Marketing'
 import { BusinessRequests } from './pages/Requests'
 import { AskAssistant } from './pages/Ask'
 import { SettingsPage } from './pages/Settings'
+import { ErrorBoundary } from './ErrorBoundary'
 
 function Routes() {
   const { route } = useRouter()
@@ -38,10 +39,12 @@ function Routes() {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <RouterProvider>
-        <Routes />
-      </RouterProvider>
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <RouterProvider>
+          <Routes />
+        </RouterProvider>
+      </StoreProvider>
+    </ErrorBoundary>
   )
 }
