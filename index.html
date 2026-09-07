@@ -1,18 +1,32 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0f172a" />
-    <meta name="description" content="Loose Ends Co. — find leaks, fix the process, recover the revenue." />
-    <title>Loose Ends Co.</title>
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/main.tsx"></script>
-  </body>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Loose Ends — Revenue Recovery</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">↗</div><div><div class="brand-name">LOOSE ENDS</div><div class="brand-tag">Revenue recovery for service businesses</div></div></div>
+    <nav>
+      <button class="nav-item active" data-view="overview"><span>⌂</span>Overview</button>
+      <button class="nav-item" data-view="loose"><span>☷</span>Loose Ends <b>47</b></button>
+      <button class="nav-item" data-view="customers"><span>♙</span>Customers</button>
+      <button class="nav-item" data-view="recovery"><span>↻</span>Recovery</button>
+      <button class="nav-item" data-view="intelligence"><span>▥</span>Intelligence</button>
+      <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
+    </nav>
+    <div class="sidebar-callout"><strong>More customers.<br>More work.<br>Less money left behind.</strong><div class="line"></div></div>
+    <div class="demo-note">DEMO MODE<br><span>Riverside Auto Repair</span></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div class="mobile-brand">LOOSE ENDS</div><div class="search">⌕ <input id="globalSearch" placeholder="Search customers, vehicles, or loose ends..."></div><div class="top-actions"><button class="icon-btn">♧<i>3</i></button><button class="shop-btn">Riverside Auto Repair <small>Shop Owner</small>⌄</button><div class="avatar">RA</div></div></header>
+    <section id="content"></section>
+  </main>
+</div>
+<div id="drawer" class="drawer-wrap hidden"><div class="backdrop"></div><aside class="drawer"></aside></div>
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
 </html>
