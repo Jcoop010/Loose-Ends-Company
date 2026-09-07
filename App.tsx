@@ -4,6 +4,8 @@ import { LandingPage } from './pages/Landing'
 import { DashboardLayout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { CRM } from './pages/CRM'
+import { SalesOrders } from './pages/SalesOrders'
+import { CalendarPage } from './pages/CalendarPage'
 import { Customers } from './pages/Customers'
 import { RevenueRecovery } from './pages/RevenueRecovery'
 import { Alerts } from './pages/Alerts'
@@ -25,8 +27,8 @@ function Routes() {
     if (route === '/dashboard') page = <Dashboard />
     else if (route === '/dashboard/crm') page = <CRM />
     else if (route.startsWith('/dashboard/customers')) page = <Customers />
-    else if (route.startsWith('/dashboard/sales')) page = <RevenueRecovery />
-    else if (route.startsWith('/dashboard/calendar')) page = <FollowUpCenter />
+    else if (route === '/dashboard/sales' || route.startsWith('/dashboard/orders')) page = <SalesOrders />
+    else if (route.startsWith('/dashboard/calendar')) page = <CalendarPage />
     else if (route.startsWith('/dashboard/documents')) page = <BusinessRequests />
     else if (route.startsWith('/dashboard/revenue-recovery')) page = <RevenueRecovery />
     else if (route.startsWith('/dashboard/revenue')) page = <Dashboard />

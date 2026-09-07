@@ -144,6 +144,47 @@ export interface Integration {
   description: string
 }
 
+export type SalesOrderStatus = 'Draft' | 'Quoted' | 'Confirmed' | 'In Progress' | 'Fulfilled' | 'Invoiced' | 'Paid' | 'Cancelled'
+export type PaymentStatus = 'Unpaid' | 'Partial' | 'Paid'
+export type CalendarEventType = 'Appointment' | 'Follow-up' | 'Delivery' | 'Call' | 'Internal' | 'Install'
+
+export interface OrderLineItem {
+  id: string
+  name: string
+  qty: number
+  unitPrice: number
+}
+
+export interface SalesOrder {
+  id: string
+  number: string
+  customerId: string
+  customerName: string
+  title: string
+  status: SalesOrderStatus
+  paymentStatus: PaymentStatus
+  items: OrderLineItem[]
+  taxRate: number
+  notes?: string
+  assignedTo?: string
+  createdAt: string
+  dueDate?: string
+  scheduledAt?: string
+}
+
+export interface CalendarEvent {
+  id: string
+  title: string
+  type: CalendarEventType
+  start: string
+  end: string
+  customerId?: string
+  customerName?: string
+  orderId?: string
+  location?: string
+  notes?: string
+}
+
 export interface Lead {
   id: string
   name: string
@@ -170,4 +211,6 @@ export interface AppData {
   timelineEvents: TimelineEvent[]
   integrations: Integration[]
   leads: Lead[]
+  salesOrders: SalesOrder[]
+  calendarEvents: CalendarEvent[]
 }
