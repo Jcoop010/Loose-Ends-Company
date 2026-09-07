@@ -1,8 +1,8 @@
 {
-  "buildCommand": "echo 'Loose Ends V4 static production entrypoint'",
-  "outputDirectory": ".",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/dashboard", "destination": "/" },
-    { "source": "/dashboard/:path*", "destination": "/" }
+    { "source": "/dashboard", "destination": "/index.html" },
+    { "source": "/dashboard/:path*", "destination": "/index.html" }
   ]
 }
