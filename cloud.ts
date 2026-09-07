@@ -1,5 +1,15 @@
 import { supabase } from './supabase'
+import { seedData } from './data'
 import type { AppData, Customer, Opportunity, FollowUp, RevenueEvent } from './types'
+
+const uuid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
 
 export async function getOrCreateWorkspace() {
   const { data: userData, error: userError } = await supabase.auth.getUser()
@@ -9,7 +19,8 @@ export async function getOrCreateWorkspace() {
   const existing = await supabase.from('workspaces').select('id,name').order('created_at').limit(1).maybeSingle()
   if (existing.error) throw existing.error
   if (existing.data) {
-    await supabase.from('workspace_members').upsert({ workspace_id: existing.data.id, user_id: user.id, role: 'owner' }, { onConflict: 'workspace_id,user_id' })
+    const membership = await supabase.from('workspace_members').upsert({ workspace_id: existing.data.id, user_id: user.id, role: 'owner' }, { onConflict: 'workspace_id,user_id' })
+    if (membership.error) throw membership.error
     return { id: existing.data.id, name: existing.data.name }
   }
 
@@ -19,6 +30,45 @@ export async function getOrCreateWorkspace() {
   const membership = await supabase.from('workspace_members').insert({ workspace_id: created.data.id, user_id: user.id, role: 'owner' })
   if (membership.error) throw membership.error
   return created.data
+}
+
+async function bootstrapDemoData(workspaceId: string) {
+  const customers = seedData.customers.map(c => ({
+    id: uuid(), workspace_id: workspaceId, external_id: c.id,
+    first_name: splitName(c.name).first_name, last_name: splitName(c.name).last_name,
+    email: c.email || null, phone: c.phone || null, notes: (c.notes || []).join('\n'),
+  }))
+  const customerIds = new Map(seedData.customers.map((c, i) => [c.id, customers[i].id]))
+
+  const opportunities = seedData.opportunities.map(o => ({
+    id: uuid(), workspace_id: workspaceId, customer_id: customerIds.get(o.customerId) || null,
+    title: o.notes || o.nextAction, source: o.type.toLowerCase().replace(/\s+/g, '_'),
+    status: o.status === 'Potential' ? 'Open' : o.status, amount: o.potentialValue,
+    recovered_amount: o.collectedAmount || 0, priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3,
+    reason: o.nextAction, due_at: o.lastContact || null,
+  }))
+  const opportunityIds = new Map(seedData.opportunities.map((o, i) => [o.id, opportunities[i].id]))
+
+  const followUps = seedData.followUps.map(f => ({
+    id: uuid(), workspace_id: workspaceId, customer_id: customerIds.get(f.customerId) || null,
+    opportunity_id: null, channel: 'manual', message: f.nextAction || f.reason,
+    scheduled_at: f.dueDate || null, status: f.status,
+  }))
+
+  const recovery = seedData.revenueEvents.map(e => ({
+    id: uuid(), workspace_id: workspaceId, opportunity_id: opportunityIds.get(e.opportunityId) || null,
+    customer_id: customerIds.get(e.customerId) || null, amount: e.amount, created_at: e.date,
+    note: e.description, source: e.type,
+  }))
+
+  const results = await Promise.all([
+    supabase.from('customers').insert(customers),
+    supabase.from('opportunities').insert(opportunities),
+    supabase.from('follow_ups').insert(followUps),
+    supabase.from('recovery_events').insert(recovery),
+  ])
+  const failed = results.find(r => r.error)
+  if (failed?.error) throw failed.error
 }
 
 const splitName = (name: string) => {
@@ -58,6 +108,11 @@ export async function loadCloudData(workspaceId: string, fallback: AppData): Pro
   if (followUpsRes.error) throw followUpsRes.error
   if (recoveryRes.error) throw recoveryRes.error
 
+  if (customersRes.data.length === 0 && oppsRes.data.length === 0 && followUpsRes.data.length === 0 && recoveryRes.data.length === 0) {
+    await bootstrapDemoData(workspaceId)
+    return loadCloudData(workspaceId, fallback)
+  }
+
   const customers = customersRes.data.map(uiCustomer)
   const opportunities = oppsRes.data.map(o => uiOpportunity(o, customers))
   const followUps = followUpsRes.data.map(f => uiFollowUp(f, customers))
@@ -72,7 +127,7 @@ export async function persistCustomer(c: Customer, workspaceId: string) {
 }
 
 export async function persistOpportunity(o: Opportunity, workspaceId: string) {
-  const { error } = await supabase.from('opportunities').upsert({ id: o.id, workspace_id: workspaceId, customer_id: o.customerId || null, title: o.notes || o.nextAction, source: o.type.toLowerCase().replace(/\s+/g, '_'), status: o.status === 'Potential' ? 'Open' : o.status, amount: o.potentialValue, recovered_amount: o.collectedAmount || 0, priority: 1, reason: o.nextAction, due_at: o.lastContact || null })
+  const { error } = await supabase.from('opportunities').upsert({ id: o.id, workspace_id: workspaceId, customer_id: o.customerId || null, title: o.notes || o.nextAction, source: o.type.toLowerCase().replace(/\s+/g, '_'), status: o.status === 'Potential' ? 'Open' : o.status, amount: o.potentialValue, recovered_amount: o.collectedAmount || 0, priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3, reason: o.nextAction, due_at: o.lastContact || null })
   if (error) throw error
 }
 
