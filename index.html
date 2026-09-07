@@ -40,7 +40,45 @@ window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVH
 <script src="v3.1/mobile-nav.js"></script>
 <script src="v3.1/auth-live.js"></script>
 <script src="v3.1/live-realtime.js"></script>
+<script>
+/* Keep the legacy live layer's self-observer from creating a render loop.
+   The live layer already has polling + Supabase realtime for data changes. */
+(function(){
+  var NativeMO=window.MutationObserver;
+  if(!NativeMO)return;
+  window.MutationObserver=function(callback){
+    var text='';
+    try{text=Function.prototype.toString.call(callback)}catch(e){}
+    if(/setTimeout\(render,80\)/.test(text)){
+      return {observe:function(){},disconnect:function(){},takeRecords:function(){return []}};
+    }
+    return new NativeMO(callback);
+  };
+  window.MutationObserver.prototype=NativeMO.prototype;
+})();
+</script>
 <script src="v3.1/live-product-layer.js"></script>
+<script>
+/* Expose the authenticated workspace to the recovery engine without exposing any secret key. */
+(function(){
+  var S=window.LESupabase;
+  if(!S)return;
+  async function sync(){
+    try{
+      var u=(await S.auth.getUser()).data.user;
+      if(!u)return;
+      var q=await S.from('workspace_members').select('workspace_id,workspaces(*)').eq('user_id',u.id).limit(1).maybeSingle();
+      var w=q.data&&q.data.workspaces;
+      if(w){
+        window.__LELiveWorkspace=w;
+        if(window.__LELiveData)window.__LELiveData.workspace=w;
+      }
+    }catch(e){console.warn('Workspace bridge unavailable',e)}
+  }
+  setTimeout(sync,2200);
+  setInterval(sync,10000);
+})();
+</script>
 <script src="v3.1/revenue-engine.js"></script>
 <script src="v3.1/revenue-os-layer.js"></script>
 <script>
