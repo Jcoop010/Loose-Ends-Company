@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#071017">
+<meta name="theme-color" content="#ff8a3d">
 <meta name="description" content="Loose Ends — Revenue Recovery Operating System for service businesses">
 <title>Loose Ends — Revenue Recovery OS</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="v3.1/v4.css">
 </head>
 <body>
 <div class="app-shell">
@@ -41,17 +42,13 @@ window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVH
 <script src="v3.1/auth-live.js"></script>
 <script src="v3.1/live-realtime.js"></script>
 <script>
-/* Keep the legacy live layer's self-observer from creating a render loop.
-   The live layer already has polling + Supabase realtime for data changes. */
 (function(){
   var NativeMO=window.MutationObserver;
   if(!NativeMO)return;
   window.MutationObserver=function(callback){
     var text='';
     try{text=Function.prototype.toString.call(callback)}catch(e){}
-    if(/setTimeout\(render,80\)/.test(text)){
-      return {observe:function(){},disconnect:function(){},takeRecords:function(){return []}};
-    }
+    if(/setTimeout\(render,80\)/.test(text)) return {observe:function(){},disconnect:function(){},takeRecords:function(){return []}};
     return new NativeMO(callback);
   };
   window.MutationObserver.prototype=NativeMO.prototype;
@@ -59,7 +56,6 @@ window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVH
 </script>
 <script src="v3.1/live-product-layer.js"></script>
 <script>
-/* Expose the authenticated workspace to the recovery engine without exposing any secret key. */
 (function(){
   var S=window.LESupabase;
   if(!S)return;
@@ -69,14 +65,10 @@ window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVH
       if(!u)return;
       var q=await S.from('workspace_members').select('workspace_id,workspaces(*)').eq('user_id',u.id).limit(1).maybeSingle();
       var w=q.data&&q.data.workspaces;
-      if(w){
-        window.__LELiveWorkspace=w;
-        if(window.__LELiveData)window.__LELiveData.workspace=w;
-      }
+      if(w){window.__LELiveWorkspace=w;if(window.__LELiveData)window.__LELiveData.workspace=w;}
     }catch(e){console.warn('Workspace bridge unavailable',e)}
   }
-  setTimeout(sync,2200);
-  setInterval(sync,10000);
+  setTimeout(sync,2200);setInterval(sync,10000);
 })();
 </script>
 <script src="v3.1/revenue-engine.js"></script>
@@ -85,16 +77,11 @@ window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVH
 (function(){
   try {
     var valid={overview:1,loose:1,customers:1,recovery:1,intelligence:1,settings:1};
-    if (typeof state !== 'undefined' && !valid[state.view]) {
-      state.view='overview';
-      try { localStorage.setItem('loose_ends_v31_state', JSON.stringify(state)); } catch (_) {}
-    }
+    if (typeof state !== 'undefined' && !valid[state.view]) {state.view='overview';try{localStorage.setItem('loose_ends_v31_state',JSON.stringify(state));}catch(_) {}}
     if (typeof render === 'function' && typeof content !== 'undefined' && !content.innerHTML.trim()) render();
-  } catch (e) {
-    var el=document.getElementById('content');
-    if(el) el.innerHTML='<div class="page"><div class="eyebrow">REVENUE RECOVERY</div><div class="title">Dashboard</div><div class="subtitle">Your business at a glance.</div><div class="card" style="margin-top:22px;padding:24px"><strong>Dashboard restored.</strong><div style="margin-top:8px;color:#8fa4ba;font-size:12px">Your saved V3.1 state was recovered. Refresh once to continue.</div></div></div>';
-  }
+  } catch (e) {}
 })();
 </script>
+<script src="v3.1/v4.js"></script>
 </body>
 </html>
