@@ -1,18 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { fileURLToPath } from 'url'
+
+const root = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
-      { find: '../store', replacement: path.resolve(__dirname, 'store.tsx') },
-      { find: '../data', replacement: path.resolve(__dirname, 'data.ts') },
-      { find: '../types', replacement: path.resolve(__dirname, 'types.ts') },
-      { find: '../utils', replacement: path.resolve(__dirname, 'utils.ts') },
-      { find: '../router', replacement: path.resolve(__dirname, 'router.tsx') },
-      { find: '../components/ui', replacement: path.resolve(__dirname, 'ui.tsx') },
-      { find: './components/ErrorBoundary', replacement: path.resolve(__dirname, 'ErrorBoundary.tsx') },
+      { find: '../store', replacement: path.join(root, 'store.tsx') },
+      { find: '../data', replacement: path.join(root, 'data.ts') },
+      { find: '../types', replacement: path.join(root, 'types.ts') },
+      { find: '../utils', replacement: path.join(root, 'utils.ts') },
+      { find: '../router', replacement: path.join(root, 'router.tsx') },
+      { find: '../components/ui', replacement: path.join(root, 'ui.tsx') },
+      { find: './components/ErrorBoundary', replacement: path.join(root, 'ErrorBoundary.tsx') },
     ],
   },
   server: {
