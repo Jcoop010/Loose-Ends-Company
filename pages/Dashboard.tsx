@@ -1,12 +1,13 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from '../router'
 import { useStore } from '../store'
 import { formatCurrency } from '../utils'
-import { DollarSign, Check, Phone, MessageSquare, Mail, Bell, Target, Wrench, ChevronRight } from 'lucide-react'
+import { DollarSign, Check, Phone, MessageSquare, Mail, Bell, Target, Wrench, ChevronRight, ScanSearch } from 'lucide-react'
 
 export function Dashboard() {
-  const { data } = useStore()
+  const { data, runRevenueScan, cloudReady } = useStore()
   const { navigate } = useRouter()
+  const [scanMessage, setScanMessage] = useState('')
 
   const metrics = useMemo(() => {
     const open = data.opportunities.filter(o => o.status !== 'Collected')
@@ -41,6 +42,12 @@ export function Dashboard() {
     return type
   }
 
+  function runScan() {
+    const result = runRevenueScan()
+    setScanMessage(result.created ? `Found ${result.created} new revenue opportunities worth ${formatCurrency(result.potential)}.` : 'Scan complete — no new revenue opportunities found.')
+    window.setTimeout(() => setScanMessage(''), 6000)
+  }
+
   return (
     <div className="space-y-5 animate-fadeIn">
       <div className="flex items-end justify-between gap-4 mb-2">
@@ -49,8 +56,13 @@ export function Dashboard() {
           <h1 className="mt-1 text-4xl sm:text-5xl font-serif tracking-tight text-white">Dashboard</h1>
           <p className="mt-1 text-sm text-slate-400">Your business at a glance. See what's at risk, what's been recovered, and what to do next.</p>
         </div>
-        <div className="hidden sm:block flex-shrink-0 rounded-xl border border-slate-700 bg-[#0d1d31] px-4 py-2.5 text-xs text-slate-400">Sep 7, 2026 · Last 30 days</div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={runScan} className="inline-flex items-center gap-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs px-4 py-2.5 transition-colors"><ScanSearch className="w-4 h-4" /> Find revenue</button>
+          <div className="hidden sm:block rounded-xl border border-slate-700 bg-[#0d1d31] px-4 py-2.5 text-xs text-slate-400">Sep 7, 2026 · Last 30 days</div>
+        </div>
       </div>
+
+      {scanMessage && <div className="rounded-2xl border border-brand-500/30 bg-brand-500/10 px-5 py-3 text-sm text-brand-200">{scanMessage} {cloudReady ? 'Saved to your workspace.' : 'Saved on this device.'}</div>}
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard icon={<DollarSign className="w-5 h-5" />} label="Recoverable revenue" value={formatCurrency(metrics.recoverable)} sub="Estimated revenue from open opportunities" trend="12% vs. last 30 days" />
