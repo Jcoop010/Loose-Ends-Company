@@ -3,7 +3,10 @@ import type { AppData, Business, Opportunity, FollowUp, Request, Lead, Marketing
 import { seedData, STORAGE_KEY } from './data'
 
 function genId(prefix = 'id'): string {
-  return `${prefix}_${Math.random().toString(36).substring(2, 10)}`
+  const randomUUID = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).substring(2, 10)
+  return `${prefix}_${randomUUID}`
 }
 
 function cloneSeed(): AppData {
@@ -12,7 +15,8 @@ function cloneSeed(): AppData {
 
 function loadData(): AppData {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    if (typeof window === 'undefined') return cloneSeed()
+    const stored = window.localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<AppData>
       return {
@@ -67,7 +71,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      }
     } catch {
       // ignore
     }
@@ -174,8 +180,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const resetData = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY)
-    localStorage.removeItem(`${STORAGE_KEY}_notifications`)
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(STORAGE_KEY)
+        window.localStorage.removeItem(`${STORAGE_KEY}_notifications`)
+      }
+    } catch {
+      // ignore
+    }
     setData(cloneSeed())
   }, [])
 
