@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { AppData, Business, Opportunity, FollowUp, Request, Lead, MarketingTask, Customer, RevenueEvent } from './types'
+import type { AppData, Business, Opportunity, FollowUp, Request, Lead, MarketingTask, Customer, RevenueEvent, SalesOrder, CalendarEvent } from './types'
 import { seedData, STORAGE_KEY } from './data'
 import { supabase } from './supabase'
 import { getOrCreateWorkspace, loadCloudData, persistCustomer, persistOpportunity, persistFollowUp, persistRecovery } from './cloud'
@@ -38,6 +38,8 @@ function loadLocalData(): AppData {
         timelineEvents: Array.isArray(parsed.timelineEvents) ? parsed.timelineEvents : cloneSeed().timelineEvents,
         integrations: Array.isArray(parsed.integrations) ? parsed.integrations : cloneSeed().integrations,
         leads: Array.isArray(parsed.leads) ? parsed.leads : cloneSeed().leads,
+        salesOrders: Array.isArray(parsed.salesOrders) ? parsed.salesOrders : cloneSeed().salesOrders,
+        calendarEvents: Array.isArray(parsed.calendarEvents) ? parsed.calendarEvents : cloneSeed().calendarEvents,
       }
     }
   } catch { /* fall back to seed */ }
@@ -64,6 +66,12 @@ interface StoreContextValue {
   addRevenueEvent: (event: Omit<RevenueEvent, 'id'>) => void
   runRevenueScan: () => { created: number; potential: number }
   dismissFollowUp: (id: string) => void
+  addSalesOrder: (order: Omit<SalesOrder, 'id' | 'number' | 'createdAt'>) => string
+  updateSalesOrder: (id: string, updates: Partial<SalesOrder>) => void
+  deleteSalesOrder: (id: string) => void
+  addCalendarEvent: (event: Omit<CalendarEvent, 'id'>) => string
+  updateCalendarEvent: (id: string, updates: Partial<CalendarEvent>) => void
+  deleteCalendarEvent: (id: string) => void
   resetData: () => void
 }
 
@@ -176,6 +184,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const dismissFollowUp = useCallback((id: string) => updateFollowUp(id, { status: 'Dismissed' }), [updateFollowUp])
 
+  const addSalesOrder = useCallback((order: Omit<SalesOrder, 'id' | 'number' | 'createdAt'>) => {
+    const id = genId()
+    setData(prev => {
+      const seq = (prev.salesOrders || []).length + 1001
+      const created: SalesOrder = { ...order, id, number: `SO-${seq}`, createdAt: new Date().toISOString() }
+      return { ...prev, salesOrders: [created, ...(prev.salesOrders || [])] }
+    })
+    return id
+  }, [])
+
+  const updateSalesOrder = useCallback((id: string, updates: Partial<SalesOrder>) => {
+    setData(prev => ({ ...prev, salesOrders: (prev.salesOrders || []).map(o => o.id === id ? { ...o, ...updates } : o) }))
+  }, [])
+
+  const deleteSalesOrder = useCallback((id: string) => {
+    setData(prev => ({ ...prev, salesOrders: (prev.salesOrders || []).filter(o => o.id !== id) }))
+  }, [])
+
+  const addCalendarEvent = useCallback((event: Omit<CalendarEvent, 'id'>) => {
+    const id = genId()
+    setData(prev => ({ ...prev, calendarEvents: [{ ...event, id }, ...(prev.calendarEvents || [])] }))
+    return id
+  }, [])
+
+  const updateCalendarEvent = useCallback((id: string, updates: Partial<CalendarEvent>) => {
+    setData(prev => ({ ...prev, calendarEvents: (prev.calendarEvents || []).map(e => e.id === id ? { ...e, ...updates } : e) }))
+  }, [])
+
+  const deleteCalendarEvent = useCallback((id: string) => {
+    setData(prev => ({ ...prev, calendarEvents: (prev.calendarEvents || []).filter(e => e.id !== id) }))
+  }, [])
+
   const resetData = useCallback(() => {
     try { if (typeof window !== 'undefined') { window.localStorage.removeItem(STORAGE_KEY); window.localStorage.removeItem(`${STORAGE_KEY}_notifications`) } } catch { /* ignore */ }
     setData(cloneSeed())
@@ -186,7 +226,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  return <StoreContext.Provider value={{ data, cloudReady, updateBusiness, updateOpportunity, updateFollowUp, dismissAlert, addRequest, updateRequest, updateMarketingTask, toggleIntegration, addLead, addNoteToCustomer, addCustomer, updateCustomer, addOpportunity, addFollowUp, addRevenueEvent, runRevenueScan, dismissFollowUp, resetData }}>{children}</StoreContext.Provider>
+  return <StoreContext.Provider value={{ data, cloudReady, updateBusiness, updateOpportunity, updateFollowUp, dismissAlert, addRequest, updateRequest, updateMarketingTask, toggleIntegration, addLead, addNoteToCustomer, addCustomer, updateCustomer, addOpportunity, addFollowUp, addRevenueEvent, runRevenueScan, dismissFollowUp, addSalesOrder, updateSalesOrder, deleteSalesOrder, addCalendarEvent, updateCalendarEvent, deleteCalendarEvent, resetData }}>{children}</StoreContext.Provider>
 }
 
 export function useStore(): StoreContextValue {
