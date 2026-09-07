@@ -12,12 +12,11 @@ import { BusinessRequests } from './pages/Requests'
 import { AskAssistant } from './pages/Ask'
 import { SettingsPage } from './pages/Settings'
 import { ErrorBoundary } from './ErrorBoundary'
+import { AuthGate } from './components/AuthGate'
 
 function Routes() {
   const { route } = useRouter()
 
-  // V4 launches directly into the operating system. The marketing landing page
-  // remains available at /home so the product URL is immediately presentation-ready.
   if (route === '/home') return <LandingPage />
 
   if (route.startsWith('/dashboard')) {
@@ -27,8 +26,8 @@ function Routes() {
     else if (route.startsWith('/dashboard/sales')) page = <RevenueRecovery />
     else if (route.startsWith('/dashboard/calendar')) page = <FollowUpCenter />
     else if (route.startsWith('/dashboard/documents')) page = <BusinessRequests />
-    else if (route.startsWith('/dashboard/revenue')) page = <Dashboard />
     else if (route.startsWith('/dashboard/revenue-recovery')) page = <RevenueRecovery />
+    else if (route.startsWith('/dashboard/revenue')) page = <Dashboard />
     else if (route.startsWith('/dashboard/tasks')) page = <FollowUpCenter />
     else if (route.startsWith('/dashboard/intelligence')) page = <AskAssistant />
     else if (route.startsWith('/dashboard/alerts')) page = <Alerts />
@@ -48,11 +47,13 @@ function Routes() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <StoreProvider>
-        <RouterProvider>
-          <Routes />
-        </RouterProvider>
-      </StoreProvider>
+      <AuthGate>
+        <StoreProvider>
+          <RouterProvider>
+            <Routes />
+          </RouterProvider>
+        </StoreProvider>
+      </AuthGate>
     </ErrorBoundary>
   )
 }
