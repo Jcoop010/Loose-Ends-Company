@@ -4,7 +4,6 @@ import App from './App'
 import './index.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
-// V4 production marker: keep the real React app as the single source of truth.
 if (typeof document !== 'undefined') {
   document.documentElement.dataset.looseEndsVersion = 'V4'
 }
