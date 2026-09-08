@@ -1,6 +1,15 @@
 # Loose Ends Co.
 
-A Vite + React + TypeScript operations dashboard for finding revenue opportunities, managing follow-ups, customers, alerts, marketing tasks, and business requests.
+Loose Ends is a revenue-recovery operating system for service businesses. It identifies revenue opportunities, ranks what deserves attention, tracks recovery stages, and records confirmed recovered revenue.
+
+## Architecture
+
+- **Frontend:** Vite + React + TypeScript.
+- **Auth/data:** Supabase Auth + Postgres with workspace-scoped RLS.
+- **Recovery model:** customers → opportunities → follow-ups → recovery events.
+- **Recovery lifecycle:** Potential → Contacted → Responded → Scheduled → Completed → Collected.
+- **Persistence:** recovery/customer/follow-up changes sync to Supabase when authenticated; localStorage remains a resilience/demo fallback.
+- **Accounting bridge:** QuickBooks Edge Function is installed and authenticated, but live Intuit OAuth credentials are still required before production QuickBooks API sync can run.
 
 ## Run locally
 
@@ -16,8 +25,6 @@ npm run build
 npm run preview
 ```
 
-The app uses browser localStorage for demo persistence. No backend is required for the demo.
+## Important product boundary
 
-## Deploy
-
-Upload the `dist/` folder after `npm run build` to any static host. SPA rewrites are included for Netlify. For other hosts, configure all routes to serve `index.html`.
+Loose Ends should orchestrate revenue recovery rather than replace accounting, payments, messaging, CRM, or scheduling platforms. Integrations should supply events and execution capabilities; Loose Ends should decide what matters, why it matters, what to do next, and what revenue outcome occurred.
