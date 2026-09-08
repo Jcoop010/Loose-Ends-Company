@@ -20,7 +20,15 @@ export function RevenueRecovery() {
   const [scanMessage, setScanMessage] = useState('')
 
   const filtered = useMemo(
-    () => data.opportunities.filter(o => !(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter)),
+    () => data.opportunities
+      .filter(o => !(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter))
+      .sort((a, b) => {
+        if (a.status === 'Collected' && b.status !== 'Collected') return 1
+        if (b.status === 'Collected' && a.status !== 'Collected') return -1
+        const aScore = a.potentialValue * (a.confidence ?? 0.5)
+        const bScore = b.potentialValue * (b.confidence ?? 0.5)
+        return bScore - aScore
+      }),
     [data.opportunities, typeFilter, statusFilter],
   )
 
@@ -76,7 +84,7 @@ export function RevenueRecovery() {
       <PageHeader title="REVENUE RECOVERY" subtitle="Find the money your business is already leaving behind." />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-500">Every opportunity is evidence-backed when a source signal is available.</div>
+        <div className="text-sm text-slate-500">Every opportunity is evidence-backed when a source signal is available. Opportunities are ranked by evidence-weighted recovery value.</div>
         <button onClick={runScan} className="btn-secondary"><ScanSearch className="w-4 h-4" /> Scan for revenue leaks</button>
       </div>
       {scanMessage && <div className="card px-4 py-3 text-sm text-slate-700 border-brand-200 bg-brand-50">{scanMessage}</div>}
@@ -111,7 +119,7 @@ export function RevenueRecovery() {
         <div className="flex flex-wrap gap-2">
           <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="input w-auto">{OPPORTUNITY_FILTERS.map(t => <option key={t} value={t}>{t === 'All' ? 'All Types' : t}</option>)}</select>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input w-auto"><option value="All">All Statuses</option>{PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}</select>
-          <span className="text-sm text-slate-500 self-center ml-1">{filtered.length} opportunit{filtered.length === 1 ? 'y' : 'ies'}</span>
+          <span className="text-sm text-slate-500 self-center ml-1">{filtered.length} opportunit{filtered.length === 1 ? 'y' : 'ies'} · highest evidence-weighted value first</span>
         </div>
       </div>
 
@@ -129,7 +137,7 @@ export function RevenueRecovery() {
               </div>
             </div>
             {opp.notes && <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-2.5 mb-3">{opp.notes}</p>}
-            {opp.confidence != null && <p className="text-[11px] text-slate-400 mb-2">Evidence confidence: {Math.round(opp.confidence * 100)}%</p>}
+            {opp.confidence != null && <p className="text-[11px] text-slate-400 mb-2">Evidence confidence: {Math.round(opp.confidence * 100)}% · Recovery value: {formatCurrency(opp.potentialValue * opp.confidence)}</p>}
             <div className="flex items-center gap-2 text-sm text-slate-700 mb-3"><CalendarClock className="w-4 h-4 text-slate-400 flex-shrink-0" /><span>{opp.nextAction}</span></div>
             <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
               <button onClick={() => updateOpportunity(opp.id, { status: 'Contacted', lastContact: new Date().toISOString(), nextAction: 'Wait for response or schedule the next step' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status !== 'Potential'}><Check className="w-3.5 h-3.5" /> Mark contacted</button>
