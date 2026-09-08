@@ -8,6 +8,7 @@ Loose Ends is a revenue-recovery operating system for service businesses. It ide
 - **Auth/data:** Supabase Auth + Postgres with workspace-scoped RLS.
 - **Recovery model:** customers → opportunities → follow-ups → recovery events.
 - **Recovery lifecycle:** Potential → Contacted → Responded → Scheduled → Completed → Collected.
+- **Revenue signals:** missed calls, aging/declined estimates, inactive customers, maintenance due, unpaid invoices, unbilled work, and aging leads when the source data provides enough evidence.
 - **Persistence:** recovery/customer/follow-up changes sync to Supabase when authenticated; localStorage remains a resilience/demo fallback.
 - **Accounting bridge:** QuickBooks Edge Function is installed and authenticated, but live Intuit OAuth credentials are still required before production QuickBooks API sync can run.
 
