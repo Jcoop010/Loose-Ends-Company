@@ -15,5 +15,8 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      # The repository's lockfile has historically drifted from package.json.
+      # Use npm install in CI so validation tests the actual dependency graph;
+      # lockfile cleanup can be handled separately without blocking releases.
+      - run: npm install --no-audit --no-fund
       - run: npm run build

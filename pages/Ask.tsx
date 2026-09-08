@@ -98,7 +98,7 @@ export function AskAssistant() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: `Good morning, ${data.business.owner.split(' ')[0]}! I'm your Loose Ends Co. assistant. I can help you find revenue opportunities, prioritize your day, and answer questions about your business. What can I help you with?`,
+      content: `Good morning, ${data.business.owner.split(' ')[0]}! I'm your Primal Directive assistant. I can help you find revenue opportunities, prioritize your day, and answer questions about your business. What can I help you with?`,
     },
   ])
   const [input, setInput] = useState('')
@@ -119,7 +119,7 @@ export function AskAssistant() {
 
   return (
     <div className="space-y-4 animate-fadeIn flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-10rem)]">
-      <PageHeader title="ASK Loose Ends Co." subtitle="Tell me what you need." />
+      <PageHeader title="ASK PRIMAL DIRECTIVE" subtitle="Tell me what you need." />
 
       <div className="card flex-1 flex flex-col overflow-hidden">
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
