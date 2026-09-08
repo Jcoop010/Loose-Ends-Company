@@ -1,17 +1,23 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store'
-import { PIPELINE_STAGES, OPPORTUNITY_TYPES } from '../data'
-import type { Opportunity } from '../types'
+import { PIPELINE_STAGES } from '../data'
+import type { Opportunity, OpportunityType } from '../types'
 import { formatCurrency, formatDate, timeAgo } from '../utils'
 import { PageHeader, MiniStat, OpportunityStatusBadge, OpportunityTypeBadge } from '../components/ui'
-import { DollarSign, ChevronRight, CalendarClock, Filter, X, Check, BellOff } from 'lucide-react'
+import { DollarSign, ChevronRight, CalendarClock, Filter, X, Check, BellOff, ScanSearch } from 'lucide-react'
+
+const OPPORTUNITY_FILTERS: Array<'All' | OpportunityType> = [
+  'All', 'Missed Call', 'Old Estimate', 'Declined Work', 'Inactive Customer', 'Maintenance Due',
+  'Unpaid Invoice', 'Unbilled Work', 'Stalled Lead', 'Expansion Opportunity', 'Renewal Risk', 'Churn Risk', 'Payment Failure', 'Other',
+]
 
 export function RevenueRecovery() {
-  const { data, updateOpportunity, addRevenueEvent } = useStore()
-  const [typeFilter, setTypeFilter] = useState('All')
+  const { data, updateOpportunity, addRevenueEvent, runRevenueScan } = useStore()
+  const [typeFilter, setTypeFilter] = useState<string>('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [collectModal, setCollectModal] = useState<Opportunity | null>(null)
   const [collectAmount, setCollectAmount] = useState('')
+  const [scanMessage, setScanMessage] = useState('')
 
   const filtered = useMemo(
     () => data.opportunities.filter(o => !(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter)),
@@ -50,29 +56,30 @@ export function RevenueRecovery() {
       if (!isNaN(amount) && amount > 0) {
         const now = new Date().toISOString()
         updateOpportunity(collectModal.id, { status: 'Collected', collectedAmount: amount, nextAction: 'Complete — revenue recovered' })
-        // Keep the recovery ledger as the auditable source of confirmed money.
-        addRevenueEvent({
-          opportunityId: collectModal.id,
-          customerId: collectModal.customerId,
-          customerName: collectModal.customerName,
-          amount,
-          date: now,
-          description: `Confirmed collection for ${collectModal.type}`,
-          type: 'Recovered',
-        })
+        addRevenueEvent({ opportunityId: collectModal.id, customerId: collectModal.customerId, customerName: collectModal.customerName, amount, date: now, description: `Confirmed collection for ${collectModal.type}`, type: 'Recovered' })
       }
     }
     setCollectModal(null)
     setCollectAmount('')
   }
 
-  const snooze = (opp: Opportunity) => {
-    updateOpportunity(opp.id, { nextAction: 'Snoozed — review later' })
+  const snooze = (opp: Opportunity) => updateOpportunity(opp.id, { nextAction: 'Snoozed — review later' })
+
+  const runScan = () => {
+    const result = runRevenueScan()
+    setScanMessage(result.created ? `Found ${result.created} new revenue signal${result.created === 1 ? '' : 's'} worth ${formatCurrency(result.potential)}.` : 'No new revenue signals found.')
+    window.setTimeout(() => setScanMessage(''), 5000)
   }
 
   return (
     <div className="space-y-6 animate-fadeIn">
       <PageHeader title="REVENUE RECOVERY" subtitle="Find the money your business is already leaving behind." />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-slate-500">Every opportunity is evidence-backed when a source signal is available.</div>
+        <button onClick={runScan} className="btn-secondary"><ScanSearch className="w-4 h-4" /> Scan for revenue leaks</button>
+      </div>
+      {scanMessage && <div className="card px-4 py-3 text-sm text-slate-700 border-brand-200 bg-brand-50">{scanMessage}</div>}
 
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
@@ -102,7 +109,7 @@ export function RevenueRecovery() {
       <div className="card p-4">
         <div className="flex items-center gap-2 mb-3"><Filter className="w-4 h-4 text-slate-400" /><span className="text-sm font-semibold text-slate-700">Filters</span></div>
         <div className="flex flex-wrap gap-2">
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="input w-auto">{OPPORTUNITY_TYPES.map(t => <option key={t} value={t}>{t === 'All' ? 'All Types' : t}</option>)}</select>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="input w-auto">{OPPORTUNITY_FILTERS.map(t => <option key={t} value={t}>{t === 'All' ? 'All Types' : t}</option>)}</select>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input w-auto"><option value="All">All Statuses</option>{PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}</select>
           <span className="text-sm text-slate-500 self-center ml-1">{filtered.length} opportunit{filtered.length === 1 ? 'y' : 'ies'}</span>
         </div>
@@ -122,10 +129,11 @@ export function RevenueRecovery() {
               </div>
             </div>
             {opp.notes && <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-2.5 mb-3">{opp.notes}</p>}
+            {opp.confidence != null && <p className="text-[11px] text-slate-400 mb-2">Evidence confidence: {Math.round(opp.confidence * 100)}%</p>}
             <div className="flex items-center gap-2 text-sm text-slate-700 mb-3"><CalendarClock className="w-4 h-4 text-slate-400 flex-shrink-0" /><span>{opp.nextAction}</span></div>
             <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
-              <button onClick={() => updateOpportunity(opp.id, { status: 'Contacted', lastContact: new Date().toISOString() })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status !== 'Potential'}><Check className="w-3.5 h-3.5" /> Contact</button>
-              <button onClick={() => updateOpportunity(opp.id, { status: 'Scheduled' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status === 'Collected' || opp.status === 'Completed'}><CalendarClock className="w-3.5 h-3.5" /> Schedule</button>
+              <button onClick={() => updateOpportunity(opp.id, { status: 'Contacted', lastContact: new Date().toISOString(), nextAction: 'Wait for response or schedule the next step' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status !== 'Potential'}><Check className="w-3.5 h-3.5" /> Mark contacted</button>
+              <button onClick={() => updateOpportunity(opp.id, { status: 'Scheduled', nextAction: 'Complete the scheduled recovery step' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status === 'Collected' || opp.status === 'Completed'}><CalendarClock className="w-3.5 h-3.5" /> Schedule</button>
               {opp.status !== 'Collected' && <button onClick={() => advanceStage(opp)} className="btn-secondary text-xs px-2.5 py-1.5"><ChevronRight className="w-3.5 h-3.5" />{opp.status === 'Completed' ? 'Mark Collected' : 'Advance'}</button>}
               <button onClick={() => snooze(opp)} className="btn-ghost text-xs px-2.5 py-1.5 ml-auto"><BellOff className="w-3.5 h-3.5" /> Snooze</button>
             </div>
@@ -140,7 +148,7 @@ export function RevenueRecovery() {
             <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold text-slate-900">Confirm Collected Revenue</h3><button onClick={() => { setCollectModal(null); setCollectAmount('') }} className="p-1 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button></div>
             <p className="text-sm text-slate-600 mb-1"><span className="font-semibold">{collectModal.customerName}</span> — {collectModal.type}</p>
             <p className="text-xs text-slate-500 mb-4">Estimated potential: {formatCurrency(collectModal.potentialValue)}</p>
-            <div className="mb-4"><label className="label">Confirmed Revenue Amount</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0.01" step="0.01" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} className="input pl-7" placeholder="0" autoFocus onKeyDown={e => e.key === 'Enter' && confirmCollect()} /></div><p className="text-xs text-slate-500 mt-1.5">Enter the actual amount collected. Only this confirmed amount counts toward Recovered Revenue.</p></div>
+            <div className="mb-4"><label className="label">Confirmed Revenue Amount</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0.01" step="0.01" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} className="input pl-7" placeholder="0" autoFocus onKeyDown={e => e.key === 'Enter' && confirmCollect()} /><p className="text-xs text-slate-500 mt-1.5">Enter the actual amount collected. Only this confirmed amount counts toward Recovered Revenue.</p></div></div>
             <div className="flex gap-2"><button onClick={() => { setCollectModal(null); setCollectAmount('') }} className="btn-secondary flex-1">Cancel</button><button onClick={confirmCollect} className="btn-success flex-1" disabled={!collectAmount || parseFloat(collectAmount) <= 0}><DollarSign className="w-4 h-4" /> Confirm Collected</button></div>
           </div>
         </div>
