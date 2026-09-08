@@ -15,6 +15,9 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      # The committed lockfile predates the Supabase runtime dependency.
+      # npm install resolves the manifest/lockfile drift; typecheck/build then
+      # validate the actual production dependency graph.
+      - run: npm install
       - run: npm run typecheck
       - run: npm run build
