@@ -26,15 +26,19 @@ export interface Job {
   description?: string
   status: string
   amount?: number
+  date?: string
   createdAt: string
 }
 
 export interface Estimate {
   id: string
   customerId: string
+  vehicleId?: string
   title: string
+  description?: string
   amount: number
   status: string
+  date?: string
   createdAt: string
 }
 
@@ -49,7 +53,7 @@ export interface Customer {
   lastServiceDescription: string
   lifetimeValue: number
   nextFollowUp?: string
-  notes: string[]
+  notes?: string[]
   createdAt: string
 }
 
@@ -69,6 +73,8 @@ export interface Opportunity {
   confidence?: number
 }
 
+export type OpportunityType = Opportunity['type']
+
 export interface FollowUp {
   id: string
   customerId: string
@@ -84,7 +90,7 @@ export interface FollowUp {
 export interface Alert {
   id: string
   type: string
-  severity: 'urgent' | 'warning' | 'info'
+  severity: 'urgent' | 'warning' | 'info' | 'success'
   customerId?: string
   customerName?: string
   reason: string
@@ -109,7 +115,7 @@ export interface MarketingTask {
   type: string
   title: string
   description: string
-  status: 'Pending' | 'In Progress' | 'Completed'
+  status: 'Pending' | 'In Progress' | 'Completed' | 'Complete'
   dueDate?: string
 }
 
