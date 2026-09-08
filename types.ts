@@ -8,6 +8,36 @@ export interface Business {
   address: string
 }
 
+export interface Vehicle {
+  id: string
+  customerId: string
+  year: number
+  make: string
+  model: string
+  mileage: number
+  vin?: string
+}
+
+export interface Job {
+  id: string
+  customerId: string
+  vehicleId?: string
+  title: string
+  description?: string
+  status: string
+  amount?: number
+  createdAt: string
+}
+
+export interface Estimate {
+  id: string
+  customerId: string
+  title: string
+  amount: number
+  status: string
+  createdAt: string
+}
+
 export interface Customer {
   id: string
   name: string
@@ -19,48 +49,16 @@ export interface Customer {
   lastServiceDescription: string
   lifetimeValue: number
   nextFollowUp?: string
-  notes?: string[]
+  notes: string[]
   createdAt: string
 }
-
-export interface Vehicle {
-  id: string
-  customerId: string
-  year: number
-  make: string
-  model: string
-  mileage: number
-}
-
-export interface Job {
-  id: string
-  customerId: string
-  vehicleId: string
-  description: string
-  date: string
-  amount: number
-  status: 'Completed' | 'In Progress' | 'Scheduled'
-}
-
-export interface Estimate {
-  id: string
-  customerId: string
-  vehicleId: string
-  description: string
-  date: string
-  amount: number
-  status: 'Pending' | 'Approved' | 'Declined' | 'Expired'
-}
-
-export type OpportunityStatus = 'Potential' | 'Contacted' | 'Responded' | 'Scheduled' | 'Completed' | 'Collected'
-export type OpportunityType = 'Missed Call' | 'Old Estimate' | 'Declined Work' | 'Inactive Customer' | 'Maintenance Due' | 'Unpaid Invoice' | 'Unbilled Work' | 'Stalled Lead' | 'Expansion Opportunity' | 'Renewal Risk' | 'Churn Risk' | 'Payment Failure' | 'Other'
 
 export interface Opportunity {
   id: string
   customerId: string
   customerName: string
-  type: OpportunityType
-  status: OpportunityStatus
+  type: 'Missed Call' | 'Old Estimate' | 'Declined Work' | 'Inactive Customer' | 'Maintenance Due' | 'Unpaid Invoice' | 'Unbilled Work' | 'Stalled Lead' | 'Expansion Opportunity' | 'Renewal Risk' | 'Churn Risk' | 'Payment Failure' | 'Other'
+  status: 'Potential' | 'Contacted' | 'Responded' | 'Scheduled' | 'Completed' | 'Collected'
   potentialValue: number
   collectedAmount?: number
   dateIdentified: string
@@ -71,8 +69,6 @@ export interface Opportunity {
   confidence?: number
 }
 
-export type FollowUpStatus = 'Due Today' | 'Upcoming' | 'Completed' | 'Snoozed' | 'Dismissed'
-
 export interface FollowUp {
   id: string
   customerId: string
@@ -82,13 +78,13 @@ export interface FollowUp {
   lastContact?: string
   nextAction: string
   dueDate: string
-  status: FollowUpStatus
+  status: 'Due Today' | 'Upcoming' | 'Completed' | 'Snoozed' | 'Dismissed'
 }
 
 export interface Alert {
   id: string
-  type: 'URGENT' | 'FOLLOW-UP' | 'OPPORTUNITY' | 'MAINTENANCE'
-  severity: 'urgent' | 'warning' | 'info' | 'success'
+  type: string
+  severity: 'urgent' | 'warning' | 'info'
   customerId?: string
   customerName?: string
   reason: string
@@ -101,9 +97,9 @@ export interface Alert {
 export interface Request {
   id: string
   request: string
-  priority: 'High' | 'Medium' | 'Low'
+  priority: 'Low' | 'Medium' | 'High'
   dueDate?: string
-  status: 'New' | 'In Progress' | 'Waiting' | 'Complete'
+  status: 'New' | 'In Progress' | 'Waiting' | 'Completed'
   createdAt: string
   notes?: string
 }
@@ -113,7 +109,7 @@ export interface MarketingTask {
   type: string
   title: string
   description: string
-  status: 'Pending' | 'In Progress' | 'Complete'
+  status: 'Pending' | 'In Progress' | 'Completed'
   dueDate?: string
 }
 
@@ -125,7 +121,7 @@ export interface RevenueEvent {
   amount: number
   date: string
   description: string
-  type: 'Recovered' | 'New' | 'Retained'
+  type: 'Recovered' | 'Projected'
 }
 
 export interface TimelineEvent {
@@ -213,6 +209,6 @@ export interface AppData {
   timelineEvents: TimelineEvent[]
   integrations: Integration[]
   leads: Lead[]
-  salesOrders: SalesOrder[]
-  calendarEvents: CalendarEvent[]
+  salesOrders?: SalesOrder[]
+  calendarEvents?: CalendarEvent[]
 }
