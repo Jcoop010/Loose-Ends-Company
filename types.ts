@@ -53,7 +53,7 @@ export interface Estimate {
 }
 
 export type OpportunityStatus = 'Potential' | 'Contacted' | 'Responded' | 'Scheduled' | 'Completed' | 'Collected'
-export type OpportunityType = 'Missed Call' | 'Old Estimate' | 'Declined Work' | 'Inactive Customer' | 'Maintenance Due' | 'Other'
+export type OpportunityType = 'Missed Call' | 'Old Estimate' | 'Declined Work' | 'Inactive Customer' | 'Maintenance Due' | 'Unpaid Invoice' | 'Unbilled Work' | 'Stalled Lead' | 'Expansion Opportunity' | 'Renewal Risk' | 'Churn Risk' | 'Payment Failure' | 'Other'
 
 export interface Opportunity {
   id: string
@@ -67,6 +67,8 @@ export interface Opportunity {
   lastContact?: string
   nextAction: string
   notes?: string
+  source?: string
+  confidence?: number
 }
 
 export type FollowUpStatus = 'Due Today' | 'Upcoming' | 'Completed' | 'Snoozed' | 'Dismissed'
