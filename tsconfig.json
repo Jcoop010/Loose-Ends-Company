@@ -16,5 +16,22 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["*.ts", "*.tsx"]
+  "include": [
+    "App.tsx",
+    "main.tsx",
+    "router.tsx",
+    "store.tsx",
+    "cloud.ts",
+    "data.ts",
+    "types.ts",
+    "utils.ts",
+    "revenueEngine.ts",
+    "seedSales.ts",
+    "supabase.ts",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "pages/**/*.ts",
+    "pages/**/*.tsx"
+  ],
+  "exclude": ["node_modules", "dist", "v3.1", "vite.config.ts"]
 }
