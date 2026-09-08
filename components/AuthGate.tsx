@@ -72,9 +72,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (checkingSession) {
     return (
       <div style={pageStyle}>
-        <main style={cardStyle} aria-label="Loading Loose Ends">
-          <div style={labelStyle}>Loose Ends</div>
-          <h1 style={titleStyle}>Revenue Recovery OS</h1>
+        <main style={cardStyle} aria-label="Loading Primal Directive">
+          <div style={labelStyle}>Primal Directive</div>
+          <h1 style={titleStyle}>Small Business OS</h1>
           <p style={bodyStyle}>Connecting your secure workspace…</p>
         </main>
       </div>
@@ -83,10 +83,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <div style={pageStyle}>
-      <main style={cardStyle} aria-label="Loose Ends sign in">
-        <div style={labelStyle}>Loose Ends</div>
-        <h1 style={titleStyle}>Revenue Recovery OS</h1>
-        <p style={bodyStyle}>Sign in to keep your customers, opportunities, and recovered revenue synced securely.</p>
+      <main style={cardStyle} aria-label="Primal Directive sign in">
+        <div style={labelStyle}>Primal Directive</div>
+        <h1 style={titleStyle}>Small Business OS</h1>
+        <p style={bodyStyle}>Sign in to keep your customers, opportunities, operations, and revenue intelligence synced securely.</p>
         <form onSubmit={sendMagicLink} style={{ marginTop: 28, display: 'grid', gap: 12 }}>
           <input value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" placeholder="you@company.com" style={inputStyle} />
           <button disabled={busy} type="submit" style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? 'Sending…' : 'Send secure sign-in link'}</button>
