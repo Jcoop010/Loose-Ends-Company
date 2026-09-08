@@ -11,24 +11,79 @@ const uuid = () => {
   })
 }
 
+const splitName = (name: string) => {
+  const parts = name.trim().split(/\s+/)
+  return { first_name: parts.shift() || '', last_name: parts.join(' ') }
+}
+
+/** Database lifecycle states intentionally mirror the UI pipeline. */
+const DB_OPPORTUNITY_STATUS: Record<Opportunity['status'], string> = {
+  Potential: 'open',
+  Contacted: 'contacted',
+  Responded: 'responded',
+  Scheduled: 'scheduled',
+  Completed: 'completed',
+  Collected: 'recovered',
+}
+
+function uiOpportunityStatus(status: string): Opportunity['status'] | null {
+  const map: Record<string, Opportunity['status']> = {
+    open: 'Potential',
+    contacted: 'Contacted',
+    responded: 'Responded',
+    scheduled: 'Scheduled',
+    completed: 'Completed',
+    recovered: 'Collected',
+  }
+  return map[status] || null
+}
+
+function dbFollowUpStatus(status: FollowUp['status']): string {
+  if (status === 'Completed') return 'completed'
+  if (status === 'Dismissed') return 'dismissed'
+  return 'pending'
+}
+
+function uiFollowUpStatus(status: string, scheduledAt?: string | null): FollowUp['status'] {
+  if (status === 'completed') return 'Completed'
+  if (status === 'dismissed') return 'Dismissed'
+  if (status === 'pending') {
+    if (scheduledAt) {
+      const due = new Date(scheduledAt)
+      const now = new Date()
+      if (due.toDateString() === now.toDateString()) return 'Due Today'
+    }
+    return 'Upcoming'
+  }
+  return 'Upcoming'
+}
+
 export async function getOrCreateWorkspace() {
   const { data: userData, error: userError } = await supabase.auth.getUser()
   if (userError || !userData.user) throw userError || new Error('Not authenticated')
   const user = userData.user
 
-  const existing = await supabase.from('workspaces').select('id,name').order('created_at').limit(1).maybeSingle()
-  if (existing.error) throw existing.error
-  if (existing.data) {
-    const membership = await supabase.from('workspace_members').upsert({ workspace_id: existing.data.id, user_id: user.id, role: 'owner' }, { onConflict: 'workspace_id,user_id' })
-    if (membership.error) throw membership.error
-    return { id: existing.data.id, name: existing.data.name }
-  }
+  // Never pick an arbitrary workspace. First resolve a workspace the current
+  // user actually belongs to; this matters as soon as an account has >1 workspace.
+  const membership = await supabase
+    .from('workspace_members')
+    .select('workspace_id, workspaces(id,name)')
+    .eq('user_id', user.id)
+    .order('created_at')
+    .limit(1)
+    .maybeSingle()
+
+  if (membership.error) throw membership.error
+  const memberWorkspace = Array.isArray(membership.data?.workspaces)
+    ? membership.data?.workspaces[0]
+    : membership.data?.workspaces
+  if (memberWorkspace?.id) return { id: memberWorkspace.id, name: memberWorkspace.name }
 
   const name = user.user_metadata?.business_name || `${user.email?.split('@')[0] || 'My'} Workspace`
   const created = await supabase.from('workspaces').insert({ name, owner_user_id: user.id }).select('id,name').single()
   if (created.error) throw created.error
-  const membership = await supabase.from('workspace_members').insert({ workspace_id: created.data.id, user_id: user.id, role: 'owner' })
-  if (membership.error) throw membership.error
+  const newMembership = await supabase.from('workspace_members').insert({ workspace_id: created.data.id, user_id: user.id, role: 'owner' })
+  if (newMembership.error) throw newMembership.error
   return created.data
 }
 
@@ -44,7 +99,7 @@ async function bootstrapDemoData(workspaceId: string) {
   const opportunities = seedData.opportunities.map(o => ({
     id: uuid(), workspace_id: workspaceId, customer_id: customerIds.get(o.customerId) || null,
     title: o.notes || o.nextAction, source: o.type.toLowerCase().replace(/\s+/g, '_'),
-    status: o.status === 'Potential' ? 'Open' : o.status, amount: o.potentialValue,
+    status: DB_OPPORTUNITY_STATUS[o.status], amount: o.potentialValue,
     recovered_amount: o.collectedAmount || 0, priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3,
     reason: o.nextAction, due_at: o.lastContact || null,
   }))
@@ -52,8 +107,8 @@ async function bootstrapDemoData(workspaceId: string) {
 
   const followUps = seedData.followUps.map(f => ({
     id: uuid(), workspace_id: workspaceId, customer_id: customerIds.get(f.customerId) || null,
-    opportunity_id: null, channel: 'manual', message: f.nextAction || f.reason,
-    scheduled_at: f.dueDate || null, status: f.status,
+    opportunity_id: null, channel: 'task', message: f.nextAction || f.reason,
+    scheduled_at: f.dueDate || null, status: dbFollowUpStatus(f.status),
   }))
 
   const recovery = seedData.revenueEvents.map(e => ({
@@ -70,11 +125,6 @@ async function bootstrapDemoData(workspaceId: string) {
   ])
   const failed = results.find(r => r.error)
   if (failed?.error) throw failed.error
-}
-
-const splitName = (name: string) => {
-  const parts = name.trim().split(/\s+/)
-  return { first_name: parts.shift() || '', last_name: parts.join(' ') }
 }
 
 function dbCustomer(c: Customer, workspaceId: string) {
@@ -102,15 +152,17 @@ function uiCustomer(c: any): Customer {
   }
 }
 
-function uiOpportunity(o: any, customers: Customer[]): Opportunity {
+function uiOpportunity(o: any, customers: Customer[]): Opportunity | null {
+  const status = uiOpportunityStatus(o.status)
+  if (!status) return null
   const customer = customers.find(c => c.id === o.customer_id)
   const typeMap: Record<string, Opportunity['type']> = { missed_call: 'Missed Call', old_estimate: 'Old Estimate', declined_work: 'Declined Work', inactive_customer: 'Inactive Customer', maintenance_due: 'Maintenance Due' }
-  return { id: o.id, customerId: o.customer_id || '', customerName: customer?.name || 'Unknown customer', type: typeMap[o.source] || 'Other', status: (o.status === 'Open' ? 'Potential' : o.status) as Opportunity['status'], potentialValue: Number(o.amount || 0), collectedAmount: Number(o.recovered_amount || 0), dateIdentified: o.created_at, lastContact: undefined, nextAction: o.reason || 'Review opportunity', notes: o.reason || undefined }
+  return { id: o.id, customerId: o.customer_id || '', customerName: customer?.name || 'Unknown customer', type: typeMap[o.source] || 'Other', status, potentialValue: Number(o.amount || 0), collectedAmount: Number(o.recovered_amount || 0), dateIdentified: o.created_at, lastContact: undefined, nextAction: o.reason || 'Review opportunity', notes: o.reason || undefined }
 }
 
 function uiFollowUp(f: any, customers: Customer[]): FollowUp {
   const customer = customers.find(c => c.id === f.customer_id)
-  return { id: f.id, customerId: f.customer_id || '', customerName: customer?.name || 'Unknown customer', reason: f.message || 'Follow up', potentialValue: 0, lastContact: undefined, nextAction: f.message || 'Follow up', dueDate: f.scheduled_at || f.created_at, status: (f.status === 'Open' ? 'Upcoming' : f.status) as FollowUp['status'] }
+  return { id: f.id, customerId: f.customer_id || '', customerName: customer?.name || 'Unknown customer', reason: f.message || 'Follow up', potentialValue: 0, lastContact: undefined, nextAction: f.message || 'Follow up', dueDate: f.scheduled_at || f.created_at, status: uiFollowUpStatus(f.status, f.scheduled_at) }
 }
 
 export async function loadCloudData(workspaceId: string, fallback: AppData): Promise<AppData> {
@@ -131,7 +183,7 @@ export async function loadCloudData(workspaceId: string, fallback: AppData): Pro
   }
 
   const customers = customersRes.data.map(uiCustomer)
-  const opportunities = oppsRes.data.map(o => uiOpportunity(o, customers))
+  const opportunities = oppsRes.data.map(o => uiOpportunity(o, customers)).filter((o): o is Opportunity => Boolean(o))
   const followUps = followUpsRes.data.map(f => uiFollowUp(f, customers))
   const revenueEvents: RevenueEvent[] = recoveryRes.data.map((r: any) => ({ id: r.id, opportunityId: r.opportunity_id || '', customerId: r.customer_id || '', customerName: customers.find(c => c.id === r.customer_id)?.name || 'Unknown customer', amount: Number(r.amount || 0), date: r.created_at, description: r.note || 'Recovery event', type: 'Recovered' }))
 
@@ -144,12 +196,35 @@ export async function persistCustomer(c: Customer, workspaceId: string) {
 }
 
 export async function persistOpportunity(o: Opportunity, workspaceId: string) {
-  const { error } = await supabase.from('opportunities').upsert({ id: o.id, workspace_id: workspaceId, customer_id: o.customerId || null, title: o.notes || o.nextAction, source: o.type.toLowerCase().replace(/\s+/g, '_'), status: o.status === 'Potential' ? 'Open' : o.status, amount: o.potentialValue, recovered_amount: o.collectedAmount || 0, priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3, reason: o.nextAction, due_at: o.lastContact || null })
+  const recovered = o.status === 'Collected'
+  const { error } = await supabase.from('opportunities').upsert({
+    id: o.id,
+    workspace_id: workspaceId,
+    customer_id: o.customerId || null,
+    title: o.notes || o.nextAction,
+    source: o.type.toLowerCase().replace(/\s+/g, '_'),
+    status: DB_OPPORTUNITY_STATUS[o.status],
+    amount: o.potentialValue,
+    recovered_amount: o.collectedAmount || 0,
+    recovered_at: recovered ? new Date().toISOString() : null,
+    priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3,
+    reason: o.nextAction,
+    due_at: o.lastContact || null,
+  })
   if (error) throw error
 }
 
 export async function persistFollowUp(f: FollowUp, workspaceId: string) {
-  const { error } = await supabase.from('follow_ups').upsert({ id: f.id, workspace_id: workspaceId, customer_id: f.customerId || null, channel: 'manual', message: f.nextAction || f.reason, scheduled_at: f.dueDate || null, status: f.status })
+  const { error } = await supabase.from('follow_ups').upsert({
+    id: f.id,
+    workspace_id: workspaceId,
+    customer_id: f.customerId || null,
+    channel: 'task',
+    message: f.nextAction || f.reason,
+    scheduled_at: f.dueDate || null,
+    status: dbFollowUpStatus(f.status),
+    completed_at: f.status === 'Completed' ? new Date().toISOString() : null,
+  })
   if (error) throw error
 }
 
