@@ -4,9 +4,9 @@ import App from './App'
 import './index.css'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
-// Loose Ends V4 production entrypoint — keep the React application as the source of truth.
+// Primal Directive production entrypoint — keep the React application as the source of truth.
 if (typeof document !== 'undefined') {
-  document.documentElement.dataset.looseEndsVersion = 'V4'
+  document.documentElement.dataset.primalDirectiveVersion = 'V4'
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
