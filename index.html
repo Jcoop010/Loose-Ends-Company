@@ -1,58 +1,14 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#071017">
-<meta name="description" content="Loose Ends — Small Business Operating System with revenue intelligence">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>Loose Ends — Small Business OS</title>
-<link rel="stylesheet" href="styles.css?v=20260908-2">
-</head>
-<body>
-<div class="app-shell">
-  <aside class="sidebar">
-    <div class="brand"><div class="brand-mark">↗</div><div><div class="brand-name">LOOSE ENDS</div><div class="brand-tag">Small business operating system</div></div></div>
-    <nav>
-      <button type="button" class="nav-item active" data-view="overview"><span>⌂</span>Overview</button>
-      <button type="button" class="nav-item" data-view="loose"><span>☷</span>Loose Ends</button>
-      <button type="button" class="nav-item" data-view="customers"><span>♙</span>Customers</button>
-      <button type="button" class="nav-item" data-view="sales"><span>$</span>Sales Orders</button>
-      <button type="button" class="nav-item" data-view="calendar"><span>▦</span>Calendar</button>
-      <button type="button" class="nav-item" data-view="recovery"><span>↻</span>Recovery</button>
-      <button type="button" class="nav-item" data-view="intelligence"><span>▥</span>Intelligence</button>
-      <button type="button" class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
-    </nav>
-    <div class="sidebar-callout"><strong>Run the business.<br>Find the loose ends.<br>Recover the revenue.</strong><div class="line"></div></div>
-    <div class="demo-note">WORKSPACE<br><span>Live business data</span></div>
-  </aside>
-  <main class="main">
-    <header class="topbar"><div class="mobile-brand">LOOSE ENDS</div><div class="search">⌕ <input id="globalSearch" aria-label="Search" placeholder="Search customers, opportunities, orders, or tasks..."></div><div class="top-actions"><button class="icon-btn" aria-label="Notifications">♣</button><button class="shop-btn" id="businessSwitcher">Your Business <small>Owner</small>⌄</button><div class="avatar" id="businessAvatar">YB</div></div></header>
-    <section id="content"></section>
-  </main>
-</div>
-<div id="drawer" class="drawer-wrap hidden"><div class="backdrop"></div><aside class="drawer"></aside></div>
-<div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-window.__LOOSE_ENDS_SUPABASE_URL__='https://uehfvpnnoitgybsmdgef.supabase.co';
-window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVHV7Aiw_EXC4BC2g';
-</script>
-<script src="v3.1/supabase-client.js?v=20260908-2"></script>
-<script src="v3.1/app.js?v=20260908-2"></script>
-<script src="v3.1/sales-upgrade.js?v=20260908-2"></script>
-<script src="v3.1/sales-crm.js?v=20260908-2"></script>
-<script src="v3.1/nav-fix.js?v=20260908-2"></script>
-<script src="v3.1/mobile-nav.js?v=20260908-2"></script>
-<script src="v3.1/auth-live.js?v=20260908-2"></script>
-<script src="v3.1/live-realtime.js?v=20260908-2"></script>
-<script src="v3.1/live-product-layer.js?v=20260908-2"></script>
-<script src="v3.1/revenue-engine.js?v=20260908-2"></script>
-<script src="v3.1/revenue-os-layer.js?v=20260908-2"></script>
-<script src="v3.1/smb-os.js?v=20260908-2"></script>
-<script src="v3.1/workflow-engine.js?v=20260908-2"></script>
-<script src="v3.1/launch-readiness.js?v=20260908-2"></script>
-<script src="v3.1/launch-control.js?v=20260908-2"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#071017" />
+    <meta name="description" content="Loose Ends — Small Business Operating System with revenue intelligence" />
+    <title>Loose Ends — Small Business OS</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
 </html>
