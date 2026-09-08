@@ -62,9 +62,6 @@ export async function getOrCreateWorkspace() {
   const { data: userData, error: userError } = await supabase.auth.getUser()
   if (userError || !userData.user) throw userError || new Error('Not authenticated')
   const user = userData.user
-
-  // Never pick an arbitrary workspace. First resolve a workspace the current
-  // user actually belongs to; this matters as soon as an account has >1 workspace.
   const membership = await supabase
     .from('workspace_members')
     .select('workspace_id, workspaces(id,name)')
@@ -74,9 +71,7 @@ export async function getOrCreateWorkspace() {
     .maybeSingle()
 
   if (membership.error) throw membership.error
-  const memberWorkspace = Array.isArray(membership.data?.workspaces)
-    ? membership.data?.workspaces[0]
-    : membership.data?.workspaces
+  const memberWorkspace = Array.isArray(membership.data?.workspaces) ? membership.data?.workspaces[0] : membership.data?.workspaces
   if (memberWorkspace?.id) return { id: memberWorkspace.id, name: memberWorkspace.name }
 
   const name = user.user_metadata?.business_name || `${user.email?.split('@')[0] || 'My'} Workspace`
@@ -95,28 +90,24 @@ async function bootstrapDemoData(workspaceId: string) {
     notes: [`[LE_STATUS=${c.status}]`, `[LE_LTV=${c.lifetimeValue}]`, `[LE_LAST_SERVICE=${c.lastService}]`, ...(c.notes || [])].join('\n'),
   }))
   const customerIds = new Map(seedData.customers.map((c, i) => [c.id, customers[i].id]))
-
   const opportunities = seedData.opportunities.map(o => ({
     id: uuid(), workspace_id: workspaceId, customer_id: customerIds.get(o.customerId) || null,
-    title: o.notes || o.nextAction, source: o.type.toLowerCase().replace(/\s+/g, '_'),
+    title: o.notes || o.nextAction, source: o.source || o.type.toLowerCase().replace(/\s+/g, '_'),
     status: DB_OPPORTUNITY_STATUS[o.status], amount: o.potentialValue,
     recovered_amount: o.collectedAmount || 0, priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3,
     reason: o.nextAction, due_at: o.lastContact || null,
   }))
   const opportunityIds = new Map(seedData.opportunities.map((o, i) => [o.id, opportunities[i].id]))
-
   const followUps = seedData.followUps.map(f => ({
     id: uuid(), workspace_id: workspaceId, customer_id: customerIds.get(f.customerId) || null,
     opportunity_id: null, channel: 'task', message: f.nextAction || f.reason,
     scheduled_at: f.dueDate || null, status: dbFollowUpStatus(f.status),
   }))
-
   const recovery = seedData.revenueEvents.map(e => ({
     id: uuid(), workspace_id: workspaceId, opportunity_id: opportunityIds.get(e.opportunityId) || null,
     customer_id: customerIds.get(e.customerId) || null, amount: e.amount, created_at: e.date,
     note: e.description, source: e.type,
   }))
-
   const results = await Promise.all([
     supabase.from('customers').insert(customers),
     supabase.from('opportunities').insert(opportunities),
@@ -156,8 +147,19 @@ function uiOpportunity(o: any, customers: Customer[]): Opportunity | null {
   const status = uiOpportunityStatus(o.status)
   if (!status) return null
   const customer = customers.find(c => c.id === o.customer_id)
-  const typeMap: Record<string, Opportunity['type']> = { missed_call: 'Missed Call', old_estimate: 'Old Estimate', declined_work: 'Declined Work', inactive_customer: 'Inactive Customer', maintenance_due: 'Maintenance Due' }
-  return { id: o.id, customerId: o.customer_id || '', customerName: customer?.name || 'Unknown customer', type: typeMap[o.source] || 'Other', status, potentialValue: Number(o.amount || 0), collectedAmount: Number(o.recovered_amount || 0), dateIdentified: o.created_at, lastContact: undefined, nextAction: o.reason || 'Review opportunity', notes: o.reason || undefined }
+  const typeMap: Record<string, Opportunity['type']> = {
+    missed_call: 'Missed Call', old_estimate: 'Old Estimate', declined_work: 'Declined Work',
+    inactive_customer: 'Inactive Customer', maintenance_due: 'Maintenance Due', unpaid_invoice: 'Unpaid Invoice',
+    unbilled_work: 'Unbilled Work', stalled_lead: 'Stalled Lead', expansion: 'Expansion Opportunity',
+    renewal_risk: 'Renewal Risk', churn_risk: 'Churn Risk', payment_failure: 'Payment Failure',
+  }
+  return {
+    id: o.id, customerId: o.customer_id || '', customerName: customer?.name || 'Unknown customer',
+    type: typeMap[o.source] || 'Other', status, potentialValue: Number(o.amount || 0),
+    collectedAmount: Number(o.recovered_amount || 0), dateIdentified: o.created_at, lastContact: undefined,
+    nextAction: o.reason || 'Review opportunity', notes: o.reason || undefined, source: o.source || undefined,
+    confidence: o.confidence_score == null ? undefined : Number(o.confidence_score),
+  }
 }
 
 function uiFollowUp(f: any, customers: Customer[]): FollowUp {
@@ -176,17 +178,14 @@ export async function loadCloudData(workspaceId: string, fallback: AppData): Pro
   if (oppsRes.error) throw oppsRes.error
   if (followUpsRes.error) throw followUpsRes.error
   if (recoveryRes.error) throw recoveryRes.error
-
   if (customersRes.data.length === 0 && oppsRes.data.length === 0 && followUpsRes.data.length === 0 && recoveryRes.data.length === 0) {
     await bootstrapDemoData(workspaceId)
     return loadCloudData(workspaceId, fallback)
   }
-
   const customers = customersRes.data.map(uiCustomer)
   const opportunities = oppsRes.data.map(o => uiOpportunity(o, customers)).filter((o): o is Opportunity => Boolean(o))
   const followUps = followUpsRes.data.map(f => uiFollowUp(f, customers))
   const revenueEvents: RevenueEvent[] = recoveryRes.data.map((r: any) => ({ id: r.id, opportunityId: r.opportunity_id || '', customerId: r.customer_id || '', customerName: customers.find(c => c.id === r.customer_id)?.name || 'Unknown customer', amount: Number(r.amount || 0), date: r.created_at, description: r.note || 'Recovery event', type: 'Recovered' }))
-
   return { ...fallback, customers, opportunities, followUps, revenueEvents }
 }
 
@@ -198,31 +197,20 @@ export async function persistCustomer(c: Customer, workspaceId: string) {
 export async function persistOpportunity(o: Opportunity, workspaceId: string) {
   const recovered = o.status === 'Collected'
   const { error } = await supabase.from('opportunities').upsert({
-    id: o.id,
-    workspace_id: workspaceId,
-    customer_id: o.customerId || null,
-    title: o.notes || o.nextAction,
-    source: o.type.toLowerCase().replace(/\s+/g, '_'),
-    status: DB_OPPORTUNITY_STATUS[o.status],
-    amount: o.potentialValue,
-    recovered_amount: o.collectedAmount || 0,
+    id: o.id, workspace_id: workspaceId, customer_id: o.customerId || null,
+    title: o.notes || o.nextAction, source: o.source || o.type.toLowerCase().replace(/\s+/g, '_'),
+    status: DB_OPPORTUNITY_STATUS[o.status], amount: o.potentialValue, recovered_amount: o.collectedAmount || 0,
     recovered_at: recovered ? new Date().toISOString() : null,
     priority: o.potentialValue >= 1000 ? 1 : o.potentialValue >= 500 ? 2 : 3,
-    reason: o.nextAction,
-    due_at: o.lastContact || null,
+    reason: o.nextAction, due_at: o.lastContact || null,
   })
   if (error) throw error
 }
 
 export async function persistFollowUp(f: FollowUp, workspaceId: string) {
   const { error } = await supabase.from('follow_ups').upsert({
-    id: f.id,
-    workspace_id: workspaceId,
-    customer_id: f.customerId || null,
-    channel: 'task',
-    message: f.nextAction || f.reason,
-    scheduled_at: f.dueDate || null,
-    status: dbFollowUpStatus(f.status),
+    id: f.id, workspace_id: workspaceId, customer_id: f.customerId || null, channel: 'task',
+    message: f.nextAction || f.reason, scheduled_at: f.dueDate || null, status: dbFollowUpStatus(f.status),
     completed_at: f.status === 'Completed' ? new Date().toISOString() : null,
   })
   if (error) throw error
