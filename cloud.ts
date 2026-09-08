@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { AppData, Customer, Opportunity, FollowUp, RevenueEvent } from './types'
+import type { AppData, Business, Customer, Opportunity, FollowUp, RevenueEvent, Request, Lead, MarketingTask, Alert, Integration, SalesOrder, CalendarEvent } from './types'
 
 const uuid = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -90,32 +90,64 @@ function emptyWorkspaceData(fallback: AppData): AppData {
   }
 }
 
+const ARRAY_RECORDS = ['alerts', 'requests', 'marketingTasks', 'leads', 'salesOrders', 'calendarEvents', 'integrations'] as const
+type ArrayRecordType = typeof ARRAY_RECORDS[number]
+
+function recordsToData(rows: any[], base: AppData): AppData {
+  const next = { ...base }
+  for (const type of ARRAY_RECORDS) {
+    const values = rows.filter(r => r.record_type === type).map(r => r.data)
+    ;(next as any)[type] = values
+  }
+  const business = rows.find(r => r.record_type === 'business')?.data as Business | undefined
+  if (business) next.business = business
+  return next
+}
+
 export async function loadCloudData(workspaceId: string, fallback: AppData): Promise<AppData> {
-  const [customersRes, oppsRes, followUpsRes, recoveryRes] = await Promise.all([
+  const [customersRes, oppsRes, followUpsRes, recoveryRes, recordsRes] = await Promise.all([
     supabase.from('customers').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
     supabase.from('opportunities').select('*').eq('workspace_id', workspaceId).order('priority', { ascending: true }),
     supabase.from('follow_ups').select('*').eq('workspace_id', workspaceId).order('scheduled_at', { ascending: true }),
     supabase.from('recovery_events').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }),
+    supabase.from('workspace_records').select('id,record_type,record_key,data,created_at,updated_at').eq('workspace_id', workspaceId),
   ])
   if (customersRes.error) throw customersRes.error
   if (oppsRes.error) throw oppsRes.error
   if (followUpsRes.error) throw followUpsRes.error
   if (recoveryRes.error) throw recoveryRes.error
+  if (recordsRes.error) throw recordsRes.error
 
-  // Authenticated workspaces must be sourced from cloud data only. Until the remaining
-  // domains have cloud persistence, returning empty collections is safer than exposing
-  // bundled/demo records from local seed data.
   const base = emptyWorkspaceData(fallback)
   const customers = customersRes.data.map(uiCustomer)
   const opportunities = oppsRes.data.map(o => uiOpportunity(o, customers)).filter((o): o is Opportunity => Boolean(o))
   const followUps = followUpsRes.data.map(f => uiFollowUp(f, customers))
   const revenueEvents: RevenueEvent[] = recoveryRes.data.map((r: any) => ({ id: r.id, opportunityId: r.opportunity_id || '', customerId: r.customer_id || '', customerName: customers.find(c => c.id === r.customer_id)?.name || 'Unknown customer', amount: Number(r.amount || 0), date: r.created_at, description: r.note || 'Recovery event', type: 'Recovered' }))
-  return { ...base, customers, opportunities, followUps, revenueEvents }
+  return recordsToData({ ...base, customers, opportunities, followUps, revenueEvents }, recordsRes.data || [])
+}
+
+async function persistRecord<T>(recordType: string, id: string, data: T, workspaceId: string) {
+  const { error } = await supabase.from('workspace_records').upsert({ id, workspace_id: workspaceId, record_type: recordType, record_key: id, data, updated_at: new Date().toISOString() })
+  if (error) throw error
+}
+
+async function deleteRecord(recordType: string, id: string, workspaceId: string) {
+  const { error } = await supabase.from('workspace_records').delete().eq('workspace_id', workspaceId).eq('record_type', recordType).eq('record_key', id)
+  if (error) throw error
+}
+
+export async function persistBusiness(business: Business, workspaceId: string) {
+  await persistRecord('business', '00000000-0000-4000-8000-000000000001', business, workspaceId)
 }
 
 export async function persistCustomer(c: Customer, workspaceId: string) {
   const name = splitName(c.name)
-  const notes = (c.notes || []).filter(n => !n.startsWith('[LE_')).join('\n')
+  const notes = [
+    ...(c.notes || []).filter(n => !n.startsWith('[LE_')),
+    `[LE_STATUS=${c.status}]`,
+    `[LE_LTV=${c.lifetimeValue || 0}]`,
+    c.lastService ? `[LE_LAST_SERVICE=${c.lastService}]` : '',
+  ].filter(Boolean).join('\n')
   const { error } = await supabase.from('customers').upsert({ id: c.id, workspace_id: workspaceId, first_name: name.first_name, last_name: name.last_name, email: c.email || null, phone: c.phone || null, notes, external_id: null })
   if (error) throw error
 }
@@ -136,4 +168,13 @@ export async function persistRecovery(e: RevenueEvent, workspaceId: string) {
   if (error) throw error
 }
 
-export { splitName }
+export async function persistAlert(a: Alert, workspaceId: string) { await persistRecord('alerts', a.id, a, workspaceId) }
+export async function persistRequest(r: Request, workspaceId: string) { await persistRecord('requests', r.id, r, workspaceId) }
+export async function persistMarketingTask(t: MarketingTask, workspaceId: string) { await persistRecord('marketingTasks', t.id, t, workspaceId) }
+export async function persistLead(l: Lead, workspaceId: string) { await persistRecord('leads', l.id, l, workspaceId) }
+export async function persistSalesOrder(o: SalesOrder, workspaceId: string) { await persistRecord('salesOrders', o.id, o, workspaceId) }
+export async function persistCalendarEvent(e: CalendarEvent, workspaceId: string) { await persistRecord('calendarEvents', e.id, e, workspaceId) }
+export async function persistIntegration(i: Integration, workspaceId: string) { await persistRecord('integrations', i.id, i, workspaceId) }
+export async function deleteWorkspaceRecord(type: ArrayRecordType, id: string, workspaceId: string) { await deleteRecord(type, id, workspaceId) }
+
+export { splitName, uuid }
