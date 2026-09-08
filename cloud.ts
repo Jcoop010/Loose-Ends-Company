@@ -57,12 +57,6 @@ export async function getOrCreateWorkspace() {
   return created.data
 }
 
-function dbCustomer(c: Customer, workspaceId: string) {
-  const name = splitName(c.name)
-  const notes = (c.notes || []).filter(n => !n.startsWith('[LE_')).join('\n')
-  return { id: c.id, workspace_id: workspaceId, first_name: name.first_name, last_name: name.last_name, email: c.email || null, phone: c.phone || null, notes, external_id: null }
-}
-
 function uiCustomer(c: any): Customer {
   const rawNotes = c.notes ? c.notes.split('\n').filter(Boolean) : []
   const statusMatch = rawNotes.find((n: string) => n.startsWith('[LE_STATUS='))
@@ -108,20 +102,21 @@ export async function loadCloudData(workspaceId: string, fallback: AppData): Pro
   if (followUpsRes.error) throw followUpsRes.error
   if (recoveryRes.error) throw recoveryRes.error
 
-  // A newly-created workspace must be empty. Never insert bundled demo records into a real customer's account.
-  if (customersRes.data.length === 0 && oppsRes.data.length === 0 && followUpsRes.data.length === 0 && recoveryRes.data.length === 0) {
-    return emptyWorkspaceData(fallback)
-  }
-
+  // Authenticated workspaces must be sourced from cloud data only. Until the remaining
+  // domains have cloud persistence, returning empty collections is safer than exposing
+  // bundled/demo records from local seed data.
+  const base = emptyWorkspaceData(fallback)
   const customers = customersRes.data.map(uiCustomer)
   const opportunities = oppsRes.data.map(o => uiOpportunity(o, customers)).filter((o): o is Opportunity => Boolean(o))
   const followUps = followUpsRes.data.map(f => uiFollowUp(f, customers))
   const revenueEvents: RevenueEvent[] = recoveryRes.data.map((r: any) => ({ id: r.id, opportunityId: r.opportunity_id || '', customerId: r.customer_id || '', customerName: customers.find(c => c.id === r.customer_id)?.name || 'Unknown customer', amount: Number(r.amount || 0), date: r.created_at, description: r.note || 'Recovery event', type: 'Recovered' }))
-  return { ...fallback, customers, opportunities, followUps, revenueEvents }
+  return { ...base, customers, opportunities, followUps, revenueEvents }
 }
 
 export async function persistCustomer(c: Customer, workspaceId: string) {
-  const { error } = await supabase.from('customers').upsert(dbCustomer(c, workspaceId))
+  const name = splitName(c.name)
+  const notes = (c.notes || []).filter(n => !n.startsWith('[LE_')).join('\n')
+  const { error } = await supabase.from('customers').upsert({ id: c.id, workspace_id: workspaceId, first_name: name.first_name, last_name: name.last_name, email: c.email || null, phone: c.phone || null, notes, external_id: null })
   if (error) throw error
 }
 
