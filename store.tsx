@@ -22,6 +22,15 @@ function cloneSeed(): AppData {
   return data
 }
 
+function blankWorkspaceData(base: AppData): AppData {
+  return {
+    ...base,
+    customers: [], vehicles: [], jobs: [], estimates: [], opportunities: [], followUps: [],
+    alerts: [], requests: [], marketingTasks: [], revenueEvents: [], timelineEvents: [],
+    leads: [], salesOrders: [], calendarEvents: [],
+  }
+}
+
 function loadLocalData(): AppData {
   try {
     if (typeof window === 'undefined') return cloneSeed()
@@ -85,7 +94,7 @@ interface StoreContextValue {
 const StoreContext = createContext<StoreContextValue | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(loadLocalData)
+  const [data, setData] = useState<AppData>(() => import.meta.env.PROD ? blankWorkspaceData(cloneSeed()) : loadLocalData())
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [cloudReady, setCloudReady] = useState(false)
 
@@ -100,7 +109,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (active) setData(cloud)
         if (active) setCloudReady(true)
       } catch (error) {
-        console.warn('Loose Ends cloud sync unavailable; using local data.', error)
+        console.warn('Loose Ends cloud sync unavailable.', error)
+        // Never fall back to bundled/demo operational records in production.
+        if (active && import.meta.env.PROD) setData(prev => blankWorkspaceData(prev))
         if (active) setCloudReady(false)
       }
     }
@@ -207,8 +218,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
   const resetData = useCallback(() => {
     try { if (typeof window !== 'undefined') { window.localStorage.removeItem(STORAGE_KEY); window.localStorage.removeItem(`${STORAGE_KEY}_notifications`) } } catch { /* ignore */ }
-    setData(cloneSeed())
-  }, [])
+    setData(workspaceId && import.meta.env.PROD ? blankWorkspaceData(cloneSeed()) : cloneSeed())
+  }, [workspaceId])
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(() => {})
     return () => listener.subscription.unsubscribe()
