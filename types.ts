@@ -22,24 +22,24 @@ export interface Job {
   id: string
   customerId: string
   vehicleId?: string
-  title: string
+  title?: string
   description?: string
   status: string
   amount?: number
   date?: string
-  createdAt: string
+  createdAt?: string
 }
 
 export interface Estimate {
   id: string
   customerId: string
   vehicleId?: string
-  title: string
+  title?: string
   description?: string
   amount: number
   status: string
   date?: string
-  createdAt: string
+  createdAt?: string
 }
 
 export interface Customer {
