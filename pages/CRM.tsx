@@ -3,9 +3,11 @@ import { useRouter } from '../router'
 import { useStore } from '../store'
 import { formatCurrency, formatDate } from '../utils'
 import { PageHeader, CustomerStatusBadge, FollowUpStatusBadge } from '../components/ui'
-import { Users, UserPlus, DollarSign, CheckSquare, Search, Plus, ArrowRight, Phone, Mail, Target } from 'lucide-react'
+import { Users, UserPlus, DollarSign, CheckSquare, Search, Plus, ArrowRight, Phone, Mail, Target, type LucideIcon } from 'lucide-react'
 
 const stages = ['Potential', 'Contacted', 'Responded', 'Scheduled', 'Completed', 'Collected'] as const
+
+type Metric = [label: string, value: string | number, icon: LucideIcon]
 
 export function CRM() {
   const { data, addCustomer, addLead, updateOpportunity, updateFollowUp } = useStore()
@@ -24,6 +26,13 @@ export function CRM() {
   const pipelineValue = openPipeline.reduce((sum, o) => sum + o.potentialValue, 0)
   const activeCustomers = data.customers.filter(c => c.status === 'Active').length
   const recoverable = data.opportunities.filter(o => o.status !== 'Collected').reduce((sum, o) => sum + Math.max(0, o.potentialValue - (o.collectedAmount || 0)), 0)
+
+  const metrics: Metric[] = [
+    ['Active Customers', activeCustomers, Users],
+    ['Pipeline Value', formatCurrency(pipelineValue), DollarSign],
+    ['Recoverable Revenue', formatCurrency(recoverable), Target],
+    ['Open Follow-Ups', dueFollowUps.length, CheckSquare],
+  ]
 
   const submitCustomer = (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,9 +53,7 @@ export function CRM() {
   return <div className="space-y-6 animate-fadeIn">
     <PageHeader title="CRM" subtitle="One customer record for contacts, pipeline, follow-ups, and revenue." />
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {[
-        ['Active Customers', activeCustomers, Users], ['Pipeline Value', formatCurrency(pipelineValue), DollarSign], ['Recoverable Revenue', formatCurrency(recoverable), Target], ['Open Follow-Ups', dueFollowUps.length, CheckSquare],
-      ].map(([label, value, Icon]) => <div key={String(label)} className="card p-4"><div className="flex items-center justify-between"><div><p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">{label}</p><p className="text-xl font-bold text-slate-900 mt-1">{value as any}</p></div><div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center"><Icon className="w-5 h-5" /></div></div></div>)}
+      {metrics.map(([label, value, Icon]) => <div key={label} className="card p-4"><div className="flex items-center justify-between"><div><p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">{label}</p><p className="text-xl font-bold text-slate-900 mt-1">{value}</p></div><div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center"><Icon className="w-5 h-5" /></div></div></div>)}
     </div>
     <div className="flex flex-col sm:flex-row gap-2">
       <div className="relative flex-1"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} className="input pl-9" placeholder="Search customers, opportunities, or types..." /></div>
