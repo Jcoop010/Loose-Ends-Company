@@ -48,6 +48,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addFollowUp = useCallback((fu: Omit<FollowUp, 'id'>) => { const created = { ...fu, id: genId() }; setData(prev => ({ ...prev, followUps: [created, ...prev.followUps] })); if (workspaceId) void persistFollowUp(created, workspaceId).catch(console.error) }, [workspaceId])
   const addRevenueEvent = useCallback((event: Omit<RevenueEvent, 'id'>) => { const created = { ...event, id: genId() }; setData(prev => ({ ...prev, revenueEvents: [created, ...prev.revenueEvents] })); if (workspaceId) void persistRecovery(created, workspaceId).catch(console.error) }, [workspaceId])
   const runRevenueScan = useCallback(() => { const result = scanRevenue(data); result.opportunities.forEach(addOpportunity); return { created: result.opportunities.length, potential: result.totalPotential } }, [data, addOpportunity])
+
+  // Revenue intelligence scans automatically after cloud hydration and after
+  // workspace changes. The deterministic engine only creates signals supported
+  // by available data and de-duplicates against open opportunities.
+  useEffect(() => {
+    if (!cloudReady) return
+    runRevenueScan()
+  }, [cloudReady, runRevenueScan])
+
   const dismissFollowUp = useCallback((id: string) => updateFollowUp(id, { status: 'Dismissed' }), [updateFollowUp])
   const addSalesOrder = useCallback((order: Omit<SalesOrder, 'id' | 'number' | 'createdAt'>) => { const id = genId(); setData(prev => { const created: SalesOrder = { ...order, id, number: `SO-${(prev.salesOrders || []).length + 1001}`, createdAt: new Date().toISOString() }; if (workspaceId) void persistSalesOrder(created, workspaceId).catch(console.error); return { ...prev, salesOrders: [created, ...(prev.salesOrders || [])] } }); return id }, [workspaceId])
   const updateSalesOrder = useCallback((id: string, updates: Partial<SalesOrder>) => setData(prev => { const next = (prev.salesOrders || []).map(o => o.id === id ? { ...o, ...updates } : o); const changed = next.find(o => o.id === id); if (workspaceId && changed) void persistSalesOrder(changed, workspaceId).catch(console.error); return { ...prev, salesOrders: next } }), [workspaceId])
