@@ -27,8 +27,8 @@ function DashboardRoutes() {
   else if (route === '/dashboard/sales' || route.startsWith('/dashboard/orders')) page = <SalesOrders />
   else if (route.startsWith('/dashboard/calendar')) page = <CalendarPage />
   else if (route.startsWith('/dashboard/documents')) page = <BusinessRequests />
-  else if (route.startsWith('/dashboard/revenue-recovery')) page = <RevenueRecovery />
-  else if (route.startsWith('/dashboard/revenue')) page = <Dashboard />
+  else if (route.startsWith('/dashboard/loose-ends')) page = <RevenueRecovery />
+  else if (route.startsWith('/dashboard/revenue-recovery') || route === '/dashboard/revenue') page = <RevenueRecovery />
   else if (route.startsWith('/dashboard/tasks')) page = <FollowUpCenter />
   else if (route.startsWith('/dashboard/intelligence')) page = <AskAssistant />
   else if (route.startsWith('/dashboard/alerts')) page = <Alerts />
