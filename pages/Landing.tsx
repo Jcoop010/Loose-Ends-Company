@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useRouter } from '../router'
 import { useStore } from '../store'
+import { persistPublicLead } from '../cloud'
 import { Zap, Menu, X, Check, DollarSign, CalendarCheck, Bell, TrendingUp } from 'lucide-react'
 
 export function LandingPage() {
@@ -8,12 +9,27 @@ export function LandingPage() {
   const { addLead } = useStore()
   const [mobileMenu, setMobileMenu] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const [form, setForm] = useState({ name: '', business: '', phone: '', email: '', businessType: '', biggestProblem: '' })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    addLead(form)
-    setSubmitted(true)
+    if (submitting) return
+    setSubmitting(true)
+    setSubmitError('')
+    try {
+      await persistPublicLead(form)
+      // Keep an authenticated workspace copy when one exists, while the public
+      // capture above guarantees the lead is never lost just because the visitor
+      // has not created an account yet.
+      addLead(form)
+      setSubmitted(true)
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'We could not submit your audit request. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const scrollToAudit = () => {
@@ -38,7 +54,7 @@ export function LandingPage() {
               <button onClick={scrollToAudit} className="text-sm font-medium text-slate-600 hover:text-slate-900">Free Audit</button>
               <button onClick={() => navigate('/dashboard')} className="btn-primary text-sm">View Demo</button>
             </div>
-            <button onClick={() => setMobileMenu(!mobileMenu)} className="md:hidden p-2">
+            <button onClick={() => setMobileMenu(!mobileMenu)} className="md:hidden p-2" aria-label="Open menu">
               {mobileMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
@@ -152,8 +168,9 @@ export function LandingPage() {
                 <label className="label">What's your biggest operational challenge?</label>
                 <textarea value={form.biggestProblem} onChange={e => setForm({ ...form, biggestProblem: e.target.value })} className="input" rows={3} placeholder="Tell us what's keeping you up at night..." />
               </div>
-              <button type="submit" className="btn-accent w-full text-base py-3">
-                <TrendingUp className="w-5 h-5" /> GET MY FREE AUDIT
+              {submitError && <p role="alert" className="text-sm text-error-600">{submitError}</p>}
+              <button type="submit" disabled={submitting} className="btn-accent w-full text-base py-3 disabled:opacity-60">
+                <TrendingUp className="w-5 h-5" /> {submitting ? 'SUBMITTING…' : 'GET MY FREE AUDIT'}
               </button>
             </form>
           )}
