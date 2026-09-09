@@ -55,7 +55,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
     try {
       const { error: authError } = await supabase.auth.signInWithOtp({
         email: email.trim(),
-        options: { emailRedirectTo: window.location.origin, shouldCreateUser: true },
+        options: {
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+          shouldCreateUser: true,
+        },
       })
       if (authError) setError(authError.message)
       else setMessage('Check your email for your secure sign-in link.')
