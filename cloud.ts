@@ -93,7 +93,7 @@ function emptyWorkspaceData(fallback: AppData): AppData {
 const ARRAY_RECORDS = ['alerts', 'requests', 'marketingTasks', 'leads', 'salesOrders', 'calendarEvents', 'integrations'] as const
 type ArrayRecordType = typeof ARRAY_RECORDS[number]
 
-function recordsToData(rows: any[], base: AppData): AppData {
+function recordsToData(base: AppData, rows: any[]): AppData {
   const next = { ...base }
   for (const type of ARRAY_RECORDS) {
     const values = rows.filter(r => r.record_type === type).map(r => r.data)
