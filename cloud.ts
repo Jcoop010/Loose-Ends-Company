@@ -177,4 +177,16 @@ export async function persistCalendarEvent(e: CalendarEvent, workspaceId: string
 export async function persistIntegration(i: Integration, workspaceId: string) { await persistRecord('integrations', i.id, i, workspaceId) }
 export async function deleteWorkspaceRecord(type: ArrayRecordType, id: string, workspaceId: string) { await deleteRecord(type, id, workspaceId) }
 
+export async function persistPublicLead(lead: Omit<Lead, 'id' | 'createdAt'>) {
+  const { error } = await supabase.from('public_leads').insert({
+    name: lead.name.trim(),
+    business: lead.business.trim(),
+    phone: lead.phone.trim(),
+    email: lead.email.trim().toLowerCase(),
+    business_type: lead.businessType?.trim() || null,
+    biggest_problem: lead.biggestProblem?.trim() || null,
+  })
+  if (error) throw error
+}
+
 export { splitName, uuid }
