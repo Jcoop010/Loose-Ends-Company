@@ -65,15 +65,15 @@
     var autoOk=t.workflows&&t.workflows.ok&&t.workflow_runs&&t.workflow_runs.ok&&t.workflow_events&&t.workflow_events.ok;
     var recoveryOk=t.opportunities&&t.opportunities.ok&&t.recovery_events&&t.recovery_events.ok;
     var moneyOpen=0;
-    root.innerHTML='<div class="lc-top"><div><div class="lc-title">Business Control Center</div><div class="lc-sub">Live workspace health. This checks the operating system itself—not a demo state.</div></div><div class="lc-actions"><button onclick="LELaunchControl.refresh()">Refresh</button><button class="lc-primary" onclick="LELaunchControl.openAutomation()">Open Automations</button></div></div>'+\
-      '<div class="lc-grid"><div class="lc-stat"><span>Customers</span><b>'+((t.customers&&t.customers.count)||0)+'</b></div><div class="lc-stat"><span>Open opportunities</span><b>'+((t.opportunities&&t.opportunities.count)||0)+'</b></div><div class="lc-stat"><span>Appointments</span><b>'+((t.appointments&&t.appointments.count)||0)+'</b></div><div class="lc-stat"><span>Active automations</span><b>'+((d.enabled&&d.enabled.count)||0)+'</b></div></div>'+\
-      '<div class="lc-health">'+\
-      '<div class="lc-health-row"><div><strong>Business data layer</strong><small>Customers, sales, scheduling, tasks, documents and follow-ups</small></div>'+badge(coreOk,'workspace data')+'</div>'+\
-      '<div class="lc-health-row"><div><strong>Revenue recovery</strong><small>Opportunities and recovery event stream</small></div>'+badge(recoveryOk,'recovery')+'</div>'+\
-      '<div class="lc-health-row"><div><strong>Automation engine</strong><small>Workflows, events and run history are reachable</small></div>'+badge(autoOk,'automation')+'</div>'+\
-      '<div class="lc-health-row"><div><strong>Run queue</strong><small>'+((d.pending&&d.pending.count)||0)+' waiting approval · '+((d.failed&&d.failed.count)||0)+' failed runs</small></div>'+badge((!d.failed||d.failed.count===0),'queue health')+'</div>'+\
-      '<div class="lc-health-row"><div><strong>QuickBooks</strong><small>Live connection records in this workspace</small></div>'+badge(!!(d.quickbooks&&d.quickbooks.count),'accounting connection')+'</div>'+\
-      '<div class="lc-health-row"><div><strong>Audit trail</strong><small>'+((t.audit_events&&t.audit_events.count)||0)+' recorded operational events</small></div>'+badge(!!(t.audit_events&&t.audit_events.ok),'audit')+'</div>'+\
+    root.innerHTML='<div class="lc-top"><div><div class="lc-title">Business Control Center</div><div class="lc-sub">Live workspace health. This checks the operating system itself—not a demo state.</div></div><div class="lc-actions"><button onclick="LELaunchControl.refresh()">Refresh</button><button class="lc-primary" onclick="LELaunchControl.openAutomation()">Open Automations</button></div></div>'+
+      '<div class="lc-grid"><div class="lc-stat"><span>Customers</span><b>'+((t.customers&&t.customers.count)||0)+'</b></div><div class="lc-stat"><span>Open opportunities</span><b>'+((t.opportunities&&t.opportunities.count)||0)+'</b></div><div class="lc-stat"><span>Appointments</span><b>'+((t.appointments&&t.appointments.count)||0)+'</b></div><div class="lc-stat"><span>Active automations</span><b>'+((d.enabled&&d.enabled.count)||0)+'</b></div></div>'+
+      '<div class="lc-health">'+
+      '<div class="lc-health-row"><div><strong>Business data layer</strong><small>Customers, sales, scheduling, tasks, documents and follow-ups</small></div>'+badge(coreOk,'workspace data')+'</div>'+
+      '<div class="lc-health-row"><div><strong>Revenue recovery</strong><small>Opportunities and recovery event stream</small></div>'+badge(recoveryOk,'recovery')+'</div>'+
+      '<div class="lc-health-row"><div><strong>Automation engine</strong><small>Workflows, events and run history are reachable</small></div>'+badge(autoOk,'automation')+'</div>'+
+      '<div class="lc-health-row"><div><strong>Run queue</strong><small>'+((d.pending&&d.pending.count)||0)+' waiting approval · '+((d.failed&&d.failed.count)||0)+' failed runs</small></div>'+badge((!d.failed||d.failed.count===0),'queue health')+'</div>'+
+      '<div class="lc-health-row"><div><strong>QuickBooks</strong><small>Live connection records in this workspace</small></div>'+badge(!!(d.quickbooks&&d.quickbooks.count),'accounting connection')+'</div>'+
+      '<div class="lc-health-row"><div><strong>Audit trail</strong><small>'+((t.audit_events&&t.audit_events.count)||0)+' recorded operational events</small></div>'+badge(!!(t.audit_events&&t.audit_events.ok),'audit')+'</div>'+
       '</div><div class="lc-foot">Checked '+d.checked.toLocaleTimeString()+' · A provider is never shown as connected without live workspace evidence.</div>';
   }
   async function refresh(){
