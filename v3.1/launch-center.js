@@ -32,7 +32,7 @@
     localStorage.setItem(KEY+':'+w.id,'done');toast('Workspace is ready');close();location.reload();return true;
   }
   function close(){var m=document.getElementById('le-launch-modal');if(m)m.remove()}
-  function open(w,force){
+  async function open(w,force){
     if(!w)return;css();close();
     var m=document.createElement('div');m.id='le-launch-modal';m.className='le-launch-modal';
     m.innerHTML='<div class="le-launch-card"><div style="font-size:10px;font-weight:900;letter-spacing:.14em;color:#667085">LOOSE ENDS · CUSTOMER LAUNCH</div><h2>Get your revenue recovery system live.</h2><p>We will set up the business profile, bring in your existing customer/opportunity data, enable the recovery engine, and prepare automations. You can finish the remaining integrations later.</p>'+
