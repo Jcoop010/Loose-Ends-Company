@@ -180,6 +180,6 @@
     document.head.appendChild(s);
   }
   function boot(){styles();hook();setTimeout(hook,400);setTimeout(hook,1500);}
-  window.LESalesCRM={go:go,renderSales:renderSales,renderCal:renderCal};
+  window.LESalesCRM={go:go,renderSales:renderSales,renderCal:renderCal,setData:function(next){if(next&&Array.isArray(next.orders))db.orders=next.orders;if(next&&Array.isArray(next.events))db.events=next.events;persist(db);}};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
