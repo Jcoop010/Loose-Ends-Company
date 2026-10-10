@@ -17,7 +17,7 @@
       {id:'so2',number:'SO-1002',customer:'Sarah Miller',title:'Brake follow-up',status:'Quoted',pay:'Unpaid',due:'2026-09-09',when:'',tax:0.07,notes:'',items:[{name:'Brake/rotor package',qty:1,price:1240}]},
       {id:'so3',number:'SO-1003',customer:'Robert Wilson',title:'Inspection + estimate',status:'Confirmed',pay:'Unpaid',due:'2026-09-08',when:'2026-09-08T15:00',tax:0.07,notes:'Return missed call',items:[{name:'Inspection',qty:1,price:89},{name:'Estimate labor',qty:1,price:110}]},
       {id:'so4',number:'SO-1004',customer:'Lisa Reynolds',title:'Service reactivation',status:'Invoiced',pay:'Partial',due:'2026-09-07',when:'',tax:0.07,notes:'',items:[{name:'Full service',qty:1,price:920}]},
-      {id:'so5',number:'SO-1005',customer:'James Carter',title:'Overdue service',status:'Paid',pay:'Paid',due:'2026-09-06',when:'',tax:0.07,notes:'',items:[{name:'Service visit',qty:1,price:680]}]
+      {id:'so5',number:'SO-1005',customer:'James Carter',title:'Overdue service',status:'Paid',pay:'Paid',due:'2026-09-06',when:'',tax:0.07,notes:'',items:[{name:'Service visit',qty:1,price:680}]},
     ],events:[
       {id:'ev1',title:'Angela Brooks — brake drop-off',type:'Appointment',start:'2026-09-08T09:00',end:'2026-09-08T11:00',who:'Angela Brooks',loc:'Bay 2'},
       {id:'ev2',title:'Call Robert Wilson',type:'Call',start:'2026-09-08T15:00',end:'2026-09-08T15:20',who:'Robert Wilson',loc:''},
@@ -39,7 +39,7 @@
     if(typeof window.setView==='function' && !LE.__salesHooked) window.setView(view);
   }
   function head(title,sub,label){
-    return '<div class="page-head"><div><div class="eyebrow">'+(label||'SALES CRM')+'</div><div class="title">'+title+'</div><div class="subtitle">'+sub+'</div></div><div class="date">Sep 7, 2026</div></div>';
+    return '<div class="page-head"><div><div class="eyebrow">'+(label||'SALES CRM')+'</div><div class="title">'+title+'</div><div class="subtitle">'+sub+'</div></div><div class="date">'+new Date().toLocaleDateString()+'</div></div>';
   }
   function kpi(l,v,n){return '<div class="card kpi"><div class="kpi-top">'+l+'</div><div class="kpi-value">'+v+'</div><div class="kpi-note">'+n+'</div></div>';}
   function renderSales(){
@@ -107,7 +107,7 @@
     };
   }
   function renderCal(){
-    var now=new Date(2026,8,7);
+    var now=new Date();
     var month=window.__leCal||{y:now.getFullYear(),m:now.getMonth()};
     window.__leCal=month;
     var first=new Date(month.y,month.m,1);
