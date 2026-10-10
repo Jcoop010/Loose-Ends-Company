@@ -44,7 +44,7 @@
         add({key:'invoice:'+d.id,opportunityId:d.opportunity_id||null,confidence:confidence('OVERDUE INVOICE'),kind:'OVERDUE INVOICE',title:(d.document_number || 'Invoice') + ' is overdue',detail:customer(d.customer_id) + ' · ' + Math.max(1,Math.floor((now-due)/86400000)) + ' days past due. Confirm the balance, then send a payment reminder.',amount:amount,priority:100 + Math.min(30,Math.floor((now-due)/86400000)),action:'Create follow-up task',task:{title:'Follow up on overdue invoice ' + (d.document_number || ''),customer_id:d.customer_id || null,opportunity_id:d.opportunity_id || null}});
       }
       if (type === 'quote' && status === 'sent' && dayDiff(d.created_at) >= 5) {
-        var hasActive = followUps.some(function (f) { return f.opportunity_id === d.opportunity_id && ['pending','scheduled','open'].indexOf(String(f.status||'').toLowerCase()) >= 0 && (!f.scheduled_at || new Date(f.scheduled_at).getTime() >= now); });
+        var hasActive = !!d.opportunity_id && followUps.some(function (f) { return String(f.opportunity_id || '') === String(d.opportunity_id) && ['pending','scheduled','open'].indexOf(String(f.status||'').toLowerCase()) >= 0 && (!f.scheduled_at || new Date(f.scheduled_at).getTime() >= now); });
         if (!hasActive) add({key:'quote:'+d.id,opportunityId:d.opportunity_id||null,confidence:confidence('STALE QUOTE'),kind:'STALE QUOTE',title:(d.document_number || 'Sent quote') + ' may need a follow-up',detail:customer(d.customer_id) + ' · sent at least 5 days ago with no upcoming follow-up recorded.',amount:amount,priority:65 + Math.min(20,dayDiff(d.created_at)),action:'Create follow-up task',task:{title:'Follow up on quote ' + (d.document_number || ''),customer_id:d.customer_id || null,opportunity_id:d.opportunity_id || null}});
       }
     });
@@ -90,7 +90,7 @@
   async function act(key) {
     if (actionsInFlight[key]) return;
     actionsInFlight[key] = true;
-    var st=getState();if(!st)return;
+    var st=getState();if(!st){delete actionsInFlight[key];return;}
     var result=scan(st), signal=result.signals.find(function(s){return s.key===key;});if(!signal){delete actionsInFlight[key];return;}
     if(!signal.task && signal.opportunityId && window.LE && window.LE.openOpp){delete actionsInFlight[key];window.LE.openOpp(signal.opportunityId);return;}
     if(signal.taskId){delete actionsInFlight[key];if(window.LE&&window.LE.setView)window.LE.setView('tasks');return;}
