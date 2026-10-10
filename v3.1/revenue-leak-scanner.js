@@ -69,7 +69,7 @@
   async function act(key) {
     var st=getState();if(!st)return;
     var result=scan(st), signal=result.signals.find(function(s){return s.key===key;});if(!signal)return;
-    if(signal.opportunityId && window.LE && window.LE.openOpp){window.LE.openOpp(signal.opportunityId);return;}
+    if(!signal.task && signal.opportunityId && window.LE && window.LE.openOpp){window.LE.openOpp(signal.opportunityId);return;}
     if(signal.taskId){if(window.LE&&window.LE.setView)window.LE.setView('tasks');return;}
     if(!signal.task || !window.LESupabase || !st.workspaceId){var toast=document.getElementById('toast');if(toast){toast.textContent='Sign in to create a follow-up task';toast.className='toast show';}return;}
     var task={workspace_id:st.workspaceId,title:signal.task.title,status:'open',priority:signal.priority>=80?3:2,due_at:new Date(Date.now()+86400000).toISOString(),customer_id:signal.task.customer_id||null,opportunity_id:signal.task.opportunity_id||null};
