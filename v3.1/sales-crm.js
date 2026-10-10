@@ -11,6 +11,7 @@
   function uid(){return 'id-'+Date.now()+'-'+Math.floor(Math.random()*9999);}
   function total(o){var s=(o.items||[]).reduce(function(a,i){return a+(Number(i.qty)||0)*(Number(i.price)||0);},0);return s*(1+(Number(o.tax)||0));}
   function load(){
+    if(location.pathname!=='/demo'&&location.search.indexOf('demo=1')<0)return {orders:[],events:[]};
     try{var d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&d.orders)return d;}catch(e){}
     return {orders:[
       {id:'so1',number:'SO-1001',customer:'Angela Brooks',title:'Brake job + rotors',status:'In Progress',pay:'Unpaid',due:'2026-09-08',when:'2026-09-08T09:00',tax:0.07,notes:'Morning drop-off',items:[{name:'Front pads',qty:1,price:220},{name:'Rotors',qty:2,price:85},{name:'Labor',qty:2.5,price:140}]},
