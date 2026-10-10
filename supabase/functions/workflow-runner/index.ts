@@ -119,6 +119,12 @@ Deno.serve(async (req: Request) => {
     if (!workspaceId) return json({ error: "No workspace" }, 400);
 
     if (body.approve_run_id) {
+      const { data: membership, error: membershipError } = await db.from("workspace_members")
+        .select("role").eq("workspace_id", workspaceId).eq("user_id", user.id).maybeSingle();
+      if (membershipError) return json({ error: membershipError.message }, 500);
+      if (!membership || !["owner", "admin"].includes(String(membership.role || ""))) {
+        return json({ error: "Only workspace owners or admins can approve workflow runs." }, 403);
+      }
       const { data: run, error: runError } = await db.from("workflow_runs").select("*")
         .eq("id", body.approve_run_id).eq("workspace_id", workspaceId).maybeSingle();
       if (runError) return json({ error: runError.message }, 500);
