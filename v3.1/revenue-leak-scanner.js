@@ -27,7 +27,10 @@
         var alreadyQueued = tasks.some(function (t) {
           var status = String(t.status || 'open').toLowerCase();
           var title = String(t.title || '').trim().toLowerCase();
-          return title === targetTitle && ['open','pending','in_progress','in progress','todo','to do'].indexOf(status) >= 0;
+          var sameCustomer = String(t.customer_id || '') === String(s.task.customer_id || '');
+          var sameOpportunity = String(t.opportunity_id || '') === String(s.task.opportunity_id || '');
+          return title === targetTitle && sameCustomer && sameOpportunity &&
+            ['open','pending','in_progress','in progress','todo','to do'].indexOf(status) >= 0;
         });
         if (alreadyQueued) return;
       }
