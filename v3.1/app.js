@@ -33,12 +33,12 @@
         SB.from('documents').select('*').eq('workspace_id',w).order('created_at',{ascending:false}).limit(100),
         SB.from('follow_ups').select('*').eq('workspace_id',w).order('scheduled_at',{ascending:true}).limit(100),
         SB.from('opportunities').select('recovered_amount,status').eq('workspace_id',w).eq('status','recovered').limit(500),
-        SB.from('loose_ends').select('recovered_amount,status').eq('workspace_id',w).eq('status','recovered').limit(500)
+        SB.from('loose_ends').select('recovered_amount,status,opportunity_id').eq('workspace_id',w).eq('status','recovered').limit(500)
       ]);
       var bad=rs.find(function(r){return r&&r.error;});if(bad)throw bad.error;
       state.customers=rs[0].data||[];state.opportunities=(rs[1].data||[]).map(normalizeOpp);state.looseEnds=(rs[2].data||[]).map(normalizeLoose);
       state.appointments=rs[3].data||[];state.tasks=rs[4].data||[];state.documents=rs[5].data||[];state.followUps=rs[6].data||[];
-      state.recovered=(rs[7].data||[]).concat(rs[8].data||[]).reduce(function(n,o){return n+Number(o.recovered_amount||0);},0);
+      state.recovered=(rs[7].data||[]).reduce(function(n,o){return n+Number(o.recovered_amount||0);},0)+(rs[8].data||[]).filter(function(o){return !o.opportunity_id;}).reduce(function(n,o){return n+Number(o.recovered_amount||0);},0);
       if(state.looseEnds.length)state.opportunities=state.looseEnds.concat(state.opportunities.filter(function(o){return !state.looseEnds.some(function(l){return l.opportunityId&&l.opportunityId===o.id;});}));
       state.loaded=true;state.loading=false;render();
     }catch(e){console.error('Loose Ends live load failed',e);state.loading=false;state.error=e.message||'Unable to load workspace data.';render();}
@@ -57,7 +57,27 @@
   function setView(v){state.view=v;persist();render();window.scrollTo(0,0);}
   function openOpp(id){var o=state.opportunities.find(function(x){return String(x.id)===String(id);});if(!o)return;var d=document.querySelector('.drawer');if(!d)return;d.innerHTML='<div class="drawer-head"><div class="eyebrow">LIVE OPPORTUNITY</div><button class="close" onclick="LE.close()">×</button></div><h2>'+esc(o.customer)+'</h2><div class="muted">'+esc(o.type)+' · '+esc(o.status)+'</div><div class="detail-amount">'+money(o.amount)+'</div><div class="detail-grid"><div class="detail-box"><label>Priority</label><strong>'+esc(o.priority)+'</strong></div><div class="detail-box"><label>Source</label><strong>'+esc(o.source)+'</strong></div></div><div class="recommend"><b>✦ NEXT BEST ACTION</b><p>'+esc(o.next)+'</p></div><div class="detail-box"><label>Why this is open</label><strong style="line-height:1.5">'+esc(o.reason)+'</strong></div><div class="drawer-actions"><button onclick="LE.recover(\''+esc(o.id)+'\')">Mark recovered</button><button class="secondary" onclick="LE.followUp(\''+esc(o.id)+'\')">Create follow-up</button></div>';document.getElementById('drawer').classList.remove('hidden');}
   function close(){var d=document.getElementById('drawer');if(d)d.classList.add('hidden');}
-  async function recover(id){var o=state.opportunities.find(function(x){return String(x.id)===String(id);});if(!o)return;if(!SB||!state.workspaceId){toast('Workspace connection required');return;}try{var now=new Date().toISOString(),r;if(o.opportunityId)r=await SB.from('opportunities').update({status:'recovered',recovered_amount:Number(o.amount||0),recovered_at:now,updated_at:now}).eq('id',o.opportunityId).eq('workspace_id',state.workspaceId);else if(o.looseId)r=await SB.from('loose_ends').update({status:'recovered',recovered_amount:Number(o.amount||0),recovery_stage:'collected',last_action_at:now,last_action:'recovered',updated_at:now}).eq('id',o.looseId).eq('workspace_id',state.workspaceId);else throw new Error('Opportunity record is not linked to a recoverable database row');if(r.error)throw r.error;try{var ev=await SB.from('recovery_events').insert({workspace_id:state.workspaceId,opportunity_id:o.opportunityId||null,customer_id:o.customerId||null,amount:Number(o.amount||0),source:'dashboard',note:'Marked recovered in Loose Ends'});if(ev.error)console.warn('Recovery event could not be recorded',ev.error);}catch(evErr){console.warn('Recovery event could not be recorded',evErr);}toast(money(o.amount)+' marked recovered');close();await refresh();}catch(e){toast('Could not record recovery: '+(e.message||'unknown error'));}}
+  async function recover(id){
+    var o=state.opportunities.find(function(x){return String(x.id)===String(id);});
+    if(!o)return;
+    if(!SB||!state.workspaceId){toast('Workspace connection required');return;}
+    try{
+      var now=new Date().toISOString(),amount=Number(o.amount||0);
+      if(o.looseId){
+        var lr=await SB.from('loose_ends').update({status:'recovered',recovered_amount:amount,recovery_stage:'collected',last_action_at:now,last_action:'recovered',updated_at:now}).eq('id',o.looseId).eq('workspace_id',state.workspaceId);
+        if(lr.error)throw lr.error;
+        if(o.opportunityId){
+          var linked=await SB.from('opportunities').update({status:'recovered',recovered_amount:amount,recovered_at:now,updated_at:now}).eq('id',o.opportunityId).eq('workspace_id',state.workspaceId);
+          if(linked.error)throw linked.error;
+        }
+      }else if(o.opportunityId){
+        var op=await SB.from('opportunities').update({status:'recovered',recovered_amount:amount,recovered_at:now,updated_at:now}).eq('id',o.opportunityId).eq('workspace_id',state.workspaceId);
+        if(op.error)throw op.error;
+      }else throw new Error('Opportunity record is not linked to a recoverable database row');
+      try{var ev=await SB.from('recovery_events').insert({workspace_id:state.workspaceId,opportunity_id:o.opportunityId||null,customer_id:o.customerId||null,amount:amount,source:'dashboard',note:'Marked recovered in Loose Ends'});if(ev.error)console.warn('Recovery event could not be recorded',ev.error);}catch(evErr){console.warn('Recovery event could not be recorded',evErr);}
+      toast(money(amount)+' marked recovered');close();await refresh();
+    }catch(e){toast('Could not record recovery: '+(e.message||'unknown error'));}
+  }
   async function followUp(id){var o=state.opportunities.find(function(x){return String(x.id)===String(id);});if(!o||!SB||!state.workspaceId){toast('Workspace connection required');return;}try{var r=await SB.from('follow_ups').insert({workspace_id:state.workspaceId,customer_id:o.customerId||null,opportunity_id:o.opportunityId||null,channel:'task',status:'pending',scheduled_at:new Date(Date.now()+86400000).toISOString(),message:o.reason||'Follow up on revenue opportunity'});if(r.error)throw r.error;toast('Follow-up created');close();await refresh();}catch(e){toast('Could not create follow-up: '+(e.message||'unknown error'));}}
   function contact(){toast('Use the customer contact details or a configured communication integration.');}
   function business(){toast('Business profile is managed in Settings.');}
