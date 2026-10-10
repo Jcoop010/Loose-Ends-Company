@@ -35,8 +35,10 @@ function matches(record: any, conditions: any[]) {
   });
 }
 
-async function workspaceFor(db: any, userId: string) {
-  const { data, error } = await db.from("workspace_members").select("workspace_id").eq("user_id", userId).limit(1).maybeSingle();
+async function workspaceFor(db: any, userId: string, requestedWorkspaceId?: string | null) {
+  let query = db.from("workspace_members").select("workspace_id").eq("user_id", userId);
+  if (requestedWorkspaceId) query = query.eq("workspace_id", requestedWorkspaceId);
+  const { data, error } = await query.limit(1).maybeSingle();
   if (error) throw error;
   return data?.workspace_id || null;
 }
@@ -111,7 +113,9 @@ Deno.serve(async (req: Request) => {
 
     const user = authData.user;
     const body = await req.json().catch(() => ({}));
-    const workspaceId = await workspaceFor(db, user.id);
+    const requestedWorkspaceId = typeof body.workspace_id === "string" && body.workspace_id.trim() ? body.workspace_id.trim() : null;
+    const workspaceId = await workspaceFor(db, user.id, requestedWorkspaceId);
+    if (requestedWorkspaceId && !workspaceId) return json({ error: "You do not have access to the requested workspace." }, 403);
     if (!workspaceId) return json({ error: "No workspace" }, 400);
 
     if (body.approve_run_id) {
