@@ -19,7 +19,20 @@
     var now = Date.now(), customers = {}, signals = [], docs = st.documents || [], opps = st.opportunities || [], tasks = st.tasks || [], followUps = st.followUps || [], appointments = st.appointments || [];
     (st.customers || []).forEach(function (c) { customers[c.id] = c; });
     function customer(id) { return nameOf(customers[id]); }
-    function add(s) { signals.push(s); }
+    function add(s) {
+      // Do not keep asking the owner to create a task that already exists.
+      // This makes recovery actions idempotent across refreshes and repeat scans.
+      if (s.task && s.task.title) {
+        var targetTitle = String(s.task.title).trim().toLowerCase();
+        var alreadyQueued = tasks.some(function (t) {
+          var status = String(t.status || 'open').toLowerCase();
+          var title = String(t.title || '').trim().toLowerCase();
+          return title === targetTitle && ['open','pending','in_progress','in progress','todo','to do'].indexOf(status) >= 0;
+        });
+        if (alreadyQueued) return;
+      }
+      signals.push(s);
+    }
     docs.forEach(function (d) {
       var type = String(d.document_type || '').toLowerCase(), status = String(d.status || 'draft').toLowerCase();
       var due = d.due_at ? new Date(d.due_at).getTime() : 0, amount = Number(d.total || 0);
