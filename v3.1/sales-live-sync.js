@@ -18,10 +18,11 @@
     if(m.error)throw m.error;
     return m.data&&m.data.workspace_id||null;
   }
+  function clearLocal(){if(location.pathname!=='/dashboard'&&location.pathname!=='/dashboard/')return;window.__LE_SALES_SYNCING=true;if(window.LESalesCRM&&window.LESalesCRM.setData)window.LESalesCRM.setData({orders:[],events:[]});else nativeSet.call(localStorage,KEY,JSON.stringify({orders:[],events:[]}));window.__LE_SALES_SYNCING=false;}
   async function hydrate(){
     if(busy)return;busy=true;
     try{
-      var w=await getWorkspace();if(!w){ready=false;workspaceId=null;return;}
+      var w=await getWorkspace();if(!w){ready=false;workspaceId=null;clearLocal();return;}
       if(ready&&workspaceId===w)return;
       workspaceId=w;
       var results=await Promise.all([
@@ -92,6 +93,6 @@
     var data;try{data=JSON.parse(v);}catch(e){return;}
     queue=queue.then(function(){return sync(data);}).catch(function(e){console.error('Sales/calendar save failed',e);toast('Save failed: '+(e.message||'please retry'));});
   };
-  S.auth.onAuthStateChange(function(event){if(event==='SIGNED_IN'||event==='INITIAL_SESSION'||event==='TOKEN_REFRESHED')setTimeout(hydrate,0);if(event==='SIGNED_OUT'){ready=false;workspaceId=null;idMap={};}});
+  S.auth.onAuthStateChange(function(event){if(event==='SIGNED_IN'||event==='INITIAL_SESSION'||event==='TOKEN_REFRESHED')setTimeout(hydrate,0);if(event==='SIGNED_OUT'){ready=false;workspaceId=null;idMap={};clearLocal();}});
   hydrate();
 })();
