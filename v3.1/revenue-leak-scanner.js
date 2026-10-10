@@ -57,7 +57,7 @@
     });
     tasks.forEach(function (t) {
       var due = t.due_at ? new Date(t.due_at).getTime() : 0;
-      if (String(t.status || 'open').toLowerCase() === 'open' && due && due < now) add({key:'task:'+t.id,confidence:confidence('OVERDUE TASK'),kind:'OVERDUE TASK',title:t.title || 'Task past due',detail:'Due ' + new Date(t.due_at).toLocaleDateString() + '. Completing this may unblock a customer or revenue action.',amount:0,priority:45 + Math.min(20,Math.floor((now-due)/86400000)),action:'Review task',taskId:t.id});
+      if (['open','pending','in_progress','in progress','todo','to do'].indexOf(String(t.status || 'open').toLowerCase()) >= 0 && due && due < now) add({key:'task:'+t.id,confidence:confidence('OVERDUE TASK'),kind:'OVERDUE TASK',title:t.title || 'Task past due',detail:'Due ' + new Date(t.due_at).toLocaleDateString() + '. Completing this may unblock a customer or revenue action.',amount:0,priority:45 + Math.min(20,Math.floor((now-due)/86400000)),action:'Review task',taskId:t.id});
     });
     appointments.forEach(function (a) {
       var starts = a.starts_at ? new Date(a.starts_at).getTime() : 0, status = String(a.status || 'scheduled').toLowerCase();
