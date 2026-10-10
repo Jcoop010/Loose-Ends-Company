@@ -122,10 +122,14 @@ Deno.serve(async (req: Request) => {
       if (workflowError) return json({ error: workflowError.message }, 500);
       if (!workflow) return json({ error: "Workflow not found" }, 404);
 
-      const { error: startError } = await db.from("workflow_runs")
+      // Atomically claim an approval before executing any actions. Two owner clicks,
+      // retries, or concurrent requests must never execute the same approved run twice.
+      const { data: claimedRun, error: startError } = await db.from("workflow_runs")
         .update({ status: "running", started_at: new Date().toISOString(), error: null })
-        .eq("id", run.id).eq("workspace_id", workspaceId);
+        .eq("id", run.id).eq("workspace_id", workspaceId).eq("status", "waiting_approval")
+        .select("id").maybeSingle();
       if (startError) return json({ error: startError.message }, 500);
+      if (!claimedRun) return json({ error: "This run was already claimed or is no longer awaiting approval.", status: "conflict" }, 409);
 
       try {
         const outputs = await executeActions(db, workspaceId, workflow, run);
