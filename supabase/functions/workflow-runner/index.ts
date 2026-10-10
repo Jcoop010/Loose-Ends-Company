@@ -29,7 +29,8 @@ function matches(record: any, conditions: any[]) {
       case "lt": return Number(value) < Number(c.value);
       case "lte": return Number(value) <= Number(c.value);
       case "exists": return value !== null && value !== undefined && value !== "";
-      default: return true;
+      // Fail closed: a typo or unsupported operator must never trigger an action.
+      default: return false;
     }
   });
 }
@@ -85,6 +86,9 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
         if (error) throw error;
       }
       outputs.push({ type: action.type, id: record.id });
+    } else {
+      // Never mark a workflow complete when an action was silently skipped.
+      throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
     }
   }
   return outputs;
