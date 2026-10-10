@@ -1,7 +1,6 @@
 import { StoreProvider } from './store'
 import { RouterProvider, useRouter } from './router'
 import { LandingPage } from './pages/Landing'
-import { PublicDemo } from './pages/PublicDemo'
 import { DashboardLayout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { CRM } from './pages/CRM'
@@ -46,10 +45,10 @@ function DashboardRoutes() {
 function Routes() {
   const { route } = useRouter()
 
-  // Public pages never require an account. The operational workspace stays
-  // behind Supabase Auth; the demo uses isolated fictional data only.
+  // Keep the marketing site public. Authentication is only required for the
+  // private operating system so prospects can view the product and submit
+  // the free-audit form without creating an account first.
   if (route === '/' || route === '/home') return <LandingPage />
-  if (route === '/demo') return <PublicDemo />
 
   if (route.startsWith('/dashboard')) {
     return (
