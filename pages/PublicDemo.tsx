@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from '../router'
-import { ArrowDownRight, ArrowLeft, ArrowRight, Bell, Check, ChevronDown, CircleDollarSign, Clock3, Filter, Gauge, MessageSquareText, RotateCcw, Search, ShieldCheck, Sparkles, Wrench } from 'lucide-react'
+import { ArrowDownRight, ArrowLeft, ArrowRight, Bell, Check, ChevronDown, CircleDollarSign, Clock3, Filter, Gauge, RotateCcw, Search, ShieldCheck, Sparkles, Wrench } from 'lucide-react'
 
 type Status = 'Needs review' | 'Follow-up sent' | 'Booked' | 'Recovered'
 type Opportunity = { id: number; customer: string; detail: string; type: string; amount: number; age: string; status: Status; next: string }
@@ -134,7 +134,7 @@ export function PublicDemo() {
   )
 }
 
-function Metric({ icon, label, value, note, color }: { icon: React.ReactNode; label: string; value: string; note: string; color: 'indigo' | 'amber' | 'blue' | 'emerald' }) {
+function Metric({ icon, label, value, note, color }: { icon: ReactNode; label: string; value: string; note: string; color: 'indigo' | 'amber' | 'blue' | 'emerald' }) {
   const styles = { indigo: 'bg-indigo-50 text-indigo-700', amber: 'bg-amber-50 text-amber-700', blue: 'bg-blue-50 text-blue-700', emerald: 'bg-emerald-50 text-emerald-700' }
   return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-2"><span className="text-sm text-slate-500">{label}</span><span className={'w-10 h-10 rounded-xl flex items-center justify-center ' + styles[color]}>{icon}</span></div><div className="text-2xl font-bold tracking-tight mt-3 tabular-nums">{value}</div><p className="text-xs text-slate-500 mt-1">{note}</p></div>
 }
