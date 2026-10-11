@@ -75,9 +75,13 @@
     var o=state.opportunities.find(function(x){return String(x.id)===String(id);});
     if(!o)return;
     if(!SB||!state.workspaceId){toast('Workspace connection required');return;}
-    var amount=Number(o.amount||0);
-    if(!Number.isFinite(amount)||amount<=0){toast('A valid opportunity amount is required before recording recovery');return;}
-    if(!window.confirm('Confirm that '+money(amount)+' was actually collected for this opportunity. This records an owner-confirmed amount; it does not independently verify bank or payment-processor settlement.'))return;
+    var estimated=Number(o.amount||0);
+    if(!Number.isFinite(estimated)||estimated<=0){toast('A valid opportunity amount is required before recording recovery');return;}
+    var entered=window.prompt('Enter the amount actually collected (not the estimate). This will be owner-confirmed, not independently verified.',String(estimated));
+    if(entered===null)return;
+    var amount=Number(entered);
+    if(!Number.isFinite(amount)||amount<=0){toast('Enter a valid collected amount greater than zero');return;}
+    if(!window.confirm('Record '+money(amount)+' as owner-confirmed collected? This does not independently verify bank or payment-processor settlement.'))return;
     try{
       var now=new Date().toISOString();
       if(o.looseId){
