@@ -16,7 +16,7 @@
       if (window.state) window.state.view = view;
     } catch (e) {}
     mark(view);
-    if (view==='sales' || view==='calendar') {
+    if (view==='sales') {
       if (window.LESalesCRM && typeof LESalesCRM.go === 'function') {
         LESalesCRM.go(view);
         return;
@@ -37,7 +37,7 @@
     if (!window.LE || typeof LE.setView !== 'function' || LE.__navFixed) return;
     var orig = LE.setView;
     LE.setView = function(v){
-      if (v==='sales' || v==='calendar') {
+      if (v==='sales') {
         if (window.LESalesCRM) { LESalesCRM.go(v); mark(v); return; }
       }
       return orig(v);
@@ -66,7 +66,7 @@
   }, true);
   function boot(){
     patchSetView();
-    if (window.state && (window.state.view==='sales' || window.state.view==='calendar')) show(window.state.view);
+    if (window.state && window.state.view==='sales') show(window.state.view);
   }
   boot();
   setTimeout(boot, 300);
