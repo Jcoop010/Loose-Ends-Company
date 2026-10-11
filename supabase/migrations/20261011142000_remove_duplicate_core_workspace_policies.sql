@@ -1,0 +1,19 @@
+-- Remove redundant command-specific policies; the existing *_member_all policies already enforce workspace membership.
+drop policy if exists customers_member_select on public.customers;
+drop policy if exists customers_member_insert on public.customers;
+drop policy if exists customers_member_update on public.customers;
+drop policy if exists customers_member_delete on public.customers;
+drop policy if exists opportunities_member_select on public.opportunities;
+drop policy if exists opportunities_member_insert on public.opportunities;
+drop policy if exists opportunities_member_update on public.opportunities;
+drop policy if exists opportunities_member_delete on public.opportunities;
+drop policy if exists follow_ups_member_select on public.follow_ups;
+drop policy if exists follow_ups_member_insert on public.follow_ups;
+drop policy if exists follow_ups_member_update on public.follow_ups;
+drop policy if exists follow_ups_member_delete on public.follow_ups;
+drop policy if exists recovery_events_member_select on public.recovery_events;
+drop policy if exists recovery_events_member_insert on public.recovery_events;
+drop policy if exists workflows_member_select on public.workflows;
+drop policy if exists workflows_admin_insert on public.workflows;
+drop policy if exists workflows_admin_update on public.workflows;
+drop policy if exists workflows_admin_delete on public.workflows;
