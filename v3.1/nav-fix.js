@@ -62,6 +62,9 @@
     if (!n) return;
     var view = n.getAttribute('data-view');
     if (!view || view==='more') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
     show(view);
   }, true);
   function boot(){
