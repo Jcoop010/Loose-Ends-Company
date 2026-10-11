@@ -71,5 +71,6 @@
   }
   function storedView(){var s=state();return s&&s.view;}
   function storeView(v){try{var s=state();if(s)s.view=v;localStorage.setItem('loose_ends_v31_state',JSON.stringify({view:v,query:s&&s.query||''}));}catch(e){}}
+  window.LEWorkModules={renderTasks:renderTasks,renderDocuments:renderDocuments};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
