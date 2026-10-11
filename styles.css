@@ -12,3 +12,86 @@
 .queue-value{min-width:100px;display:flex;flex-direction:column;gap:8px;align-items:stretch}
 .queue-value .input{max-width:150px}
 @media(max-width:700px){.le-module-form{grid-template-columns:1fr;padding:14px}.le-module-form .wide{grid-column:auto}.queue-value{min-width:88px}.queue-value .input{font-size:11px;padding:8px}}
+
+
+/* Product polish: consistent hierarchy, interaction states, responsive density, and accessible focus. */
+:root{--surface:#0c1a2b;--surface-raised:#102238;--line-strong:#2b435b;--text-soft:#c5d3df}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{line-height:1.45;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button,input,select,textarea{font:inherit}
+button{touch-action:manipulation}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #ff9a3d;outline-offset:3px}
+::selection{background:rgba(255,122,26,.32);color:#fff}
+.sidebar{z-index:6;overflow-y:auto;overscroll-behavior:contain}
+.brand{flex-shrink:0}
+.nav-item{min-height:42px;transition:background .16s ease,color .16s ease,transform .16s ease}
+.nav-item.active{background:linear-gradient(90deg,rgba(255,122,26,.17),rgba(255,122,26,.045));box-shadow:inset 3px 0 var(--accent)}
+.main{min-width:0}
+.topbar{z-index:10}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,122,26,.1)}
+.page{width:100%;padding-top:30px}
+.page-head{gap:16px}
+.title{letter-spacing:-.035em;line-height:1.15}
+.subtitle{line-height:1.6;max-width:720px}
+.card{border-color:rgba(143,164,186,.18);box-shadow:0 8px 28px rgba(0,0,0,.12);transition:border-color .18s ease,box-shadow .18s ease}
+.section-head{gap:12px}
+.section-title{letter-spacing:-.01em}
+.kpi{position:relative;overflow:hidden}
+.kpi-value{letter-spacing:-.04em;line-height:1.1;font-variant-numeric:tabular-nums}
+.primary,.action,.action.secondary,.link-btn,.icon-btn,.shop-btn{transition:filter .15s ease,background .15s ease,border-color .15s ease,transform .15s ease}
+.primary:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.action:focus-visible,.primary:focus-visible{outline-offset:3px}
+.input,.select,.le-module-form input,.le-module-form select,.le-module-form textarea{min-height:42px;font-size:13px}
+textarea{resize:vertical;line-height:1.5}
+.le-module-form label,.drawer label{line-height:1.4}
+.customer-table th{letter-spacing:.08em;padding-top:14px;padding-bottom:14px}
+.customer-table td{line-height:1.45}
+.customer-table tbody tr:focus-within,.customer-table tbody tr:hover{background:rgba(255,255,255,.025)}
+.queue-card{border:1px solid rgba(143,164,186,.15);border-radius:10px;transition:border-color .15s ease,background .15s ease}
+.queue-card:hover{border-color:rgba(255,154,61,.35);background:rgba(255,255,255,.015)}
+.drawer{padding:clamp(18px,3vw,28px)}
+.drawer-head{gap:12px;align-items:center}
+.drawer-body{display:flex;flex-direction:column;gap:13px}
+.drawer-body label{display:flex;flex-direction:column;gap:7px;color:var(--text-soft);font-size:12px;font-weight:650}
+.drawer-body .input,.drawer-body select,.drawer-body textarea{width:100%;min-width:0}
+.toast{max-width:min(420px,calc(100vw - 28px));font-size:12px;line-height:1.5}
+.empty-state,.wf-empty,.le-module-empty{line-height:1.65}
+@media(min-width:1200px){.page{padding-left:30px;padding-right:30px}.grid4{gap:16px}.two-col,.analytics,.recovery-grid{gap:16px}}
+@media(max-width:1050px){.page{padding-left:18px;padding-right:18px}.topbar{padding-left:18px;padding-right:18px}.grid4{gap:11px}}
+@media(max-width:700px){
+  html{scroll-padding-top:68px}
+  .topbar{gap:10px}
+  .mobile-brand{font-size:12px;white-space:nowrap}
+  .top-actions{gap:7px}
+  .avatar{width:33px;height:33px}
+  .page{padding:18px 12px 24px}
+  .page-head{margin-bottom:16px}
+  .title{font-size:24px}
+  .subtitle{font-size:12px}
+  .grid4{gap:8px}
+  .kpi{padding:13px 11px;border-radius:11px}
+  .kpi-top{font-size:10px;gap:7px;align-items:flex-start}
+  .kpi-icon{width:28px;height:28px;flex:0 0 28px}
+  .kpi-value{font-size:clamp(19px,6vw,25px);overflow-wrap:anywhere}
+  .kpi-note{font-size:10px;line-height:1.4}
+  .section-head{padding:14px 13px}
+  .section-title{font-size:13px}
+  .section-sub{font-size:10px;line-height:1.45}
+  .customer-table th,.customer-table td{padding:11px 9px}
+  .customer-table th{font-size:8px}
+  .customer-table td,.customer-table td strong{font-size:11px}
+  .toolbar{gap:7px}
+  .toolbar .input,.toolbar .select{width:100%;max-width:100%}
+  .le-module-form{gap:12px}
+  .le-module-form label{font-size:12px}
+  .le-module-form input,.le-module-form select,.le-module-form textarea{min-height:44px}
+  .le-module-form button{width:100%;min-height:44px}
+  .le-module-row{padding:14px 12px}
+  .le-module-actions{width:100%}
+  .le-module-actions .action,.le-module-actions select{min-height:40px}
+  .drawer{width:100%;padding:18px 16px calc(24px + env(safe-area-inset-bottom))}
+  .drawer-body{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+  .drawer-body .primary{min-height:46px;font-size:12px}
+  .toast{left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));text-align:center}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
