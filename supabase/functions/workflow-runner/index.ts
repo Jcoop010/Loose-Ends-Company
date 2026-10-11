@@ -47,7 +47,7 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
   const event = run.context?.event || {};
   const record = run.context?.record || event?.payload?.record || {};
   const entity = event.entity_type || "";
-  const customerId = record.customer_id || null;
+  const customerId = record.customer_id || (entity === "customers" ? record.id : null);
   const opportunityId = record.opportunity_id || (entity === "opportunities" ? record.id : null);
   const outputs: any[] = [];
 
