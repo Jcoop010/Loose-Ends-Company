@@ -1,3 +1,5 @@
+alter function public.run_background_workflows() rename to run_scheduled_and_due_workflows;
+
 create or replace function public.process_record_workflow_events()
 returns jsonb
 language plpgsql
@@ -21,8 +23,6 @@ declare
   event_failed boolean;
   error_message text;
 begin
-  -- Queue is shared with the authenticated runner. Row locks plus run idempotency
-  -- prevent overlapping cron invocations from claiming the same event twice.
   for ev in
     select e.*
     from public.workflow_events e
@@ -51,9 +51,7 @@ begin
         end
         and coalesce(w.trigger_config->>'entity_type','') = ev.entity_type
     loop
-      if not public.workflow_conditions_match(rec, wf.conditions) then
-        continue;
-      end if;
+      if not public.workflow_conditions_match(rec, wf.conditions) then continue; end if;
 
       idem := ev.id::text || ':' || wf.id::text;
       run_id := null;
@@ -70,14 +68,10 @@ begin
         where workflow_runs.status = 'failed'
       returning id into run_id;
 
-      -- Completed/approval-pending runs are never executed twice. Failed runs can retry.
-      if run_id is null then
-        continue;
-      end if;
+      if run_id is null then continue; end if;
       run_count := run_count + 1;
 
       if wf.mode <> 'automatic' then
-        -- A retry of an existing failed run should preserve approval requirements.
         update public.workflow_runs
         set status = 'waiting_approval', started_at = null, completed_at = null, error = null
         where id = run_id and workspace_id = ev.workspace_id;
@@ -155,7 +149,7 @@ begin
 end;
 $function$;
 
-create or replace function public.run_all_background_workflows()
+create or replace function public.run_background_workflows()
 returns jsonb
 language plpgsql
 security definer
@@ -165,21 +159,11 @@ declare
   scheduled_result jsonb;
   record_result jsonb;
 begin
-  scheduled_result := public.run_background_workflows();
+  scheduled_result := public.run_scheduled_and_due_workflows();
   record_result := public.process_record_workflow_events();
   return jsonb_build_object('scheduled_and_due', scheduled_result, 'record_events', record_result, 'ran_at', now());
 end;
 $function$;
 
 revoke all on function public.process_record_workflow_events() from public, anon, authenticated;
-revoke all on function public.run_all_background_workflows() from public, anon, authenticated;
-
-do $$
-begin
-  if not exists (select 1 from cron.job where jobname = 'loose-ends-background-workflows') then
-    raise exception 'Expected existing loose-ends-background-workflows cron job was not found; refusing to create a second scheduler.';
-  end if;
-  update cron.job
-  set command = 'select public.run_all_background_workflows();'
-  where jobname = 'loose-ends-background-workflows';
-end $$;
+revoke all on function public.run_background_workflows() from public, anon, authenticated;
