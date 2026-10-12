@@ -27,9 +27,10 @@ async function verifyStripeSignature(rawBody: string, header: string, secret: st
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "POST required" }, 405);
   const secret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!secret || !supabaseUrl || !serviceKey) return json({ error: "Webhook is not configured." }, 503);
+  if (!secret || !stripeSecret || !supabaseUrl || !serviceKey) return json({ error: "Webhook is not configured." }, 503);
   const rawBody = await req.text();
   const signature = req.headers.get("Stripe-Signature") || "";
   if (!await verifyStripeSignature(rawBody, signature, secret)) return json({ error: "Invalid webhook signature." }, 400);
@@ -41,9 +42,14 @@ Deno.serve(async (req: Request) => {
     event_id: event.id, event_type: event.type, livemode: Boolean(event.livemode), payload: event,
   });
   if (ledgerError) {
-    if (ledgerError.code === "23505") return json({ received: true, duplicate: true });
-    console.error("Could not persist Stripe event", ledgerError);
-    return json({ error: "Could not record event." }, 500);
+    if (ledgerError.code === "23505") {
+      const { data: existing } = await admin.from("stripe_webhook_events").select("processed_at").eq("event_id", event.id).maybeSingle();
+      if (existing?.processed_at) return json({ received: true, duplicate: true });
+      // An earlier attempt failed before completion; safely retry its idempotent upsert.
+    } else {
+      console.error("Could not persist Stripe event", ledgerError);
+      return json({ error: "Could not record event." }, 500);
+    }
   }
 
   try {
@@ -56,6 +62,10 @@ Deno.serve(async (req: Request) => {
     const subscriptionId = subscription?.id ||
       (typeof obj.subscription === "string" ? obj.subscription : obj.subscription?.id) ||
       (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null);
+    const relevant = eventType === "checkout.session.completed" ||
+      eventType.startsWith("customer.subscription.") ||
+      eventType === "invoice.payment_succeeded" || eventType === "invoice.paid" ||
+      eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required";
     let workspaceId = obj.metadata?.workspace_id || checkout?.client_reference_id || null;
     if (!workspaceId && customerId) {
       const { data: row } = await admin.from("workspace_subscriptions").select("workspace_id")
@@ -67,34 +77,26 @@ Deno.serve(async (req: Request) => {
         .eq("provider_subscription_id", subscriptionId).maybeSingle();
       workspaceId = row?.workspace_id || null;
     }
-    if (workspaceId && (
-      eventType === "checkout.session.completed" ||
-      eventType.startsWith("customer.subscription.") ||
-      eventType === "invoice.payment_succeeded" ||
-      eventType === "invoice.paid" ||
-      eventType === "invoice.payment_failed" ||
-      eventType === "invoice.payment_action_required"
-    )) {
-      let status = "incomplete";
-      let periodStart: string | null = null;
-      let periodEnd: string | null = null;
-      let cancelAtPeriodEnd = false;
-      let providerSubscriptionId = subscriptionId;
-      let providerCustomerId = customerId;
-      let planKey = obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
-      if (subscription) {
-        status = String(subscription.status || "incomplete");
-        periodStart = subscription.current_period_start ? new Date(subscription.current_period_start * 1000).toISOString() : null;
-        periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null;
-        cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
-        providerCustomerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
-        planKey = subscription.metadata?.plan_key || planKey;
-      } else if (eventType === "checkout.session.completed") {
-        status = checkout?.payment_status === "paid" || checkout?.status === "complete" ? "active" : "incomplete";
-      } else if (invoice) {
-        status = eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required" ? "past_due" : "active";
+    if (relevant && !workspaceId) throw new Error("Could not map Stripe event to a workspace");
+    if (workspaceId && relevant) {
+      let liveSubscription: any = subscription;
+      if (!liveSubscription && subscriptionId) {
+        const response = await fetch("https://api.stripe.com/v1/subscriptions/" + encodeURIComponent(subscriptionId), {
+          headers: { Authorization: "Bearer " + stripeSecret },
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body?.error?.message || "Could not retrieve subscription from Stripe");
+        liveSubscription = body;
       }
+      let status = String(liveSubscription?.status || "incomplete");
+      let periodStart: string | null = liveSubscription?.current_period_start ? new Date(liveSubscription.current_period_start * 1000).toISOString() : null;
+      let periodEnd: string | null = liveSubscription?.current_period_end ? new Date(liveSubscription.current_period_end * 1000).toISOString() : null;
+      let cancelAtPeriodEnd = Boolean(liveSubscription?.cancel_at_period_end);
+      const providerSubscriptionId = liveSubscription?.id || subscriptionId;
+      const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
+      const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
       if (eventType === "customer.subscription.deleted") status = "canceled";
+      if ((eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required") && !liveSubscription) status = "past_due";
       const { error: upsertError } = await admin.from("workspace_subscriptions").upsert({
         workspace_id: workspaceId,
         provider: "stripe",
