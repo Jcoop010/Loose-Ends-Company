@@ -281,7 +281,7 @@
       state.workspaceId = wid;
       var results = await Promise.all([
         SB.from('customers').select('*').eq('workspace_id',wid).order('updated_at',{ascending:false}).limit(100),
-        SB.from('opportunities').select('*,customers(first_name,last_name)').eq('workspace_id',wid).order('priority',{ascending:false}).limit(100),
+        SB.from('opportunities').select('*,customers(first_name,last_name)').eq('workspace_id',wid).in('status',['open','contacted','scheduled']).order('priority',{ascending:false}).limit(100),
         SB.from('loose_ends').select('*,customers(first_name,last_name)').eq('workspace_id',wid).eq('status','open').order('score',{ascending:false}).limit(100),
         SB.from('appointments').select('*').eq('workspace_id',wid).order('starts_at',{ascending:true}).limit(50),
         SB.from('tasks').select('*').eq('workspace_id',wid).eq('status','open').order('due_at',{ascending:true}).limit(50),
