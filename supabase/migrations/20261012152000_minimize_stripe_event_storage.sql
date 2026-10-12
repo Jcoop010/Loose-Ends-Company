@@ -1,0 +1,1 @@
+alter table public.stripe_webhook_events drop column if exists payload;

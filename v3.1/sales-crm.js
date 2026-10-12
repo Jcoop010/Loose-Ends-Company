@@ -170,10 +170,8 @@
       LE.__salesHooked=true;
       window.setView=LE.setView;
     }
-    if(!window.__leNavCapture){
-      window.__leNavCapture=true;
-      document.addEventListener('click',onNavClick,true);
-    }
+    // Navigation is handled centrally by nav-fix.js. A second capture-phase
+    // listener here can pre-empt the shared router and make module clicks flaky.
   }
   function styles(){
     if(qs('#le-crm-style'))return;

@@ -1,6 +1,9 @@
 /* Makes every sidebar / mobile tab actually change the page. */
 (function(){
   'use strict';
+  // The walk-in demo owns its navigation and uses local-only sample records.
+  // Do not intercept its clicks with the authenticated workspace router.
+  if(location.pathname==='/demo'||location.search.indexOf('demo=1')>=0)return;
   function mark(view){
     document.querySelectorAll('.nav-item').forEach(function(b){
       b.classList.toggle('active', b.getAttribute('data-view')===view);
@@ -57,16 +60,6 @@
     show(view);
   }
   document.addEventListener('click', onClick, true);
-  document.addEventListener('pointerup', function(e){
-    var n = e.target.closest ? e.target.closest('.nav-item[data-view], .le-mobile-tab[data-view], .le-more-item[data-view]') : null;
-    if (!n) return;
-    var view = n.getAttribute('data-view');
-    if (!view || view==='more') return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-    show(view);
-  }, true);
   function boot(){
     patchSetView();
     if (window.state && window.state.view==='sales') show(window.state.view);

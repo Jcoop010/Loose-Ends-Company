@@ -27,7 +27,8 @@
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify({ opps: state.opps, recovered: state.recovered })); } catch (e) {}
   }
-  function seed() { state.opps = seeded.map(function (x) { return Object.assign({}, x); }); }
+  // Never fabricate revenue or customer records in the live workspace UI.
+  function seed() { state.opps = []; state.customers = []; state.loose = []; state.appointments = []; state.tasks = []; state.documents = []; }
 
   function shell() {
     document.body.innerHTML = '' +
@@ -94,7 +95,7 @@
       '<div class="v4-kpis">' +
       kpi('◉','Recoverable now',money(rec),'Open opportunity value','↑ Live') +
       kpi('✓','Revenue recovered',money(state.recovered),'Attributed recovery revenue','↑ Tracking') +
-      kpi('!','Revenue at risk',money(Math.round(rec * 1.55)),'Estimated workflow leakage','Needs attention',true) +
+      kpi('!','Open revenue queue',money(rec),'Value of unresolved records','Needs attention',true) +
       kpi('◎','Open opportunities',state.opps.length,'Loose Ends requiring action','Live queue') +
       kpi('◷','Today',state.appointments.length + ' appointments',state.tasks.length + ' open tasks','Live operations') +
       '</div><div class="v4-grid-main"><div class="v4-card v4-section"><div class="v4-section-head"><div><div class="v4-section-title">Priority revenue queue</div><div class="v4-section-sub">The highest-value things you can do right now.</div></div><button class="v4-link" type="button" data-nav="loose">View all →</button></div>' +
@@ -108,7 +109,7 @@
   function customersView() {
     var list = filtered(state.customers);
     return '<div class="v4-page">' + head('CRM','Customer 360','Every customer, interaction, and revenue opportunity in one record.') +
-      '<div class="v4-card v4-section"><div class="v4-section-head"><div><div class="v4-section-title">Customers</div><div class="v4-section-sub">Live records from this workspace.</div></div><button class="v4-btn" type="button" data-toast="New customer workflow is next.">+ New customer</button></div>' +
+      '<div class="v4-card v4-section"><div class="v4-section-head"><div><div class="v4-section-title">Customers</div><div class="v4-section-sub">Live records from this workspace.</div></div><button class="v4-btn" type="button" data-new-customer>+ New customer</button></div>' +
       '<div class="v4-table-wrap"><table class="v4-table"><thead><tr><th>Customer</th><th>Phone</th><th>Email</th><th>Created</th></tr></thead><tbody>' +
       list.map(function (c) { return '<tr><td><strong>' + esc((c.first_name || '') + ' ' + (c.last_name || '')) + '</strong><span class="v4-meta">' + esc(c.external_id || 'Customer') + '</span></td><td>' + esc(c.phone || '—') + '</td><td>' + esc(c.email || '—') + '</td><td>' + esc(c.created_at ? new Date(c.created_at).toLocaleDateString() : '—') + '</td></tr>'; }).join('') +
       '</tbody></table></div></div></div>';
@@ -143,6 +144,7 @@
     bindOpen();
     Array.prototype.forEach.call(content.querySelectorAll('[data-nav]'), function (b) { b.addEventListener('click', function () { view(this.getAttribute('data-nav')); }); });
     Array.prototype.forEach.call(content.querySelectorAll('[data-toast]'), function (b) { b.addEventListener('click', function () { toast(this.getAttribute('data-toast')); }); });
+    Array.prototype.forEach.call(content.querySelectorAll('[data-new-customer]'), function (b) { b.addEventListener('click', openNewCustomer); });
   }
 
   function view(v) { state.view = v; render(); }
@@ -154,23 +156,120 @@
     modal.innerHTML = '<div class="v4-modal-card"><div class="v4-modal-head"><div><div class="v4-eyebrow">NEXT BEST ACTION</div><h2>' + esc(o.type || o.title || 'Loose End') + '</h2></div><button class="v4-close" type="button" id="v4close">×</button></div><p>' + esc(o.reason || 'Revenue opportunity requiring attention.') + '</p><div class="v4-big">' + money(o.amount) + '</div><div class="v4-modal-actions"><button class="v4-btn" type="button" id="v4recover">Mark recovered</button><button class="v4-btn" type="button" id="v4follow">Create follow-up</button></div></div>';
     document.getElementById('v4close').onclick = close;
     document.getElementById('v4recover').onclick = function () { recover(id); };
-    document.getElementById('v4follow').onclick = function () { toast('Follow-up queued.'); close(); };
+    document.getElementById('v4follow').onclick = function () {
+      if (!SB || !state.workspaceId) { toast('Sign in to your workspace before creating follow-ups.'); return; }
+      var m = document.getElementById('v4modal');
+      m.innerHTML = '<form class="v4-modal-card" id="v4followform"><div class="v4-modal-head"><h2>Create follow-up</h2><button class="v4-close" type="button" id="v4close">×</button></div><label class="v4-field-label">Task *</label><input class="v4-field" name="title" required maxlength="180" value="' + esc('Follow up: ' + (o.customer || o.title || 'revenue opportunity')) + '"><label class="v4-field-label">Due date</label><input class="v4-field" name="due_at" type="date"><div class="v4-modal-actions"><button class="v4-btn" type="button" id="v4cancel">Cancel</button><button class="v4-btn" type="submit" id="v4tasksave">Save follow-up</button></div></form>';
+      document.getElementById('v4close').onclick = close;
+      document.getElementById('v4cancel').onclick = close;
+      document.getElementById('v4followform').onsubmit = async function (event) {
+        event.preventDefault();
+        var form = event.currentTarget;
+        var payload = {workspace_id:state.workspaceId,title:form.elements.title.value.trim(),status:'open',updated_at:new Date().toISOString()};
+        if (form.elements.due_at.value) payload.due_at = new Date(form.elements.due_at.value + 'T12:00:00').toISOString();
+        if (o.customer_id) payload.customer_id = o.customer_id;
+        if (o.id && !o.db) payload.opportunity_id = o.id;
+        var btn = document.getElementById('v4tasksave');
+        if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+        try {
+          var result = await SB.from('tasks').insert(payload).select('*').single();
+          if (result.error) throw result.error;
+          state.tasks.unshift(result.data); close(); render(); toast('Follow-up saved to your workspace.');
+        } catch (err) {
+          console.error('Follow-up save failed', err);
+          if (btn) { btn.disabled = false; btn.textContent = 'Save follow-up'; }
+          toast('Follow-up was not saved. Check workspace access and try again.');
+        }
+      };
+    };
+  }
+  function openNewCustomer() {
+    if (!SB || !state.workspaceId) {
+      toast('Sign in to your workspace before saving customer records.');
+      return;
+    }
+    var modal = document.getElementById('v4modal'); if (!modal) return;
+    modal.className = 'v4-modal';
+    modal.innerHTML = '<form class="v4-modal-card" id="v4customerform"><div class="v4-modal-head"><div><div class="v4-eyebrow">CUSTOMER 360</div><h2>New customer</h2></div><button class="v4-close" type="button" id="v4close">×</button></div>' +
+      '<label class="v4-field-label" for="v4first">First name *</label><input id="v4first" name="first_name" required maxlength="100" autocomplete="given-name" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4last">Last name</label><input id="v4last" name="last_name" maxlength="100" autocomplete="family-name" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4phone">Phone</label><input id="v4phone" name="phone" type="tel" maxlength="40" autocomplete="tel" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4email">Email</label><input id="v4email" name="email" type="email" maxlength="254" autocomplete="email" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4notes">Notes</label><textarea id="v4notes" name="notes" maxlength="2000" rows="3" class="v4-field"></textarea>' +
+      '<div class="v4-modal-actions"><button class="v4-btn" type="button" id="v4cancel">Cancel</button><button class="v4-btn" type="submit" id="v4customersave">Save customer</button></div></form>';
+    document.getElementById('v4close').onclick = close;
+    document.getElementById('v4cancel').onclick = close;
+    document.getElementById('v4customerform').onsubmit = saveCustomer;
+  }
+  async function saveCustomer(event) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    var first = form.elements.first_name.value.trim();
+    if (!first) { toast('Enter a first name.'); return; }
+    if (!SB || !state.workspaceId) { toast('Workspace connection is missing. No record was saved.'); return; }
+    var submit = document.getElementById('v4customersave');
+    if (submit) { submit.disabled = true; submit.textContent = 'Saving…'; }
+    var payload = {
+      workspace_id: state.workspaceId,
+      first_name: first,
+      last_name: form.elements.last_name.value.trim() || null,
+      phone: form.elements.phone.value.trim() || null,
+      email: form.elements.email.value.trim() || null,
+      notes: form.elements.notes.value.trim() || null,
+      updated_at: new Date().toISOString()
+    };
+    try {
+      var result = await SB.from('customers').insert(payload).select('*').single();
+      if (result.error) throw result.error;
+      state.customers.unshift(result.data);
+      close();
+      render();
+      toast('Customer saved to your workspace.');
+    } catch (err) {
+      console.error('Customer save failed', err);
+      if (submit) { submit.disabled = false; submit.textContent = 'Save customer'; }
+      toast('Customer was not saved. Check workspace access and try again.');
+    }
   }
   function close() { var m = document.getElementById('v4modal'); if (m) m.className = 'v4-modal hidden'; }
   function toast(msg) { var t = document.getElementById('v4toast'); if (!t) return; t.textContent = msg; t.style.display = 'block'; clearTimeout(window.__v4toast); window.__v4toast = setTimeout(function () { t.style.display = 'none'; }, 2400); }
-  function recover(id) {
-    var o = state.opps.find(function (x) { return String(x.id) === String(id); }); if (!o) return;
-    state.recovered += Number(o.amount || 0);
-    if (SB && state.workspaceId && o.db) SB.from('loose_ends').update({status:'recovered',updated_at:new Date().toISOString()}).eq('id',o.id);
-    else if (SB && state.workspaceId && !String(o.id).indexOf('seed-')) SB.from('opportunities').update({status:'recovered',recovered_amount:Number(o.amount || 0),recovered_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',o.id);
-    state.opps = state.opps.filter(function (x) { return String(x.id) !== String(id); }); save(); close(); render(); toast('Recovery recorded: ' + money(o.amount));
+  async function recover(id) {
+    var o = state.opps.find(function (x) { return String(x.id) === String(id); });
+    if (!o) return;
+    if (!SB || !state.workspaceId || String(o.id).indexOf('seed-') === 0) {
+      toast('No live database record is connected. No recovery was recorded.');
+      return;
+    }
+    var now = new Date().toISOString();
+    try {
+      var result;
+      if (o.db) {
+        result = await SB.from('loose_ends').update({
+          status:'recovered', recovery_stage:'collected',
+          recovered_amount:Number(o.amount || 0), last_action:'Marked recovered',
+          last_action_at:now, updated_at:now
+        }).eq('id',o.id).eq('workspace_id',state.workspaceId).select('id').maybeSingle();
+      } else {
+        result = await SB.from('opportunities').update({
+          status:'recovered', recovered_amount:Number(o.amount || 0),
+          recovered_at:now, updated_at:now
+        }).eq('id',o.id).eq('workspace_id',state.workspaceId).select('id').maybeSingle();
+      }
+      if (result.error) throw result.error;
+      if (!result.data) throw new Error('No matching workspace record was updated');
+      state.recovered += Number(o.amount || 0);
+      state.opps = state.opps.filter(function (x) { return String(x.id) !== String(id); });
+      if (o.db) state.loose = state.loose.filter(function (x) { return String(x.id) !== String(id); });
+      save(); close(); render();
+      toast('Recovery status saved. Confirm actual payment separately.');
+    } catch (err) {
+      console.error('Recovery update failed', err);
+      toast('Could not save recovery status. No recovery was recorded in the app.');
+    }
   }
 
   async function load() {
-    try {
-      var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (saved) state.recovered = Number(saved.recovered || 0);
-    } catch (e) {}
+    // Recovery totals come from persisted workspace records, not browser-only state.
     if (!SB) { seed(); state.loaded = true; render(); return; }
     try {
       var userResult = await SB.auth.getUser();
@@ -182,7 +281,7 @@
       state.workspaceId = wid;
       var results = await Promise.all([
         SB.from('customers').select('*').eq('workspace_id',wid).order('updated_at',{ascending:false}).limit(100),
-        SB.from('opportunities').select('*,customers(first_name,last_name)').eq('workspace_id',wid).order('priority',{ascending:false}).limit(100),
+        SB.from('opportunities').select('*,customers(first_name,last_name)').eq('workspace_id',wid).in('status',['open','contacted','scheduled']).order('priority',{ascending:false}).limit(100),
         SB.from('loose_ends').select('*,customers(first_name,last_name)').eq('workspace_id',wid).eq('status','open').order('score',{ascending:false}).limit(100),
         SB.from('appointments').select('*').eq('workspace_id',wid).order('starts_at',{ascending:true}).limit(50),
         SB.from('tasks').select('*').eq('workspace_id',wid).eq('status','open').order('due_at',{ascending:true}).limit(50),
@@ -195,7 +294,7 @@
       state.tasks = (results[4] && results[4].data) || [];
       state.documents = (results[5] && results[5].data) || [];
       if (state.loose.length) state.opps = state.loose.map(function (o) { var c=o.customers||{}; return {id:o.id,type:o.source_entity,customer:[c.first_name,c.last_name].filter(Boolean).join(' ')||'Customer',amount:o.amount,priority:String(o.priority||'medium').replace(/^./,function(x){return x.toUpperCase();}),reason:o.reason,db:true}; });
-      if (!state.opps.length) seed();
+      // An empty opportunity list is valid; preserve other live workspace records.
     } catch (e) { console.warn('V4 live load failed', e); seed(); }
     state.loaded = true; render();
   }
