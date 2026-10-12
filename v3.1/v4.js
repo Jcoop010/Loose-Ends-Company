@@ -95,7 +95,7 @@
       '<div class="v4-kpis">' +
       kpi('◉','Recoverable now',money(rec),'Open opportunity value','↑ Live') +
       kpi('✓','Revenue recovered',money(state.recovered),'Attributed recovery revenue','↑ Tracking') +
-      kpi('!','Revenue at risk',money(Math.round(rec * 1.55)),'Estimated workflow leakage','Needs attention',true) +
+      kpi('!','Open revenue queue',money(rec),'Value of unresolved records','Needs attention',true) +
       kpi('◎','Open opportunities',state.opps.length,'Loose Ends requiring action','Live queue') +
       kpi('◷','Today',state.appointments.length + ' appointments',state.tasks.length + ' open tasks','Live operations') +
       '</div><div class="v4-grid-main"><div class="v4-card v4-section"><div class="v4-section-head"><div><div class="v4-section-title">Priority revenue queue</div><div class="v4-section-sub">The highest-value things you can do right now.</div></div><button class="v4-link" type="button" data-nav="loose">View all →</button></div>' +
