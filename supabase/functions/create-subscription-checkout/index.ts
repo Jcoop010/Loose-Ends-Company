@@ -58,10 +58,17 @@ Deno.serve(async (req: Request) => {
     const { data: subRow } = await admin.from("workspace_subscriptions")
       .select("provider_customer_id,status")
       .eq("workspace_id", workspaceId).maybeSingle();
-    if (subRow?.status === "active" || subRow?.status === "trialing") {
+    if (subRow?.status === "active" || (subRow?.status === "trialing" && subRow?.provider_customer_id)) {
       return json({ error: "This workspace already has an active subscription. Use Manage Billing instead." }, 409);
     }
-    const origin = new URL(req.headers.get("origin") || "https://loose-ends-os.vercel.app").origin;
+    const originHeader = req.headers.get("origin") || "";
+    let origin = "https://loose-ends-os.vercel.app";
+    try {
+      const candidate = new URL(originHeader);
+      const host = candidate.hostname.toLowerCase();
+      if (host === "loose-ends-os.vercel.app" ||
+          (host.startsWith("loose-ends-v3-1-") && host.endsWith("-loose-ends-co.vercel.app"))) origin = candidate.origin;
+    } catch (_) { /* Keep the canonical production origin. */ }
     const params: Record<string, string> = {
       mode: "subscription",
       "line_items[0][price]": priceId,
