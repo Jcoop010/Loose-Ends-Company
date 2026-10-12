@@ -1,6 +1,9 @@
 /* Makes every sidebar / mobile tab actually change the page. */
 (function(){
   'use strict';
+  // The walk-in demo owns its navigation and uses local-only sample records.
+  // Do not intercept its clicks with the authenticated workspace router.
+  if(location.pathname==='/demo'||location.search.indexOf('demo=1')>=0)return;
   function mark(view){
     document.querySelectorAll('.nav-item').forEach(function(b){
       b.classList.toggle('active', b.getAttribute('data-view')===view);
