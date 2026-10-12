@@ -156,7 +156,32 @@
     modal.innerHTML = '<div class="v4-modal-card"><div class="v4-modal-head"><div><div class="v4-eyebrow">NEXT BEST ACTION</div><h2>' + esc(o.type || o.title || 'Loose End') + '</h2></div><button class="v4-close" type="button" id="v4close">×</button></div><p>' + esc(o.reason || 'Revenue opportunity requiring attention.') + '</p><div class="v4-big">' + money(o.amount) + '</div><div class="v4-modal-actions"><button class="v4-btn" type="button" id="v4recover">Mark recovered</button><button class="v4-btn" type="button" id="v4follow">Create follow-up</button></div></div>';
     document.getElementById('v4close').onclick = close;
     document.getElementById('v4recover').onclick = function () { recover(id); };
-    document.getElementById('v4follow').onclick = function () { toast('Follow-up queued.'); close(); };
+    document.getElementById('v4follow').onclick = function () {
+      if (!SB || !state.workspaceId) { toast('Sign in to your workspace before creating follow-ups.'); return; }
+      var m = document.getElementById('v4modal');
+      m.innerHTML = '<form class="v4-modal-card" id="v4followform"><div class="v4-modal-head"><h2>Create follow-up</h2><button class="v4-close" type="button" id="v4close">×</button></div><label class="v4-field-label">Task *</label><input class="v4-field" name="title" required maxlength="180" value="' + esc('Follow up: ' + (o.customer || o.title || 'revenue opportunity')) + '"><label class="v4-field-label">Due date</label><input class="v4-field" name="due_at" type="date"><div class="v4-modal-actions"><button class="v4-btn" type="button" id="v4cancel">Cancel</button><button class="v4-btn" type="submit" id="v4tasksave">Save follow-up</button></div></form>';
+      document.getElementById('v4close').onclick = close;
+      document.getElementById('v4cancel').onclick = close;
+      document.getElementById('v4followform').onsubmit = async function (event) {
+        event.preventDefault();
+        var form = event.currentTarget;
+        var payload = {workspace_id:state.workspaceId,title:form.elements.title.value.trim(),status:'open',updated_at:new Date().toISOString()};
+        if (form.elements.due_at.value) payload.due_at = new Date(form.elements.due_at.value + 'T12:00:00').toISOString();
+        if (o.customer_id) payload.customer_id = o.customer_id;
+        if (o.id && !o.db) payload.opportunity_id = o.id;
+        var btn = document.getElementById('v4tasksave');
+        if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+        try {
+          var result = await SB.from('tasks').insert(payload).select('*').single();
+          if (result.error) throw result.error;
+          state.tasks.unshift(result.data); close(); render(); toast('Follow-up saved to your workspace.');
+        } catch (err) {
+          console.error('Follow-up save failed', err);
+          if (btn) { btn.disabled = false; btn.textContent = 'Save follow-up'; }
+          toast('Follow-up was not saved. Check workspace access and try again.');
+        }
+      };
+    };
   }
   function openNewCustomer() {
     if (!SB || !state.workspaceId) {
