@@ -19,6 +19,7 @@
     error: '',
     notice: '',
     scannedAt: null,
+    lastAttemptAt: 0,
     lastView: '',
     lastWorkspace: ''
   };
@@ -175,6 +176,7 @@
   async function scan(options) {
     if (state.busy) return;
     state.busy = true;
+    state.lastAttemptAt = Date.now();
     state.error = '';
     state.notice = '';
     render();
@@ -188,7 +190,6 @@
         S.from('follow_ups').select('id,status,scheduled_at,opportunity_id,customer_id,message,channel').eq('workspace_id', w).order('scheduled_at', { ascending: true }).limit(500),
         S.from('workflows').select('id,name,enabled,mode,trigger_type').eq('workspace_id', w).order('created_at', { ascending: false }).limit(200),
         S.from('workflow_runs').select('id,status,created_at,completed_at,error').eq('workspace_id', w).order('created_at', { ascending: false }).limit(20),
-        S.from('audit_events').select('id,action,created_at,entity_type,metadata').eq('workspace_id', w).order('created_at', { ascending: false }).limit(10)
       ]);
       var failed = results.find(function (r) { return r && r.error; });
       if (failed) throw failed.error;
@@ -197,7 +198,6 @@
       state.followUps = results[2].data || [];
       state.workflows = results[3].data || [];
       state.runs = results[4].data || [];
-      state.audit = results[5].data || [];
       state.scannedAt = new Date().toISOString();
       if (!options || !options.quiet) state.notice = 'Live scan complete. ' + state.opportunities.length + ' opportunities, ' + state.tasks.length + ' tasks, ' + state.workflows.length + ' workflows checked.';
     } catch (error) {
@@ -249,6 +249,7 @@
         await logAudit(user.id, o.id, 'autonomy_task_created', { task_id: inserted.data && inserted.data.id, score: score(o), amount: Number(o.amount || 0), recommendation: nextAction(o) });
         state.notice = 'Task created for ' + (o.title || 'the selected opportunity') + '. No customer message was sent.';
       }
+      state.busy = false;
       await scan({ quiet: true });
     } catch (error) {
       state.error = error && error.message ? error.message : 'Could not queue the recommended task.';
@@ -307,10 +308,12 @@
       var token = auth && auth.data && auth.data.session && auth.data.session.access_token;
       var base = String(window.__LOOSE_ENDS_SUPABASE_URL__ || '').replace(/\/$/, '');
       if (!token || !base) throw new Error('An authenticated session is required to run the workflow cycle.');
+      var w = await workspaceId();
+      if (!w) throw new Error('Sign in to a workspace before running the workflow cycle.');
       var response = await fetch(base + '/functions/v1/workflow-runner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify({ workspace_id: await workspaceId() })
+        body: JSON.stringify({ workspace_id: w })
       });
       var result = await response.json().catch(function () { return {}; });
       if (!response.ok) throw new Error(result.error || 'The workflow runner returned an error.');
@@ -328,9 +331,9 @@
       var view = currentView();
       if (view !== state.lastView) {
         render();
-        if ((view === 'overview' || view === 'intelligence') && !state.scannedAt) scan({ quiet: true });
+        if ((view === 'overview' || view === 'intelligence') && !state.scannedAt && !state.busy && Date.now() - state.lastAttemptAt > 15000) scan({ quiet: true });
       }
-      if ((view === 'overview' || view === 'intelligence') && !state.scannedAt && !state.busy) scan({ quiet: true });
+      if ((view === 'overview' || view === 'intelligence') && !state.scannedAt && !state.busy && Date.now() - state.lastAttemptAt > 15000) scan({ quiet: true });
       if (++tries > 80) clearInterval(timer);
     }, 1200);
     setInterval(function () {
