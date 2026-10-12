@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
       if (host === "loose-ends-os.vercel.app" ||
           (host.startsWith("loose-ends-v3-1-") && host.endsWith("-loose-ends-co.vercel.app"))) origin = candidate.origin;
     } catch (_) { /* Keep the canonical production origin. */ }
-    const body = new URLSearchParams({ customer: sub.provider_customer_id, return_url: origin + "/?billing=returned" });
+    const body = new URLSearchParams({ customer: sub.provider_customer_id, return_url: origin + "/dashboard?billing=returned" });
     const response = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
       method: "POST",
       headers: { Authorization: "Bearer " + stripeSecret, "Content-Type": "application/x-www-form-urlencoded" },
