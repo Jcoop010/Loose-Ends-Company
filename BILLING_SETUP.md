@@ -19,8 +19,9 @@ No customer has been charged by creating this product/price. The account is live
 ## Required Supabase Edge Function secrets
 Open [Supabase Edge Function secrets](https://supabase.com/dashboard/project/uehfvpnnoitgybsmdgef/settings/functions) for project `uehfvpnnoitgybsmdgef`. Add these two required secrets:
 - `STRIPE_SECRET_KEY`: server-side live Stripe secret key. Never put this in browser code, GitHub, or chat.
-- `STRIPE_PRICE_ID` is optional; the checkout function defaults to `price_1UPkZjIS04s94hSMzuM0J6rF`.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for the endpoint ID `we_1UPkc9IS04s94hSMcQ71l7OZ`, shown in [Stripe Webhooks](https://dashboard.stripe.com/webhooks) after opening that endpoint.
+
+Optional override: `STRIPE_PRICE_ID`. If omitted, checkout uses `price_1UPkZjIS04s94hSMzuM0J6rF`.
 
 Supabase already supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to Edge Functions.
 
