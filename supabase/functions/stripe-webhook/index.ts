@@ -61,7 +61,8 @@ Deno.serve(async (req: Request) => {
     const customerId = typeof obj.customer === "string" ? obj.customer : obj.customer?.id;
     const subscriptionId = subscription?.id ||
       (typeof obj.subscription === "string" ? obj.subscription : obj.subscription?.id) ||
-      (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null);
+      (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null) ||
+      (invoice?.parent?.subscription_details?.subscription || null);
     const relevant = eventType === "checkout.session.completed" ||
       eventType.startsWith("customer.subscription.") ||
       eventType === "invoice.payment_succeeded" || eventType === "invoice.paid" ||
