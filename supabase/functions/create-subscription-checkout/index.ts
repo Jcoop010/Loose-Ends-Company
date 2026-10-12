@@ -29,7 +29,7 @@ Deno.serve(async (req: Request) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId = Deno.env.get("STRIPE_PRICE_ID");
+    const priceId = Deno.env.get("STRIPE_PRICE_ID") || "price_1UPkZjIS04s94hSMzuM0J6rF";
     if (!supabaseUrl || !anonKey || !serviceKey || !stripeSecret || !priceId) {
       return json({ error: "Billing is not configured yet. Please contact the administrator." }, 503);
     }
