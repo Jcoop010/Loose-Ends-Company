@@ -45,7 +45,14 @@ Deno.serve(async (req: Request) => {
       .eq("workspace_id", workspaceId).maybeSingle();
     if (subError) throw subError;
     if (!sub?.provider_customer_id) return json({ error: "No billing customer is linked yet. Start a subscription first." }, 409);
-    const origin = new URL(req.headers.get("origin") || "https://loose-ends-os.vercel.app").origin;
+    const originHeader = req.headers.get("origin") || "";
+    let origin = "https://loose-ends-os.vercel.app";
+    try {
+      const candidate = new URL(originHeader);
+      const host = candidate.hostname.toLowerCase();
+      if (host === "loose-ends-os.vercel.app" ||
+          (host.startsWith("loose-ends-v3-1-") && host.endsWith("-loose-ends-co.vercel.app"))) origin = candidate.origin;
+    } catch (_) { /* Keep the canonical production origin. */ }
     const body = new URLSearchParams({ customer: sub.provider_customer_id, return_url: origin + "/?billing=returned" });
     const response = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
       method: "POST",
