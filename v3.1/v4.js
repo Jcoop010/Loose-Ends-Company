@@ -108,7 +108,7 @@
   function customersView() {
     var list = filtered(state.customers);
     return '<div class="v4-page">' + head('CRM','Customer 360','Every customer, interaction, and revenue opportunity in one record.') +
-      '<div class="v4-card v4-section"><div class="v4-section-head"><div><div class="v4-section-title">Customers</div><div class="v4-section-sub">Live records from this workspace.</div></div><button class="v4-btn" type="button" data-toast="New customer workflow is next.">+ New customer</button></div>' +
+      '<div class="v4-card v4-section"><div class="v4-section-head"><div><div class="v4-section-title">Customers</div><div class="v4-section-sub">Live records from this workspace.</div></div><button class="v4-btn" type="button" data-new-customer>+ New customer</button></div>' +
       '<div class="v4-table-wrap"><table class="v4-table"><thead><tr><th>Customer</th><th>Phone</th><th>Email</th><th>Created</th></tr></thead><tbody>' +
       list.map(function (c) { return '<tr><td><strong>' + esc((c.first_name || '') + ' ' + (c.last_name || '')) + '</strong><span class="v4-meta">' + esc(c.external_id || 'Customer') + '</span></td><td>' + esc(c.phone || '—') + '</td><td>' + esc(c.email || '—') + '</td><td>' + esc(c.created_at ? new Date(c.created_at).toLocaleDateString() : '—') + '</td></tr>'; }).join('') +
       '</tbody></table></div></div></div>';
@@ -143,6 +143,7 @@
     bindOpen();
     Array.prototype.forEach.call(content.querySelectorAll('[data-nav]'), function (b) { b.addEventListener('click', function () { view(this.getAttribute('data-nav')); }); });
     Array.prototype.forEach.call(content.querySelectorAll('[data-toast]'), function (b) { b.addEventListener('click', function () { toast(this.getAttribute('data-toast')); }); });
+    Array.prototype.forEach.call(content.querySelectorAll('[data-new-customer]'), function (b) { b.addEventListener('click', openNewCustomer); });
   }
 
   function view(v) { state.view = v; render(); }
@@ -155,6 +156,54 @@
     document.getElementById('v4close').onclick = close;
     document.getElementById('v4recover').onclick = function () { recover(id); };
     document.getElementById('v4follow').onclick = function () { toast('Follow-up queued.'); close(); };
+  }
+  function openNewCustomer() {
+    if (!SB || !state.workspaceId) {
+      toast('Sign in to your workspace before saving customer records.');
+      return;
+    }
+    var modal = document.getElementById('v4modal'); if (!modal) return;
+    modal.className = 'v4-modal';
+    modal.innerHTML = '<form class="v4-modal-card" id="v4customerform"><div class="v4-modal-head"><div><div class="v4-eyebrow">CUSTOMER 360</div><h2>New customer</h2></div><button class="v4-close" type="button" id="v4close">×</button></div>' +
+      '<label class="v4-field-label" for="v4first">First name *</label><input id="v4first" name="first_name" required maxlength="100" autocomplete="given-name" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4last">Last name</label><input id="v4last" name="last_name" maxlength="100" autocomplete="family-name" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4phone">Phone</label><input id="v4phone" name="phone" type="tel" maxlength="40" autocomplete="tel" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4email">Email</label><input id="v4email" name="email" type="email" maxlength="254" autocomplete="email" class="v4-field" />' +
+      '<label class="v4-field-label" for="v4notes">Notes</label><textarea id="v4notes" name="notes" maxlength="2000" rows="3" class="v4-field"></textarea>' +
+      '<div class="v4-modal-actions"><button class="v4-btn" type="button" id="v4cancel">Cancel</button><button class="v4-btn" type="submit" id="v4customersave">Save customer</button></div></form>';
+    document.getElementById('v4close').onclick = close;
+    document.getElementById('v4cancel').onclick = close;
+    document.getElementById('v4customerform').onsubmit = saveCustomer;
+  }
+  async function saveCustomer(event) {
+    event.preventDefault();
+    var form = event.currentTarget;
+    var first = form.elements.first_name.value.trim();
+    if (!first) { toast('Enter a first name.'); return; }
+    if (!SB || !state.workspaceId) { toast('Workspace connection is missing. No record was saved.'); return; }
+    var submit = document.getElementById('v4customersave');
+    if (submit) { submit.disabled = true; submit.textContent = 'Saving…'; }
+    var payload = {
+      workspace_id: state.workspaceId,
+      first_name: first,
+      last_name: form.elements.last_name.value.trim() || null,
+      phone: form.elements.phone.value.trim() || null,
+      email: form.elements.email.value.trim() || null,
+      notes: form.elements.notes.value.trim() || null,
+      updated_at: new Date().toISOString()
+    };
+    try {
+      var result = await SB.from('customers').insert(payload).select('*').single();
+      if (result.error) throw result.error;
+      state.customers.unshift(result.data);
+      close();
+      render();
+      toast('Customer saved to your workspace.');
+    } catch (err) {
+      console.error('Customer save failed', err);
+      if (submit) { submit.disabled = false; submit.textContent = 'Save customer'; }
+      toast('Customer was not saved. Check workspace access and try again.');
+    }
   }
   function close() { var m = document.getElementById('v4modal'); if (m) m.className = 'v4-modal hidden'; }
   function toast(msg) { var t = document.getElementById('v4toast'); if (!t) return; t.textContent = msg; t.style.display = 'block'; clearTimeout(window.__v4toast); window.__v4toast = setTimeout(function () { t.style.display = 'none'; }, 2400); }
