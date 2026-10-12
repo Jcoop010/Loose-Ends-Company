@@ -21,8 +21,19 @@
     try{
       var ur=await SB.auth.getUser();state.user=ur&&ur.data&&ur.data.user;
       if(!state.user){state.loading=false;state.error='Sign in to access your business workspace.';render();return;}
-      var wm=await workspace();state.workspaceId=wm&&wm.data&&wm.data.workspace_id;
-      if(!state.workspaceId){state.loading=false;state.error='Your account is not connected to a workspace yet.';render();return;}
+      var wm=await workspace();
+      if(wm&&wm.error)throw wm.error;
+      state.workspaceId=wm&&wm.data&&wm.data.workspace_id;
+      if(!state.workspaceId){
+        // Recover first-run accounts whose auth succeeded but workspace membership was never created.
+        // The server function authenticates the current user and reuses only a workspace they own.
+        var boot=await SB.functions.invoke('bootstrap-workspace',{body:{name:'My Business',slug:'my-business'}});
+        if(boot&&boot.error)throw boot.error;
+        wm=await workspace();
+        if(wm&&wm.error)throw wm.error;
+        state.workspaceId=wm&&wm.data&&wm.data.workspace_id;
+        if(!state.workspaceId)throw new Error('Workspace setup did not complete. Please refresh and try again.');
+      }
       var w=state.workspaceId;
       var rs=await Promise.all([
         SB.from('customers').select('*').eq('workspace_id',w).order('updated_at',{ascending:false}).limit(500),
