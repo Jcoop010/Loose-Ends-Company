@@ -29,8 +29,12 @@ Deno.serve(async (req: Request) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId = Deno.env.get("STRIPE_PRICE_ID") || "price_1UPkZjIS04s94hSMzuM0J6rF";
-    if (!supabaseUrl || !anonKey || !serviceKey || !stripeSecret || !priceId) {
+    const prices: Record<string, string> = {
+      starter: "price_1UPkrQIS04s94hSMACHur8dt",
+      growth: "price_1UPkrXIS04s94hSMY1kbdPGi",
+      scale: "price_1UPkZjIS04s94hSMzuM0J6rF",
+    };
+    if (!supabaseUrl || !anonKey || !serviceKey || !stripeSecret) {
       return json({ error: "Billing is not configured yet. Please contact the administrator." }, 503);
     }
     const authHeader = req.headers.get("Authorization") || "";
@@ -45,6 +49,9 @@ Deno.serve(async (req: Request) => {
 
     const input = await req.json().catch(() => ({}));
     const workspaceId = String(input.workspace_id || "");
+    const planKey = String(input.plan_key || "starter").toLowerCase();
+    const priceId = prices[planKey];
+    if (!priceId) return json({ error: "Choose a valid subscription plan." }, 400);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(workspaceId)) {
       return json({ error: "A valid workspace is required." }, 400);
     }
@@ -78,10 +85,10 @@ Deno.serve(async (req: Request) => {
       client_reference_id: workspaceId,
       "metadata[workspace_id]": workspaceId,
       "metadata[user_id]": user.id,
-      "metadata[plan_key]": "revenue_recovery",
+      "metadata[plan_key]": planKey,
       "subscription_data[metadata][workspace_id]": workspaceId,
       "subscription_data[metadata][user_id]": user.id,
-      "subscription_data[metadata][plan_key]": "revenue_recovery",
+      "subscription_data[metadata][plan_key]": planKey,
       "customer_email": user.email || "",
       "billing_address_collection": "required",
       "allow_promotion_codes": "true",
