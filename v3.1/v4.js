@@ -208,12 +208,39 @@
   }
   function close() { var m = document.getElementById('v4modal'); if (m) m.className = 'v4-modal hidden'; }
   function toast(msg) { var t = document.getElementById('v4toast'); if (!t) return; t.textContent = msg; t.style.display = 'block'; clearTimeout(window.__v4toast); window.__v4toast = setTimeout(function () { t.style.display = 'none'; }, 2400); }
-  function recover(id) {
-    var o = state.opps.find(function (x) { return String(x.id) === String(id); }); if (!o) return;
-    state.recovered += Number(o.amount || 0);
-    if (SB && state.workspaceId && o.db) SB.from('loose_ends').update({status:'recovered',updated_at:new Date().toISOString()}).eq('id',o.id);
-    else if (SB && state.workspaceId && !String(o.id).indexOf('seed-')) SB.from('opportunities').update({status:'recovered',recovered_amount:Number(o.amount || 0),recovered_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',o.id);
-    state.opps = state.opps.filter(function (x) { return String(x.id) !== String(id); }); save(); close(); render(); toast('Recovery recorded: ' + money(o.amount));
+  async function recover(id) {
+    var o = state.opps.find(function (x) { return String(x.id) === String(id); });
+    if (!o) return;
+    if (!SB || !state.workspaceId || String(o.id).indexOf('seed-') === 0) {
+      toast('No live database record is connected. No recovery was recorded.');
+      return;
+    }
+    var now = new Date().toISOString();
+    try {
+      var result;
+      if (o.db) {
+        result = await SB.from('loose_ends').update({
+          status:'recovered', recovery_stage:'collected',
+          recovered_amount:Number(o.amount || 0), last_action:'Marked recovered',
+          last_action_at:now, updated_at:now
+        }).eq('id',o.id).eq('workspace_id',state.workspaceId).select('id').maybeSingle();
+      } else {
+        result = await SB.from('opportunities').update({
+          status:'recovered', recovered_amount:Number(o.amount || 0),
+          recovered_at:now, updated_at:now
+        }).eq('id',o.id).eq('workspace_id',state.workspaceId).select('id').maybeSingle();
+      }
+      if (result.error) throw result.error;
+      if (!result.data) throw new Error('No matching workspace record was updated');
+      state.recovered += Number(o.amount || 0);
+      state.opps = state.opps.filter(function (x) { return String(x.id) !== String(id); });
+      if (o.db) state.loose = state.loose.filter(function (x) { return String(x.id) !== String(id); });
+      save(); close(); render();
+      toast('Recovery status saved. Confirm actual payment separately.');
+    } catch (err) {
+      console.error('Recovery update failed', err);
+      toast('Could not save recovery status. No recovery was recorded in the app.');
+    }
   }
 
   async function load() {
