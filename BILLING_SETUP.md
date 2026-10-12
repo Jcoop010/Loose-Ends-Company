@@ -9,6 +9,7 @@
 No customer has been charged by creating this product/price.
 
 ## Webhook endpoint already created
+- Endpoint ID: `we_1UPkc9IS04s94hSMcQ71l7OZ`
 - URL: https://uehfvpnnoitgybsmdgef.supabase.co/functions/v1/stripe-webhook
 - Events: checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted, invoice.payment_succeeded, invoice.paid, invoice.payment_failed, invoice.payment_action_required
 
