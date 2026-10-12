@@ -27,7 +27,8 @@
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify({ opps: state.opps, recovered: state.recovered })); } catch (e) {}
   }
-  function seed() { state.opps = seeded.map(function (x) { return Object.assign({}, x); }); }
+  // Never fabricate revenue or customer records in the live workspace UI.
+  function seed() { state.opps = []; state.customers = []; state.loose = []; state.appointments = []; state.tasks = []; state.documents = []; }
 
   function shell() {
     document.body.innerHTML = '' +
