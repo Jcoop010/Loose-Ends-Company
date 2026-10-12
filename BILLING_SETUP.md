@@ -1,10 +1,11 @@
 # Loose Ends Co. billing setup
 
-## Stripe catalog already created
-- Product: Loose Ends Co. — Revenue Recovery OS
-- Live monthly price: $499 USD
-- Product ID: prod_VQbnlZ9Hqg8hNl
-- Price ID: price_1UPkZjIS04s94hSMzuM0J6rF
+## Stripe subscription catalog (live)
+- **Starter — $49/month:** product `prod_VQc5GwVW28Bvne`, price `price_1UPkrQIS04s94hSMACHur8dt`
+- **Growth — $149/month:** product `prod_VQc5OdsdGKIboq`, price `price_1UPkrXIS04s94hSMY1kbdPGi`
+- **Scale — $499/month:** product `prod_VQbnlZ9Hqg8hNl`, price `price_1UPkZjIS04s94hSMzuM0J6rF`
+
+Starter covers customer records, tasks, calendar, and manual follow-up tracking. Growth adds sales pipeline, revenue recovery workflows, documents, and intelligence. Scale adds advanced recovery intelligence, custom playbooks, priority implementation support, and a monthly strategy review. Do not promise delivery of hands-on services until an owner-operated fulfillment process is in place.
 
 No customer has been charged by creating this product/price. The account is live mode, so do not run a test using a real card.
 
@@ -21,7 +22,7 @@ Open [Supabase Edge Function secrets](https://supabase.com/dashboard/project/ueh
 - `STRIPE_SECRET_KEY`: server-side live Stripe secret key. Never put this in browser code, GitHub, or chat.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for the endpoint ID `we_1UPkc9IS04s94hSMcQ71l7OZ`, shown in [Stripe Webhooks](https://dashboard.stripe.com/webhooks) after opening that endpoint.
 
-Optional override: `STRIPE_PRICE_ID`. If omitted, checkout uses `price_1UPkZjIS04s94hSMzuM0J6rF`.
+Checkout uses a server-side allowlist of the three price IDs above. Do not let the browser submit arbitrary Stripe price IDs.
 
 Supabase already supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to Edge Functions.
 
