@@ -86,10 +86,13 @@
     var o=state.opportunities.find(function(x){return String(x.id)===String(id);});
     if(!o)return;
     if(!SB||!state.workspaceId){toast('Workspace connection required');return;}
+    var amount=Number(o.amount||0);
+    if(!Number.isFinite(amount)||amount<=0){toast('A valid opportunity amount is required before recording recovery');return;}
+    if(!window.confirm('Confirm that '+money(amount)+' was actually collected for this opportunity. This records an owner-confirmed amount; it does not independently verify bank or payment-processor settlement.'))return;
     try{
-      var now=new Date().toISOString(),amount=Number(o.amount||0);
+      var now=new Date().toISOString();
       if(o.looseId){
-        var lr=await SB.from('loose_ends').update({status:'recovered',recovered_amount:amount,recovery_stage:'collected',last_action_at:now,last_action:'recovered',updated_at:now}).eq('id',o.looseId).eq('workspace_id',state.workspaceId);
+        var lr=await SB.from('loose_ends').update({status:'recovered',recovered_amount:amount,recovery_stage:'collected',last_action_at:now,last_action:'owner_confirmed_recovered',updated_at:now}).eq('id',o.looseId).eq('workspace_id',state.workspaceId);
         if(lr.error)throw lr.error;
         if(o.opportunityId){
           var linked=await SB.from('opportunities').update({status:'recovered',recovered_amount:amount,recovered_at:now,updated_at:now}).eq('id',o.opportunityId).eq('workspace_id',state.workspaceId);
@@ -99,8 +102,13 @@
         var op=await SB.from('opportunities').update({status:'recovered',recovered_amount:amount,recovered_at:now,updated_at:now}).eq('id',o.opportunityId).eq('workspace_id',state.workspaceId);
         if(op.error)throw op.error;
       }else throw new Error('Opportunity record is not linked to a recoverable database row');
-      try{var ev=await SB.from('recovery_events').insert({workspace_id:state.workspaceId,opportunity_id:o.opportunityId||null,customer_id:o.customerId||null,amount:amount,source:'dashboard',note:'Marked recovered in Loose Ends'});if(ev.error)console.warn('Recovery event could not be recorded',ev.error);}catch(evErr){console.warn('Recovery event could not be recorded',evErr);}
-      toast(money(amount)+' marked recovered');close();await refresh();
+      var auditWarning=false;
+      try{
+        var ev=await SB.from('recovery_events').insert({workspace_id:state.workspaceId,opportunity_id:o.opportunityId||null,customer_id:o.customerId||null,amount:amount,source:'owner_confirmation',note:'Owner confirmed collected amount in Loose Ends; not independently verified against a payment processor.'});
+        if(ev.error){auditWarning=true;console.warn('Recovery event could not be recorded',ev.error);}
+      }catch(evErr){auditWarning=true;console.warn('Recovery event could not be recorded',evErr);}
+      toast(auditWarning?'Marked owner-confirmed recovered, but the audit event could not be saved.':('Owner-confirmed '+money(amount)+' collected; verify against payment records.'));
+      close();await refresh();
     }catch(e){toast('Could not record recovery: '+(e.message||'unknown error'));}
   }
   async function updateOpportunityStatus(id,status){var allowed=['open','contacted','responded','scheduled','dismissed'];if(allowed.indexOf(status)<0){toast('Invalid opportunity status');return;}var o=state.opportunities.find(function(x){return String(x.id)===String(id);});if(!o||!SB||!state.workspaceId){toast('Workspace connection required');return;}try{var now=new Date().toISOString();if(o.looseId){var lr=await SB.from('loose_ends').update({status:status,last_action_at:now,last_action:status,updated_at:now}).eq('id',o.looseId).eq('workspace_id',state.workspaceId);if(lr.error)throw lr.error;if(o.opportunityId){var linked=await SB.from('opportunities').update({status:status,updated_at:now}).eq('id',o.opportunityId).eq('workspace_id',state.workspaceId);if(linked.error)throw linked.error;}}else{var r=await SB.from('opportunities').update({status:status,updated_at:now}).eq('id',o.opportunityId||o.id).eq('workspace_id',state.workspaceId);if(r.error)throw r.error;}toast('Opportunity status updated');close();await refresh();}catch(e){toast('Could not update opportunity: '+(e.message||'unknown error'));}}
