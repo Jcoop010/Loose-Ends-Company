@@ -39,7 +39,7 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   const { error: ledgerError } = await admin.from("stripe_webhook_events").insert({
-    event_id: event.id, event_type: event.type, livemode: Boolean(event.livemode), payload: event,
+    event_id: event.id, event_type: event.type, livemode: Boolean(event.livemode),
   });
   if (ledgerError) {
     if (ledgerError.code === "23505") {
