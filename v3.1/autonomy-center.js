@@ -250,7 +250,11 @@
         state.notice = 'Task created for ' + (o.title || 'the selected opportunity') + '. No customer message was sent.';
       }
       state.busy = false;
+      var completionNotice = state.notice;
+      state.busy = false;
       await scan({ quiet: true });
+      state.notice = completionNotice;
+      render();
     } catch (error) {
       state.error = error && error.message ? error.message : 'Could not queue the recommended task.';
       state.busy = false;
@@ -290,7 +294,11 @@
         await logAudit(user.id, o.id, 'autonomy_task_created', { task_id: ins.data && ins.data.id, score: score(o), amount: Number(o.amount || 0), recommendation: nextAction(o) });
       }
       state.notice = created + ' tasks queued; ' + skipped + ' skipped because an open task already existed. No customer messages were sent.';
+      var completionNotice = state.notice;
+      state.busy = false;
       await scan({ quiet: true });
+      state.notice = completionNotice;
+      render();
     } catch (error) {
       state.error = error && error.message ? error.message : 'Could not queue recommended tasks.';
       state.busy = false;
@@ -318,7 +326,11 @@
       var result = await response.json().catch(function () { return {}; });
       if (!response.ok) throw new Error(result.error || 'The workflow runner returned an error.');
       state.notice = 'Workflow cycle completed. Review recent workflow runs for any approvals or errors.';
+      var completionNotice = state.notice;
+      state.busy = false;
       await scan({ quiet: true });
+      state.notice = completionNotice;
+      render();
     } catch (error) {
       state.error = error && error.message ? error.message : 'Workflow cycle failed.';
       state.busy = false;
