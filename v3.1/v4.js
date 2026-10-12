@@ -272,7 +272,7 @@
       state.tasks = (results[4] && results[4].data) || [];
       state.documents = (results[5] && results[5].data) || [];
       if (state.loose.length) state.opps = state.loose.map(function (o) { var c=o.customers||{}; return {id:o.id,type:o.source_entity,customer:[c.first_name,c.last_name].filter(Boolean).join(' ')||'Customer',amount:o.amount,priority:String(o.priority||'medium').replace(/^./,function(x){return x.toUpperCase();}),reason:o.reason,db:true}; });
-      if (!state.opps.length) seed();
+      // An empty opportunity list is valid; preserve other live workspace records.
     } catch (e) { console.warn('V4 live load failed', e); seed(); }
     state.loaded = true; render();
   }
