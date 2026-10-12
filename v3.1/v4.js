@@ -269,10 +269,7 @@
   }
 
   async function load() {
-    try {
-      var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (saved) state.recovered = Number(saved.recovered || 0);
-    } catch (e) {}
+    // Recovery totals come from persisted workspace records, not browser-only state.
     if (!SB) { seed(); state.loaded = true; render(); return; }
     try {
       var userResult = await SB.auth.getUser();
