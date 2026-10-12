@@ -6,18 +6,21 @@
 - Product ID: prod_VQbnlZ9Hqg8hNl
 - Price ID: price_1UPkZjIS04s94hSMzuM0J6rF
 
-No customer has been charged by creating this product/price.
+No customer has been charged by creating this product/price. The account is live mode, so do not run a test using a real card.
 
 ## Webhook endpoint already created
 - Endpoint ID: `we_1UPkc9IS04s94hSMcQ71l7OZ`
 - URL: https://uehfvpnnoitgybsmdgef.supabase.co/functions/v1/stripe-webhook
 - Events: checkout.session.completed, customer.subscription.created, customer.subscription.updated, customer.subscription.deleted, invoice.payment_succeeded, invoice.paid, invoice.payment_failed, invoice.payment_action_required
 
+## Customer billing portal
+- Live portal configuration created and set as the Stripe default. Customers can update email/name/address, update payment methods, view invoices, and cancel at the end of the current period.
+
 ## Required Supabase Edge Function secrets
-Open Supabase Dashboard → Project Settings → Edge Functions → Secrets for project `uehfvpnnoitgybsmdgef`. Add:
+Open [Supabase Edge Function secrets](https://supabase.com/dashboard/project/uehfvpnnoitgybsmdgef/settings/functions) for project `uehfvpnnoitgybsmdgef`. Add:
 - `STRIPE_SECRET_KEY`: server-side live Stripe secret key. Never put this in browser code, GitHub, or chat.
 - `STRIPE_PRICE_ID`: `price_1UPkZjIS04s94hSMzuM0J6rF`
-- `STRIPE_WEBHOOK_SECRET`: signing secret shown for the webhook endpoint above in Stripe Dashboard → Developers → Webhooks.
+- `STRIPE_WEBHOOK_SECRET`: signing secret for the endpoint ID `we_1UPkc9IS04s94hSMcQ71l7OZ`, shown in [Stripe Webhooks](https://dashboard.stripe.com/webhooks) after opening that endpoint.
 
 Supabase already supplies `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to Edge Functions.
 
