@@ -99,7 +99,7 @@
     var risk = active.reduce(function (sum, o) { return sum + Number(o.amount || 0); }, 0);
     var modeled = active.reduce(function (sum, o) { return sum + Number(o.amount || 0) * probability(o); }, 0);
     var overdueTasks = state.tasks.filter(function (t) {
-      return t.status !== 'completed' && t.due_at && new Date(t.due_at).getTime() < Date.now();
+      return ['completed', 'done', 'cancelled', 'canceled'].indexOf(String(t.status || '').toLowerCase()) < 0 && t.due_at && new Date(t.due_at).getTime() < Date.now();
     });
     var dueFollowUps = state.followUps.filter(function (f) {
       return f.status === 'pending' && f.scheduled_at && new Date(f.scheduled_at).getTime() <= Date.now();
@@ -236,9 +236,10 @@
       var w = await workspaceId();
       var o = state.opportunities.find(function (x) { return x.id === opportunityId; });
       if (!user || !w || !o) throw new Error('The workspace session or opportunity is no longer available. Run a fresh scan.');
-      var existing = await S.from('tasks').select('id,status').eq('workspace_id', w).eq('opportunity_id', o.id).neq('status', 'completed').limit(1);
+      var existing = await S.from('tasks').select('id,status').eq('workspace_id', w).eq('opportunity_id', o.id).limit(25);
       if (existing.error) throw existing.error;
-      if (existing.data && existing.data.length) {
+      var openExisting = (existing.data || []).some(function (t) { return ['completed', 'done', 'cancelled', 'canceled'].indexOf(String(t.status || '').toLowerCase()) < 0; });
+      if (openExisting) {
         state.notice = 'An open task already exists for this opportunity; no duplicate was created.';
       } else {
         var inserted = await S.from('tasks').insert({
@@ -281,9 +282,10 @@
       var created = 0, skipped = 0;
       for (var i = 0; i < top.length; i++) {
         var o = top[i];
-        var existing = await S.from('tasks').select('id,status').eq('workspace_id', state.workspaceId).eq('opportunity_id', o.id).neq('status', 'completed').limit(1);
+        var existing = await S.from('tasks').select('id,status').eq('workspace_id', state.workspaceId).eq('opportunity_id', o.id).limit(25);
         if (existing.error) throw existing.error;
-        if (existing.data && existing.data.length) { skipped++; continue; }
+        var openExisting = (existing.data || []).some(function (t) { return ['completed', 'done', 'cancelled', 'canceled'].indexOf(String(t.status || '').toLowerCase()) < 0; });
+        if (openExisting) { skipped++; continue; }
         var ins = await S.from('tasks').insert({
           workspace_id: state.workspaceId,
           customer_id: o.customer_id || null,
@@ -319,17 +321,22 @@
       var auth = await S.auth.getSession();
       var token = auth && auth.data && auth.data.session && auth.data.session.access_token;
       var base = String(window.__LOOSE_ENDS_SUPABASE_URL__ || '').replace(/\/$/, '');
-      if (!token || !base) throw new Error('An authenticated session is required to run the workflow cycle.');
+      var apiKey = String(window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__ || '');
+      if (!token || !base || !apiKey) throw new Error('An authenticated session and Supabase connection are required to run the workflow cycle.');
       var w = await workspaceId();
       if (!w) throw new Error('Sign in to a workspace before running the workflow cycle.');
       var response = await fetch(base + '/functions/v1/workflow-runner', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, 'apikey': apiKey },
         body: JSON.stringify({ workspace_id: w })
       });
       var result = await response.json().catch(function () { return {}; });
       if (!response.ok) throw new Error(result.error || 'The workflow runner returned an error.');
-      state.notice = 'Workflow cycle completed. Review recent workflow runs for any approvals or errors.';
+      var cycleResults = Array.isArray(result.results) ? result.results : [];
+      var failedRuns = cycleResults.filter(function (r) { return r.status === 'error' || r.status === 'failed' || r.status === 'retry_pending' || r.status === 'unprocessed'; }).length;
+      var approvals = cycleResults.filter(function (r) { return r.status === 'waiting_approval'; }).length;
+      state.notice = 'Workflow cycle returned ' + Number(result.processed_events || 0) + ' processed event(s); ' + approvals + ' approval(s) waiting' + (failedRuns ? '; ' + failedRuns + ' item(s) need attention.' : '.');
+      if (failedRuns) state.error = 'The workflow runner reported ' + failedRuns + ' item(s) needing attention. Review workflow runs before assuming the cycle completed.';
       var completionNotice = state.notice;
       state.busy = false;
       await scan({ quiet: true });
