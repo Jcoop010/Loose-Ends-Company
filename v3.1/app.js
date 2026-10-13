@@ -7,6 +7,19 @@
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function money(v){return '$'+Number(v||0).toLocaleString(undefined,{maximumFractionDigits:0});}
   function toast(msg){var e=document.getElementById('toast');if(!e)return;e.textContent=msg;e.className='toast show';setTimeout(function(){e.className='toast';},2200);}
+  function handleBillingReturn(){
+    try{
+      var url=new URL(window.location.href),status=url.searchParams.get('billing');
+      if(!status)return;
+      if(status==='success')toast('Checkout returned successfully. Confirming subscription status with Stripe…');
+      else if(status==='cancelled')toast('Checkout cancelled. No payment was taken through this checkout.');
+      else if(status==='returned')toast('Returned from the billing portal.');
+      url.searchParams.delete('billing');
+      url.searchParams.delete('session_id');
+      var query=url.searchParams.toString();
+      window.history.replaceState({},document.title,url.pathname+(query?'?'+query:'')+url.hash);
+    }catch(e){console.warn('Could not process billing return URL',e);}
+  }
   function nameOf(c){return c?([c.first_name,c.last_name].filter(Boolean).join(' ')||c.name||'Customer'):'Customer';}
   function customerMap(){var m={};state.customers.forEach(function(c){m[c.id]=c;});return m;}
   function priorityLabel(v){if(typeof v==='number')return v>=90?'Critical':v>=70?'High':v>=40?'Medium':'Low';var s=String(v||'medium').toLowerCase();return s==='critical'?'Critical':s==='high'?'High':s==='low'?'Low':'Medium';}
@@ -118,6 +131,7 @@
   function automations(){var b=document.querySelector('[data-view="automations"]');if(b)b.click();else toast('Open Automations from the navigation.');}
   async function startBilling(plan){if(!SB||!SB.functions){toast('Billing is unavailable because the app connection is missing.');return;}if(!state.workspaceId){toast('Workspace is still loading. Refresh and try again.');return;}try{toast('Opening secure checkout...');var r=await SB.functions.invoke('create-subscription-checkout',{body:{workspace_id:state.workspaceId,plan_key:plan}});if(r&&r.error)throw r.error;if(r&&r.data&&r.data.error)throw new Error(r.data.error);if(!r||!r.data||!r.data.url)throw new Error('Checkout did not return a payment link.');window.location.assign(r.data.url);}catch(e){toast((e&&e.message)?e.message:'Could not start checkout. Please try again.');}}
   async function manageBilling(){if(!SB||!SB.functions){toast('Billing is unavailable because the app connection is missing.');return;}if(!state.workspaceId){toast('Workspace is still loading. Refresh and try again.');return;}try{toast('Opening billing portal...');var r=await SB.functions.invoke('create-billing-portal',{body:{workspace_id:state.workspaceId}});if(r&&r.error)throw r.error;if(r&&r.data&&r.data.error)throw new Error(r.data.error);if(!r||!r.data||!r.data.url)throw new Error('Billing portal did not return a link.');window.location.assign(r.data.url);}catch(e){toast((e&&e.message)?e.message:'Could not open billing portal.');}}
+  handleBillingReturn();
   loadLocal();
   window.LE={setView:setView,openOpp:openOpp,close:close,recover:recover,followUp:followUp,updateStatus:updateOpportunityStatus,contact:contact,business:business,refresh:refresh,automations:automations,startBilling:startBilling,manageBilling:manageBilling,supabase:SB,getState:function(){return state;}};
   window.setView=setView;
