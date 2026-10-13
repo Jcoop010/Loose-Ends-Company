@@ -5,6 +5,26 @@ import path from "node:path";
 const read = (file) => fs.readFileSync(path.resolve(file), "utf8");
 const checks = [
   {
+    file: "v3.1/live-product-layer.js",
+    required: [
+      "S.auth.onAuthStateChange",
+      "Workspace fallback lookup failed",
+      "activeWorkspaceId!==w.id",
+      "audit logging needs attention",
+    ],
+    description: "Live data must initialize after sign-in, recover missing nested workspace joins, switch subscriptions when workspaces change, and surface partial recovery-action failures.",
+  },
+  {
+    file: "v3.1/auth-live.js",
+    required: [
+      "Workspace membership lookup failed",
+      "Workspace record lookup failed",
+      "Workspace membership is incomplete",
+      "Could not create workspace",
+    ],
+    description: "Authentication recovery must report workspace lookup/bootstrap failures instead of silently creating duplicate workspaces or claiming a live session.",
+  },
+  {
     file: "v3.1/autonomy-center.js",
     required: [
       "updated_at,recovered_amount,customers(first_name,last_name,phone)",
