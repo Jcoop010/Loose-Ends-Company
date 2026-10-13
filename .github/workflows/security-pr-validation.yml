@@ -1,6 +1,7 @@
 name: Security PR Validation
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - security/harden-billing-cors-20261013
@@ -8,12 +9,17 @@ on:
     branches:
       - feat/autonomy-center-20261012
 
+concurrency:
+  group: loose-ends-security-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   security-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
