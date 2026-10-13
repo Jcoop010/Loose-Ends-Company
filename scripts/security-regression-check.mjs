@@ -45,8 +45,10 @@ const checks = [
       "auth.getUser()",
       "workspace_members",
       "workflow_events",
+      'runError.code === "23505"',
+      "duplicateLookupError",
     ],
-    description: "Workflow runner must authenticate the caller and scope execution to workspace membership and events.",
+    description: "Workflow runner must authenticate, scope execution to workspace membership/events, and handle concurrent idempotency conflicts safely.",
   },
   {
     file: "supabase/functions/quickbooks-sync/index.ts",

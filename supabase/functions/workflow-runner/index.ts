@@ -206,6 +206,17 @@ Deno.serve(async (req: Request) => {
         }).select().single();
 
         if (runError) {
+          // A concurrent runner may win the unique (workflow_id, idempotency_key)
+          // insert after our earlier lookup. Treat that race as a duplicate, not a
+          // failed event; the winning run owns execution for this event/workflow pair.
+          if (runError.code === "23505") {
+            const { data: duplicateRun, error: duplicateLookupError } = await db.from("workflow_runs").select("id,status")
+              .eq("workspace_id", workspaceId).eq("workflow_id", workflow.id).eq("idempotency_key", idempotencyKey).maybeSingle();
+            if (!duplicateLookupError && duplicateRun) {
+              results.push({ workflow_id: workflow.id, status: "duplicate", run_id: duplicateRun.id });
+              continue;
+            }
+          }
           eventHadError = true;
           results.push({ workflow_id: workflow.id, status: "error", error: runError.message });
           continue;
