@@ -338,9 +338,11 @@
       state.notice = 'Workflow cycle returned ' + Number(result.processed_events || 0) + ' processed event(s); ' + approvals + ' approval(s) waiting' + (failedRuns ? '; ' + failedRuns + ' item(s) need attention.' : '.');
       if (failedRuns) state.error = 'The workflow runner reported ' + failedRuns + ' item(s) needing attention. Review workflow runs before assuming the cycle completed.';
       var completionNotice = state.notice;
+      var completionError = state.error;
       state.busy = false;
       await scan({ quiet: true });
       state.notice = completionNotice;
+      if (completionError) state.error = completionError;
       render();
     } catch (error) {
       state.error = error && error.message ? error.message : 'Workflow cycle failed.';
