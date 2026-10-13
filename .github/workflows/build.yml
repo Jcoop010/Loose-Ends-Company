@@ -25,10 +25,10 @@ jobs:
           import path from 'node:path';
           const html = fs.readFileSync('index.html', 'utf8');
           const refs = [];
-          for (const match of html.matchAll(/<script\\b[^>]*\\bsrc=["']([^"']+)["'][^>]*>|<link\\b[^>]*\\bhref=["']([^"']+)["'][^>]*>/gi)) {
+          for (const match of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>|<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi)) {
             const ref = match[1] || match[2];
-            if (/^(?:https?:)?\\/\\//i.test(ref) || /^(?:data:|#)/i.test(ref)) continue;
-            const pathname = decodeURIComponent(ref.split(/[?#]/, 1)[0]).replace(/^\\//, '');
+            if (/^(?:https?:)?\/\//i.test(ref) || /^(?:data:|#)/i.test(ref)) continue;
+            const pathname = decodeURIComponent(ref.split(/[?#]/, 1)[0]).replace(/^\//, '');
             if (pathname) refs.push(pathname);
           }
           const missing = [...new Set(refs)].filter((ref) => !fs.existsSync(path.resolve(ref)));
