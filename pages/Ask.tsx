@@ -34,7 +34,7 @@ export function AskAssistant() {
     setLoading(true)
     try {
       const { data: result, error } = await supabase.functions.invoke('ai-advisor', {
-        body: { question: content, history },
+        body: { question: content, history, workspaceId },
       })
       if (error) {
         let message = error.message || 'The advisor could not answer right now.'
