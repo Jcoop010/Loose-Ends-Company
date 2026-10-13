@@ -9,27 +9,43 @@ on:
       - feat/autonomy-center-20261012
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   security-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - name: Check JavaScript syntax
         run: find v3.1 -type f -name '*.js' -print0 | xargs -0 -n1 node --check
       - name: Check security invariants
         run: node scripts/security-regression-check.mjs
-      - name: Install dependencies
-        run: npm install
+      - name: Resolve dependency tree and apply safe advisory fixes
+        run: |
+          npm install
+          npm audit fix || true
+      - name: Commit regenerated lockfile when changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: refresh lockfile and safe dependency patches"
+            git push
+          fi
       - name: Report dependency audit
         run: npm audit --json > npm-audit.json || true
       - name: Summarize dependency audit
         run: node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('npm-audit.json','utf8')); console.log(JSON.stringify(a.metadata?.vulnerabilities ?? {},null,2)); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) console.log(name+': '+v.severity+' | direct='+v.isDirect+' | fixAvailable='+JSON.stringify(v.fixAvailable));"
+      - name: Fail on remaining known vulnerabilities
+        run: npm audit --audit-level=moderate
       - name: Typecheck
         run: npm run typecheck
       - name: Production build
