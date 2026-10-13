@@ -70,6 +70,8 @@ const checks = [
     file: "supabase/functions/workflow-runner/index.ts",
     required: [
       "auth.getUser()",
+      "const oldRecord = event.payload?.old_record || {}",
+      "matches(oldRecord, conditions)",
       "workspace_members",
       "workflow_events",
       'runError.code === "23505"',
