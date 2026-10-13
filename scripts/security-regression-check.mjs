@@ -94,6 +94,27 @@ const checks = [
     description: "Client roles must not invoke the privileged trigger function directly.",
   },
   {
+    file: "supabase/migrations/20261013191000_lock_workspace_ownership_fields.sql",
+    required: [
+      "REVOKE UPDATE ON TABLE public.workspaces FROM PUBLIC, anon, authenticated",
+      "GRANT UPDATE (name, slug) ON TABLE public.workspaces TO authenticated",
+      "DROP POLICY IF EXISTS workspace_member_update ON public.workspaces",
+      "CREATE POLICY workspace_admin_update",
+      "wm.role IN ('owner', 'admin')",
+    ],
+    description: "Workspace members must not change the canonical owner id or promote themselves via the membership bootstrap policy.",
+  },
+  {
+    file: "supabase/migrations/20261013192000_lock_billing_and_integration_state.sql",
+    required: [
+      "REVOKE INSERT, UPDATE, DELETE ON TABLE public.workspace_subscriptions FROM PUBLIC, anon, authenticated",
+      "DROP POLICY IF EXISTS subscriptions_admin_update ON public.workspace_subscriptions",
+      "REVOKE INSERT, UPDATE, DELETE ON TABLE public.quickbooks_connections FROM PUBLIC, anon, authenticated",
+      "DROP POLICY IF EXISTS quickbooks_connection_admin_update ON public.quickbooks_connections",
+    ],
+    description: "Paid entitlements and integration status must be changed only by trusted server-side functions.",
+  },
+  {
     file: "supabase/migrations/20261013190000_lock_workflow_run_writes_to_service_role.sql",
     required: [
       "DROP POLICY IF EXISTS workflow_runs_member_insert ON public.workflow_runs",
