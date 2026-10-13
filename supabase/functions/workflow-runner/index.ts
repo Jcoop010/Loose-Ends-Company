@@ -3,17 +3,32 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-};
-
-function json(body: unknown, status = 200) {
+const CANONICAL_ORIGIN = "https://loose-ends-os.vercel.app";
+const ALLOWED_BROWSER_ORIGINS = new Set([
+  CANONICAL_ORIGIN,
+  "https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app",
+]);
+function allowedBrowserOrigin(origin: string): string | null {
+  if (!origin) return CANONICAL_ORIGIN; // Permit trusted server-to-server callers without an Origin header.
+  try {
+    const candidate = new URL(origin);
+    if (candidate.protocol === "https:" && ALLOWED_BROWSER_ORIGINS.has(candidate.origin)) return candidate.origin;
+  } catch { /* Invalid Origin is rejected below. */ }
+  return null;
+}
+function corsHeaders(origin: string) {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
+function json(body: unknown, status = 200, origin = CANONICAL_ORIGIN) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
   });
 }
 
@@ -97,44 +112,48 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "POST required" }, 405);
+  const origin = allowedBrowserOrigin(req.headers.get("Origin") || "");
+  if (!origin) return new Response(JSON.stringify({ error: "Origin is not allowed." }), {
+    status: 403, headers: { "Content-Type": "application/json", "Vary": "Origin" },
+  });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(origin) });
+  if (req.method !== "POST") return json({ error: "POST required" }, 405, origin);
 
   try {
     const authorization = req.headers.get("Authorization");
-    if (!authorization) return json({ error: "Authorization required" }, 401);
+    if (!authorization) return json({ error: "Authorization required" }, 401, origin);
 
     const db = createClient(url, anon, {
       global: { headers: { Authorization: authorization } },
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data: authData, error: authError } = await db.auth.getUser();
-    if (authError || !authData.user) return json({ error: "Invalid session" }, 401);
+    if (authError || !authData.user) return json({ error: "Invalid session" }, 401, origin);
 
     const user = authData.user;
     const body = await req.json().catch(() => ({}));
     const requestedWorkspaceId = typeof body.workspace_id === "string" && body.workspace_id.trim() ? body.workspace_id.trim() : null;
     const workspaceId = await workspaceFor(db, user.id, requestedWorkspaceId);
-    if (requestedWorkspaceId && !workspaceId) return json({ error: "You do not have access to the requested workspace." }, 403);
-    if (!workspaceId) return json({ error: "No workspace" }, 400);
+    if (requestedWorkspaceId && !workspaceId) return json({ error: "You do not have access to the requested workspace." }, 403, origin);
+    if (!workspaceId) return json({ error: "No workspace" }, 400, origin);
 
     if (body.approve_run_id) {
       const { data: membership, error: membershipError } = await db.from("workspace_members")
         .select("role").eq("workspace_id", workspaceId).eq("user_id", user.id).maybeSingle();
-      if (membershipError) return json({ error: membershipError.message }, 500);
+      if (membershipError) return json({ error: membershipError.message }, 500, origin);
       if (!membership || !["owner", "admin"].includes(String(membership.role || ""))) {
-        return json({ error: "Only workspace owners or admins can approve workflow runs." }, 403);
+        return json({ error: "Only workspace owners or admins can approve workflow runs." }, 403, origin);
       }
       const { data: run, error: runError } = await db.from("workflow_runs").select("*")
         .eq("id", body.approve_run_id).eq("workspace_id", workspaceId).maybeSingle();
-      if (runError) return json({ error: runError.message }, 500);
-      if (!run) return json({ error: "Run not found" }, 404);
-      if (run.status !== "waiting_approval") return json({ error: "Run is not awaiting approval", status: run.status }, 409);
+      if (runError) return json({ error: runError.message }, 500, origin);
+      if (!run) return json({ error: "Run not found" }, 404, origin);
+      if (run.status !== "waiting_approval") return json({ error: "Run is not awaiting approval", status: run.status }, 409, origin);
 
       const { data: workflow, error: workflowError } = await db.from("workflows").select("*")
         .eq("id", run.workflow_id).eq("workspace_id", workspaceId).maybeSingle();
-      if (workflowError) return json({ error: workflowError.message }, 500);
-      if (!workflow) return json({ error: "Workflow not found" }, 404);
+      if (workflowError) return json({ error: workflowError.message }, 500, origin);
+      if (!workflow) return json({ error: "Workflow not found" }, 404, origin);
 
       // Atomically claim an approval before executing any actions. Two owner clicks,
       // retries, or concurrent requests must never execute the same approved run twice.
@@ -142,8 +161,8 @@ Deno.serve(async (req: Request) => {
         .update({ status: "running", started_at: new Date().toISOString(), error: null })
         .eq("id", run.id).eq("workspace_id", workspaceId).eq("status", "waiting_approval")
         .select("id").maybeSingle();
-      if (startError) return json({ error: startError.message }, 500);
-      if (!claimedRun) return json({ error: "This run was already claimed or is no longer awaiting approval.", status: "conflict" }, 409);
+      if (startError) return json({ error: startError.message }, 500, origin);
+      if (!claimedRun) return json({ error: "This run was already claimed or is no longer awaiting approval.", status: "conflict" }, 409, origin);
 
       try {
         const outputs = await executeActions(db, workspaceId, workflow, run);
@@ -151,21 +170,21 @@ Deno.serve(async (req: Request) => {
           .update({ status: "completed", result: { outputs, approved_by: user.id }, approved_by: user.id, completed_at: new Date().toISOString() })
           .eq("id", run.id).eq("workspace_id", workspaceId).select().single();
         if (doneError) throw doneError;
-        return json({ ok: true, status: "completed", run: done, outputs });
+        return json({ ok: true, status: "completed", run: done, outputs }, 200, origin);
       } catch (error: any) {
         const message = error?.message || String(error);
         await db.from("workflow_runs").update({ status: "failed", error: message, completed_at: new Date().toISOString() })
           .eq("id", run.id).eq("workspace_id", workspaceId);
-        return json({ error: message, status: "failed" }, 500);
+        return json({ error: message, status: "failed" }, 500, origin);
       }
     }
 
     const { data: events, error: eventsError } = await db.from("workflow_events").select("*")
       .eq("workspace_id", workspaceId).is("processed_at", null).order("created_at", { ascending: true }).limit(25);
-    if (eventsError) return json({ error: eventsError.message }, 500);
+    if (eventsError) return json({ error: eventsError.message }, 500, origin);
     const { data: workflows, error: workflowsError } = await db.from("workflows").select("*")
       .eq("workspace_id", workspaceId).eq("enabled", true);
-    if (workflowsError) return json({ error: workflowsError.message }, 500);
+    if (workflowsError) return json({ error: workflowsError.message }, 500, origin);
 
     const results: any[] = [];
     for (const event of events || []) {
@@ -257,8 +276,8 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    return json({ processed_events: (events || []).length, results });
+    return json({ processed_events: (events || []).length, results }, 200, origin);
   } catch (error: any) {
-    return json({ error: error?.message || String(error) }, 500);
+    return json({ error: error?.message || String(error) }, 500, origin);
   }
 });
