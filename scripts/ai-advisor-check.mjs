@@ -7,6 +7,9 @@ const page = fs.readFileSync("pages/Ask.tsx", "utf8");
 for (const marker of [
   "auth.getUser()",
   "workspace_members",
+  "requestedWorkspaceId",
+  'eq("workspace_id", requestedWorkspaceId)',
+  'eq("user_id", userData.user.id)',
   'eq("workspace_id", wid)',
   'Deno.env.get("OPENROUTER_API_KEY")',
   'model: "openrouter/free"',
@@ -26,4 +29,6 @@ for (const forbidden of [
 }
 
 assert.ok(page.includes("supabase.functions.invoke('ai-advisor'"), "Ask page must use the server endpoint.");
+assert.ok(page.includes("workspaceId"), "Ask page must pass the active workspace to the advisor.");
+assert.ok(page.includes("body: { question: content, history, workspaceId }"), "Advisor request must include the active workspace ID.");
 console.log("AI advisor security, privacy, and free-routing checks passed.");
