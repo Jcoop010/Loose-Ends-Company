@@ -179,7 +179,12 @@ Deno.serve(async (req: Request) => {
         const matchesCreated = workflow.trigger_type === "record_created" && operation === "insert";
         const matchesUpdated = workflow.trigger_type === "record_updated" && operation === "update";
         if ((!matchesCreated && !matchesUpdated) || (workflow.trigger_config?.entity_type || "") !== entity) continue;
-        if (!matches(record, workflow.conditions || [])) continue;
+        const conditions = workflow.conditions || [];
+        if (!matches(record, conditions)) continue;
+        // For condition-based update workflows, only fire when the record enters the matching state.
+        // A later unrelated edit must not create duplicate overdue/completed follow-up tasks.
+        const oldRecord = event.payload?.old_record || {};
+        if (matchesUpdated && conditions.length > 0 && matches(oldRecord, conditions)) continue;
 
         const idempotencyKey = `${event.id}:${workflow.id}`;
         const { data: existing, error: existingError } = await db.from("workflow_runs").select("id,status")
