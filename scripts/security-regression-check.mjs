@@ -125,14 +125,24 @@ for (const check of checks) {
   const missing = check.required.filter((marker) => !source.includes(marker));
   assert.deepEqual(missing, [], `${check.description} Missing markers: ${missing.join(", ")}`);
 }
-for (const file of [
+const originRestrictedFunctions = [
   "supabase/functions/create-subscription-checkout/index.ts",
   "supabase/functions/create-billing-portal/index.ts",
   "supabase/functions/workflow-runner/index.ts",
   "supabase/functions/quickbooks-sync/index.ts",
-]) {
-  assert.ok(!read(file).includes('"Access-Control-Allow-Origin": "*"'), `${file} must not allow wildcard CORS`);
+];
+for (const file of originRestrictedFunctions) {
+  const source = read(file);
+  assert.ok(!source.includes('"Access-Control-Allow-Origin": "*"'), `${file} must not allow wildcard CORS`);
+  assert.ok(source.includes("https://loose-ends-os.vercel.app"), `${file} must allow the canonical app origin`);
+  assert.ok(source.includes("https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app"), `${file} must use the exact known preview origin, not a broad preview wildcard`);
+  assert.ok(!source.includes('host.startsWith("loose-ends-v3-1-")'), `${file} must not trust arbitrary preview deployments`);
+  assert.ok(!source.includes('host.endsWith("-loose-ends-co.vercel.app")'), `${file} must not trust arbitrary Vercel hosts`);
 }
+const runnerSource = read("supabase/functions/workflow-runner/index.ts");
+assert.ok(runnerSource.includes("userDb.auth.getUser()"), "Workflow runner must authenticate with the caller JWT");
+assert.ok(runnerSource.includes("const serviceKey = Deno.env.get(\"SUPABASE_SERVICE_ROLE_KEY\")"), "Workflow runner must use the service role only after authenticating the caller");
+assert.ok(runnerSource.includes("workspaceFor(userDb, user.id, requestedWorkspaceId)"), "Workflow runner must verify membership before privileged operations");
 const workspacePolicyMigration = read("supabase/migrations/20261013181010_tighten_workspace_policies_to_authenticated.sql");
 assert.ok(!/\bTO\s+public\b/i.test(workspacePolicyMigration), "Workspace-scoped policies must not target PUBLIC");
 assert.ok(!/\bTO\s+anon\b/i.test(workspacePolicyMigration), "Workspace-scoped policies must not target anon");
