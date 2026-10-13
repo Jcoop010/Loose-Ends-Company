@@ -1,0 +1,36 @@
+name: Security PR Validation
+
+on:
+  push:
+    branches:
+      - security/harden-billing-cors-20261013
+  pull_request:
+    branches:
+      - feat/autonomy-center-20261012
+
+permissions:
+  contents: read
+
+jobs:
+  security-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Check JavaScript syntax
+        run: find v3.1 -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Check security invariants
+        run: node scripts/security-regression-check.mjs
+      - name: Install dependencies
+        run: npm install
+      - name: Report dependency audit
+        run: npm audit --json > npm-audit.json || true
+      - name: Summarize dependency audit
+        run: node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('npm-audit.json','utf8')); console.log(JSON.stringify(a.metadata?.vulnerabilities ?? {},null,2)); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) console.log(name+': '+v.severity+' | direct='+v.isDirect+' | fixAvailable='+JSON.stringify(v.fixAvailable));"
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build
