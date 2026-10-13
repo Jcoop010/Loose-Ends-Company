@@ -8,16 +8,15 @@ const corsHeaders = (origin: string) => ({
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Vary": "Origin",
 });
+const ALLOWED_BROWSER_ORIGINS = new Set([
+  CANONICAL_ORIGIN,
+  "https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app",
+]);
 function allowedBrowserOrigin(origin: string): string | null {
   if (!origin) return CANONICAL_ORIGIN;
   try {
     const candidate = new URL(origin);
-    if (candidate.protocol !== "https:") return null;
-    const host = candidate.hostname.toLowerCase();
-    if (host === "loose-ends-os.vercel.app" ||
-        host === "loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app") {
-      return candidate.origin;
-    }
+    if (candidate.protocol === "https:" && ALLOWED_BROWSER_ORIGINS.has(candidate.origin)) return candidate.origin;
   } catch { /* Invalid Origin is rejected below. */ }
   return null;
 }
