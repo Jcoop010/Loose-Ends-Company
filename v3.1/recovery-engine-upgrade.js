@@ -86,7 +86,12 @@
       return !q || textOf(o).indexOf(q) >= 0 || String(o.amount || '').indexOf(q) >= 0;
     });
   }
-  function csvCell(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }
+  function csvCell(v) {
+    var value = String(v == null ? '' : v);
+    // Prevent spreadsheet formula injection when users open exported data in Excel/Sheets.
+    if (typeof v === 'string' && /^[\s]*[=+\-@]/.test(value)) value = "'" + value;
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
   function exportCsv() {
     var s = getData(), rows = filtered(s.opportunities || []);
     var data = [['Opportunity ID', 'Title', 'Source', 'Status', 'Category', 'Amount at risk (estimate)', 'Verified recovered amount', 'Created at', 'Recommended next action', 'Evidence status']];

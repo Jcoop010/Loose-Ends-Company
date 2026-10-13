@@ -8,31 +8,58 @@
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function money(v) { return '$' + Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
   function parse(text) {
-    var all = [], row = [], cell = '', quoted = false;
+    var all = [], row = [], cell = '', quoted = false, closedQuote = false;
     text = String(text || '').replace(/^\uFEFF/, '');
+    if (text.length > 2 * 1024 * 1024) throw new Error('CSV is larger than the 2 MB safety limit.');
     for (var i = 0; i < text.length; i++) {
       var ch = text[i], next = text[i + 1];
-      if (ch === '"' && quoted && next === '"') { cell += '"'; i++; }
-      else if (ch === '"') quoted = !quoted;
-      else if (ch === ',' && !quoted) { row.push(cell); cell = ''; }
-      else if ((ch === '\n' || ch === '\r') && !quoted) {
+      if (quoted) {
+        if (ch === '"' && next === '"') { cell += '"'; i++; }
+        else if (ch === '"') { quoted = false; closedQuote = true; }
+        else cell += ch;
+        continue;
+      }
+      if (ch === '"') {
+        if (cell.length || closedQuote) throw new Error('CSV contains a quote in an invalid position. Check the file formatting.');
+        quoted = true;
+        continue;
+      }
+      if (ch === ',') { row.push(cell); cell = ''; closedQuote = false; continue; }
+      if (ch === '\n' || ch === '\r') {
         if (ch === '\r' && next === '\n') i++;
-        row.push(cell); if (row.some(function (v) { return String(v).trim(); })) all.push(row);
-        row = []; cell = '';
-      } else cell += ch;
+        row.push(cell);
+        if (row.some(function (v) { return String(v).trim(); })) all.push(row);
+        row = []; cell = ''; closedQuote = false;
+        continue;
+      }
+      if (closedQuote && ch !== ' ' && ch !== '\t') throw new Error('CSV contains characters after a closing quote.');
+      if (!closedQuote) cell += ch;
     }
-    if (cell || row.length) { row.push(cell); if (row.some(function (v) { return String(v).trim(); })) all.push(row); }
+    if (quoted) throw new Error('CSV has an unclosed quoted field.');
+    if (cell.length || row.length) {
+      row.push(cell);
+      if (row.some(function (v) { return String(v).trim(); })) all.push(row);
+    }
     if (all.length < 2) throw new Error('CSV must include a header and at least one data row.');
     var headers = all.shift().map(function (h) { return String(h).trim().toLowerCase().replace(/[ _-]+/g, ' '); });
+    if (headers.indexOf('title') < 0 && headers.indexOf('opportunity') < 0 && headers.indexOf('opportunity title') < 0 && headers.indexOf('name') < 0) {
+      throw new Error('CSV is missing a title column. Use title, opportunity, opportunity title, or name.');
+    }
+    if (headers.indexOf('amount') < 0 && headers.indexOf('value') < 0 && headers.indexOf('potential value') < 0 && headers.indexOf('amount at risk') < 0) {
+      throw new Error('CSV is missing an amount column. Use amount, value, potential value, or amount at risk.');
+    }
     function val(r, names) { for (var i = 0; i < names.length; i++) { var at = headers.indexOf(names[i]); if (at >= 0) return String(r[at] || '').trim(); } return ''; }
     var output = [], skipped = 0, seen = Object.create(null);
     all.slice(0, 100).forEach(function (r) {
+      if (r.length > headers.length) { skipped++; return; }
       var title = val(r, ['title', 'opportunity', 'opportunity title', 'name']);
       var raw = val(r, ['amount', 'value', 'potential value', 'amount at risk']);
-      var amount = Number(raw.replace(/[,$\s]/g, ''));
-      if (!title || !raw || !isFinite(amount) || amount < 0) { skipped++; return; }
+      var amountText = raw.replace(/[,$\s]/g, '');
+      var amount = Number(amountText);
+      if (!title || !raw || !/^(?:\d+\.?\d*|\.\d+)$/.test(amountText) || !isFinite(amount) || amount < 0 || amount > 1000000000000) { skipped++; return; }
       var key = title.toLowerCase() + '|' + amount;
-      if (seen[key]) { skipped++; return; } seen[key] = true;
+      if (seen[key]) { skipped++; return; }
+      seen[key] = true;
       output.push({ title: title.slice(0, 200), amount: amount, source: (val(r, ['source', 'category', 'type']) || 'csv_import').slice(0, 80), reason: (val(r, ['reason', 'notes', 'next action', 'description']) || 'Imported from owner-provided CSV; verify before follow-up.').slice(0, 500) });
     });
     return { rows: output, skipped: skipped + Math.max(0, all.length - 100) };
@@ -62,10 +89,11 @@
         inserts.push({ workspace_id: workspace, title: r.title, amount: r.amount, source: r.source, reason: r.reason, status: 'open', recovered_amount: 0, priority: r.amount >= 1000 ? 1 : r.amount >= 500 ? 2 : 3 });
       });
       var count = 0;
-      for (var i = 0; i < inserts.length; i += 20) {
-        var result = await S.from('opportunities').insert(inserts.slice(i, i + 20)).select('id');
+      if (inserts.length) {
+        // One bounded insert keeps the import atomic: a failed request cannot leave a partial multi-batch import.
+        var result = await S.from('opportunities').insert(inserts).select('id');
         if (result.error) throw result.error;
-        count += (result.data || []).length;
+        count = (result.data || []).length;
       }
       rows = []; render();
       message('Import complete: ' + count + ' opportunity record(s) created; ' + skipped + ' existing duplicate(s) skipped. Run a live scan to refresh the ledger.');
@@ -83,13 +111,15 @@
   });
   document.addEventListener('change', function (e) {
     if (!e.target || e.target.id !== 'le-csv-file' || !e.target.files || !e.target.files[0]) return;
+    var file = e.target.files[0];
+    if (file.size > 2 * 1024 * 1024) { rows = []; render(); message('CSV is larger than the 2 MB safety limit. Export a smaller file and try again.'); e.target.value = ''; return; }
     var reader = new FileReader();
     reader.onload = function () {
       try { var parsed = parse(reader.result); rows = parsed.rows; window.__leCsvSkipped = parsed.skipped; render(); message(rows.length ? 'Review the preview before importing. Nothing has been saved yet.' : 'No valid rows found. Include a title column and a numeric amount column.'); }
       catch (error) { rows = []; render(); message(String(error.message || 'Could not parse CSV.')); }
     };
     reader.onerror = function () { message('Could not read that file.'); };
-    reader.readAsText(e.target.files[0]); e.target.value = '';
+    reader.readAsText(file); e.target.value = '';
   });
   function boot() {
     var ticks = 0;
