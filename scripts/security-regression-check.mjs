@@ -25,7 +25,7 @@ const checks = [
       "auth.getUser()", "workspace_members", '["owner", "admin"]',
       "const prices: Record<string, string>", 'mode: "subscription"',
       "function allowedBrowserOrigin", '"Access-Control-Allow-Origin": origin',
-      'host === "loose-ends-os.vercel.app"', "Origin is not allowed.",
+      'host === "loose-ends-os.vercel.app"', 'host === "loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app"', "Origin is not allowed.",
     ],
     description: "Checkout must authenticate users, authorize workspace billing admins, use an allowlisted plan, and reject untrusted browser origins.",
   },
