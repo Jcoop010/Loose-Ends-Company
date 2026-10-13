@@ -4,10 +4,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
 const CANONICAL_ORIGIN = "https://loose-ends-os.vercel.app";
-const ALLOWED_BROWSER_ORIGINS = new Set([
-  CANONICAL_ORIGIN,
-  "https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app",
-]);
+// Production Supabase APIs are not exposed to ephemeral Vercel preview deployments.
+const ALLOWED_BROWSER_ORIGINS = new Set([CANONICAL_ORIGIN]);
 function allowedBrowserOrigin(origin: string): string | null {
   if (!origin) return CANONICAL_ORIGIN; // Permit trusted server-to-server callers without an Origin header.
   try {
