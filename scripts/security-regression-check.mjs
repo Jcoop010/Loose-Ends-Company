@@ -20,6 +20,17 @@ const checks = [
     description: "The live opportunity scan must fetch recovered_amount so confirmed-recovered metrics reflect stored records.",
   },
   {
+    file: "supabase/functions/bootstrap-workspace/index.ts",
+    required: [
+      "function allowedBrowserOrigin",
+      '"Access-Control-Allow-Origin": origin',
+      "Origin is not allowed.",
+      "auth.getUser()",
+      "SUPABASE_SERVICE_ROLE_KEY",
+    ],
+    description: "Workspace bootstrap must authenticate the caller and reject untrusted browser origins before privileged workspace creation.",
+  },
+  {
     file: "supabase/functions/create-subscription-checkout/index.ts",
     required: [
       "auth.getUser()", "workspace_members", '["owner", "admin"]',
@@ -154,6 +165,7 @@ for (const check of checks) {
   assert.deepEqual(missing, [], `${check.description} Missing markers: ${missing.join(", ")}`);
 }
 const originRestrictedFunctions = [
+  "supabase/functions/bootstrap-workspace/index.ts",
   "supabase/functions/create-subscription-checkout/index.ts",
   "supabase/functions/create-billing-portal/index.ts",
   "supabase/functions/workflow-runner/index.ts",
