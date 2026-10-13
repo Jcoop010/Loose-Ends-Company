@@ -39,6 +39,16 @@ const checks = [
     description: "Billing portal must authenticate and authorize the workspace and reject untrusted browser origins.",
   },
   {
+    file: "supabase/functions/workflow-runner/index.ts",
+    required: ["function allowedBrowserOrigin", '"Access-Control-Allow-Origin": origin', "Origin is not allowed.", "auth.getUser()", "workspace_members"],
+    description: "Workflow runner must reject untrusted browser origins and authorize users against workspace membership.",
+  },
+  {
+    file: "supabase/functions/quickbooks-sync/index.ts",
+    required: ["function allowedBrowserOrigin", '"Access-Control-Allow-Origin": origin', "Origin is not allowed.", "auth.getUser()", "workspace_members"],
+    description: "QuickBooks bridge must reject untrusted browser origins and authorize workspace membership.",
+  },
+  {
     file: "supabase/functions/stripe-webhook/index.ts",
     required: [
       "verifyStripeSignature", "crypto.subtle.sign",
@@ -107,6 +117,8 @@ for (const check of checks) {
 for (const file of [
   "supabase/functions/create-subscription-checkout/index.ts",
   "supabase/functions/create-billing-portal/index.ts",
+  "supabase/functions/workflow-runner/index.ts",
+  "supabase/functions/quickbooks-sync/index.ts",
 ]) {
   assert.ok(!read(file).includes('"Access-Control-Allow-Origin": "*"'), `${file} must not allow wildcard CORS`);
 }
