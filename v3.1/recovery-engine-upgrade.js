@@ -49,6 +49,19 @@
     var s = c && typeof c.getState === 'function' ? c.getState() : null;
     return s || { opportunities: [], tasks: [], scannedAt: null };
   }
+  function probability(o) {
+    var p = 0.22, t = textOf(o);
+    var created = new Date(o.created_at || Date.now()).getTime();
+    var age = Math.max(0, (Date.now() - (isNaN(created) ? Date.now() : created)) / 86400000);
+    if (/missed|call|lead|inquir/.test(t)) p += 0.18;
+    if (/estimate|quote|proposal|declin|unsold/.test(t)) p += 0.14;
+    if (age <= 2) p += 0.14;
+    else if (age <= 7) p += 0.10;
+    else if (age > 60) p -= 0.10;
+    if (status(o) === 'scheduled') p += 0.12;
+    if (status(o) === 'contacted') p += 0.03;
+    return Math.max(0.05, Math.min(0.78, p));
+  }
   function styles() {
     if (document.getElementById('le-recovery-engine-style')) return;
     var el = document.createElement('style');
@@ -97,7 +110,7 @@
     var s = getData(), items = s.opportunities || [];
     var activeItems = items.filter(active), verified = items.reduce(function (sum, o) { return sum + recovered(o); }, 0);
     var risk = activeItems.reduce(function (sum, o) { return sum + Math.max(0, Number(o.amount || 0)); }, 0);
-    var modeled = activeItems.reduce(function (sum, o) { return sum + Math.max(0, Number(o.amount || 0)) * Math.min(.78, Math.max(.05, .22 + (bucket(o) === 'lead' ? .18 : 0) + (bucket(o) === 'quote' ? .14 : 0))) ; }, 0);
+    var modeled = activeItems.reduce(function (sum, o) { return sum + Math.max(0, Number(o.amount || 0)) * probability(o); }, 0);
     var list = filtered(items).sort(function (a, b) { return (recovered(b) > 0 ? 1 : 0) - (recovered(a) > 0 ? 1 : 0) || score(b) - score(a); }).slice(0, 30);
     var html = '<div class="le-recovery-head"><div><div class="le-recovery-kicker">EVIDENCE-FIRST REVENUE INTELLIGENCE</div><h2>Recovery Ledger & Playbooks</h2><div class="le-recovery-muted">One place to prioritize opportunities, review the evidence, and export a working recovery ledger. Estimates are kept separate from recorded recovered amounts.</div></div><button type="button" class="le-recovery-btn primary" data-recovery-action="export">Export ledger CSV</button></div>' +
       '<div class="le-recovery-stats"><div class="le-recovery-stat"><span>Open opportunity amount · estimate</span><strong>' + money(risk) + '</strong></div><div class="le-recovery-stat"><span>Modeled opportunity value · estimate</span><strong>' + money(modeled) + '</strong></div><div class="le-recovery-stat"><span>Recorded recovered amount</span><strong>' + money(verified) + '</strong></div></div>' +
@@ -145,13 +158,13 @@
     function tick() {
       var s = getData();
       var key = [s.workspaceId || '', (s.opportunities || []).length, (s.tasks || []).length, s.scannedAt || '', (window.LE && window.LE.getState ? window.LE.getState().view : '')].join('|');
-      if (key !== state.lastKey || document.getElementById('le-recovery-engine') === null) { state.lastKey = key; render(); }
+      if (key !== state.lastKey || document.getElementById('le-recovery-engine') === null || (document.getElementById('le-recovery-engine') && document.getElementById('le-recovery-engine').previousElementSibling !== document.getElementById('le-autonomy-center'))) { state.lastKey = key; render(); }
       if (++attempts < 100) window.setTimeout(tick, 1800);
     }
     tick();
     window.setInterval(function () {
       var s = getData(), key = [s.workspaceId || '', (s.opportunities || []).length, (s.tasks || []).length, s.scannedAt || '', (window.LE && window.LE.getState ? window.LE.getState().view : '')].join('|');
-      if (key !== state.lastKey || document.getElementById('le-recovery-engine') === null) { state.lastKey = key; render(); }
+      if (key !== state.lastKey || document.getElementById('le-recovery-engine') === null || (document.getElementById('le-recovery-engine') && document.getElementById('le-recovery-engine').previousElementSibling !== document.getElementById('le-autonomy-center'))) { state.lastKey = key; render(); }
     }, 5000);
   }
   window.LERecoveryEngine = { render: render, exportCsv: exportCsv, getState: function () { return state; } };
