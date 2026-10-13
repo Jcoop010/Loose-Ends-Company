@@ -36,9 +36,8 @@ const checks = [
       "auth.getUser()", "workspace_members", '["owner", "admin"]',
       "const prices: Record<string, string>", 'mode: "subscription"',
       "function allowedBrowserOrigin", '"Access-Control-Allow-Origin": origin',
-      "const ALLOWED_BROWSER_ORIGINS = new Set([",
+      "const ALLOWED_BROWSER_ORIGINS = new Set([CANONICAL_ORIGIN])",
       '"https://loose-ends-os.vercel.app"',
-      '"https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app"',
       "Origin is not allowed.",
     ],
     description: "Checkout must authenticate users, authorize workspace billing admins, use an allowlisted plan, and reject untrusted browser origins.",
@@ -84,8 +83,8 @@ const checks = [
     file: "supabase/functions/quickbooks-sync/index.ts",
     required: [
       "auth.getUser()", "workspace_members", "quickbooks_connections",
-      "ready_for_oauth", '"Access-Control-Allow-Origin"', 'req.method === "OPTIONS"',
-      "loose-ends-v3-1-",
+      "ready_for_oauth", '"Access-Control-Allow-Origin": origin', 'req.method === "OPTIONS"',
+      "const ALLOWED_BROWSER_ORIGINS = new Set([CANONICAL_ORIGIN])",
     ],
     description: "QuickBooks bridge must authenticate and verify workspace membership without claiming OAuth sync is live before credentials exist.",
   },
@@ -198,7 +197,7 @@ for (const file of originRestrictedFunctions) {
   const source = read(file);
   assert.ok(!source.includes('"Access-Control-Allow-Origin": "*"'), `${file} must not allow wildcard CORS`);
   assert.ok(source.includes("https://loose-ends-os.vercel.app"), `${file} must allow the canonical app origin`);
-  assert.ok(source.includes("https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app"), `${file} must use the exact known preview origin, not a broad preview wildcard`);
+  assert.ok(!source.includes("https://loose-ends-v3-1-"), `${file} must not expose production APIs to ephemeral preview deployments`);
   assert.ok(!source.includes('host.startsWith("loose-ends-v3-1-")'), `${file} must not trust arbitrary preview deployments`);
   assert.ok(!source.includes('host.endsWith("-loose-ends-co.vercel.app")'), `${file} must not trust arbitrary Vercel hosts`);
 }
