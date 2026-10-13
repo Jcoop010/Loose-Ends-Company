@@ -4,7 +4,7 @@
  */
 (function () {
   'use strict';
-  var rows = [], busy = false;
+  var rows = [], busy = false, notice = '';
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function money(v) { return '$' + Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
   function parse(text) {
@@ -45,7 +45,7 @@
     if (!panel) { panel = document.createElement('section'); panel.id = 'le-csv-import'; panel.className = 'le-recovery-engine'; engine.insertAdjacentElement('afterend', panel); }
     panel.innerHTML = '<div class="le-recovery-head"><div><div class="le-recovery-kicker">SAFE DATA ONBOARDING</div><h2>Import real opportunities</h2><div class="le-recovery-muted">Upload a CSV with title and amount columns. Optional source and reason columns are supported. Records are previewed first and saved only after you confirm.</div></div><div class="le-recovery-actions"><input type="file" id="le-csv-file" accept=".csv,text/csv" hidden><button class="le-recovery-btn" type="button" data-csv-action="choose">Choose CSV</button></div></div>' +
       (rows.length ? '<div class="le-recovery-note"><strong>Preview: ' + rows.length + ' valid row(s)</strong><div class="le-recovery-muted">' + rows.slice(0, 5).map(function (r) { return esc(r.title) + ' · ' + money(r.amount); }).join(' &nbsp; | &nbsp; ') + '</div><div class="le-recovery-muted" style="margin:6px 0 10px">' + (window.__leCsvSkipped || 0) + ' invalid, duplicate, or over-limit row(s) skipped. Duplicate title + amount records already in the workspace will be skipped.</div><button class="le-recovery-btn primary" type="button" data-csv-action="confirm" ' + (busy ? 'disabled' : '') + '>' + (busy ? 'Importing…' : 'Confirm import') + '</button> <button class="le-recovery-btn" type="button" data-csv-action="cancel">Cancel</button></div>' : '') +
-      '<div id="le-csv-message" class="le-recovery-muted" role="status" aria-live="polite"></div>';
+      '<div id="le-csv-message" class="le-recovery-muted" role="status" aria-live="polite">' + esc(notice) + '</div>';
   }
   async function confirm() {
     if (busy || !rows.length) return;
@@ -73,7 +73,7 @@
     } catch (e) { message('Import failed safely. No customer messages were sent. ' + String(e && e.message || 'Check your workspace access and CSV format.').slice(0, 220)); }
     finally { busy = false; render(); }
   }
-  function message(value) { var el = document.getElementById('le-csv-message'); if (el) el.textContent = value; }
+  function message(value) { notice = String(value || ''); var el = document.getElementById('le-csv-message'); if (el) el.textContent = notice; }
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-csv-action]'); if (!b) return;
     var action = b.getAttribute('data-csv-action');
