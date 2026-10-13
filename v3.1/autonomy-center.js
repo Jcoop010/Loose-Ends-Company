@@ -55,7 +55,8 @@
     return m.data && m.data.workspace_id || null;
   }
   function activeOpp(o) {
-    return ['open', 'contacted', 'scheduled', 'responded'].indexOf(String(o.status || 'open')) >= 0;
+    var status = String(o.status || 'open').toLowerCase();
+    return ['recovered', 'dismissed', 'closed', 'won', 'lost', 'converted'].indexOf(status) < 0;
   }
   function score(o) {
     var amount = Math.max(0, Number(o.amount || 0));
@@ -103,8 +104,11 @@
     var dueFollowUps = state.followUps.filter(function (f) {
       return f.status === 'pending' && f.scheduled_at && new Date(f.scheduled_at).getTime() <= Date.now();
     });
-    var recovered = state.opportunities.filter(function (o) { return o.status === 'recovered'; })
+    var recovered = state.opportunities.filter(function (o) { return String(o.status || '').toLowerCase() === 'recovered'; })
       .reduce(function (sum, o) { return sum + Number(o.recovered_amount || 0); }, 0);
+    var openTasks = state.tasks.filter(function (t) {
+      return ['completed', 'done', 'cancelled', 'canceled'].indexOf(String(t.status || '').toLowerCase()) < 0;
+    }).length;
     return {
       active: active,
       risk: risk,
@@ -112,6 +116,7 @@
       overdue: overdueTasks.length + dueFollowUps.length,
       overdueTasks: overdueTasks.length,
       dueFollowUps: dueFollowUps.length,
+      openTasks: openTasks,
       recovered: recovered,
       enabled: state.workflows.filter(function (w) { return w.enabled !== false; }).length
     };
@@ -149,7 +154,7 @@
     box.className = 'le-autonomy';
     box.innerHTML =
       '<div class="le-aut-head"><div><div class="le-aut-kicker">REVENUE RECOVERY INTELLIGENCE · CONTROL PLANE</div><h2>Autonomy Center</h2><div class="le-aut-sub">Continuously prioritize real workspace records, surface the next best action, and let the existing workflow engine process authorized work. Recommendations use transparent rules today; modeled recovery is an estimate, not a promise.</div></div><div class="le-aut-actions"><button class="le-aut-secondary" data-aut-action="scan" ' + (state.busy ? 'disabled' : '') + '>' + (state.busy ? 'Scanning…' : 'Run live scan') + '</button><button class="le-aut-primary" data-aut-action="cycle" ' + (state.busy ? 'disabled' : '') + '>Run workflow cycle</button></div></div>' +
-      '<div class="le-aut-grid"><div class="le-aut-stat"><span>Revenue at risk</span><strong>' + money(m.risk) + '</strong></div><div class="le-aut-stat"><span>Modeled recovery</span><strong>' + money(m.modeled) + '</strong></div><div class="le-aut-stat"><span>Open action queue</span><strong>' + (m.active.length + m.overdue) + '</strong></div><div class="le-aut-stat"><span>Confirmed recovered</span><strong>' + money(m.recovered) + '</strong></div></div>' +
+      '<div class="le-aut-grid"><div class="le-aut-stat"><span>Revenue at risk</span><strong>' + money(m.risk) + '</strong></div><div class="le-aut-stat"><span>Modeled recovery</span><strong>' + money(m.modeled) + '</strong></div><div class="le-aut-stat"><span>Open tasks / follow-ups</span><strong>' + (m.openTasks + m.dueFollowUps) + '</strong></div><div class="le-aut-stat"><span>Confirmed recovered</span><strong>' + money(m.recovered) + '</strong></div></div>' +
       '<div class="le-aut-columns"><div class="le-aut-card"><h3>Highest-value next actions</h3>' +
       (top.length ? top.map(function (o) {
         var customer = o.customers || {};
@@ -251,7 +256,6 @@
       }
       state.busy = false;
       var completionNotice = state.notice;
-      state.busy = false;
       await scan({ quiet: true });
       state.notice = completionNotice;
       render();
