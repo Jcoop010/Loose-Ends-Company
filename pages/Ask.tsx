@@ -1,92 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { ASK_SUGGESTIONS } from '../data'
-import { formatCurrency } from '../utils'
 import { PageHeader } from '../components/ui'
-import { MessageSquare, Send, User, Sparkles } from 'lucide-react'
-import type { AppData } from '../types'
-
-function generateResponse(query: string, data: AppData): string {
-  const q = query.toLowerCase()
-
-  if (q.includes('find me money') || q.includes('find money') || q.includes('biggest opportunity') || q.includes('opportunities')) {
-    const opps = data.opportunities.filter(o => o.status === 'Potential').sort((a, b) => b.potentialValue - a.potentialValue)
-    const total = opps.reduce((s, o) => s + o.potentialValue, 0)
-    const top = opps.slice(0, 5)
-    let response = `I found ${opps.length} high-priority opportunities worth approximately ${formatCurrency(total)} in potential revenue.\n\nTop opportunities:\n\n`
-    top.forEach((o, i) => {
-      response += `${i + 1}. ${o.customerName} — ${formatCurrency(o.potentialValue)}\n   ${o.type} · ${o.nextAction}\n\n`
-    })
-    response += `Would you like me to show all ${opps.length} opportunities? You can view them in the Revenue Recovery center.`
-    return response
-  }
-
-  if (q.includes('follow up') || q.includes('follow-up')) {
-    const due = data.followUps.filter(f => f.status === 'Due Today')
-    let response = `You have ${due.length} follow-ups due today:\n\n`
-    due.forEach((f, i) => {
-      response += `${i + 1}. ${f.customerName} — ${formatCurrency(f.potentialValue)}\n   ${f.reason}\n   Action: ${f.nextAction}\n\n`
-    })
-    response += 'I recommend starting with the highest-value follow-up. Head to the Follow-Up Center to log your contacts.'
-    return response
-  }
-
-  if (q.includes("hasn't been back") || q.includes('inactive') || q.includes("who hasn")) {
-    const inactive = data.customers.filter(c => c.status === 'Inactive')
-    let response = `You have ${inactive.length} inactive customers who haven't been back in over 6 months:\n\n`
-    inactive.slice(0, 5).forEach((c, i) => {
-      const v = data.vehicles.find(v => v.id === c.vehicleId)
-      response += `${i + 1}. ${c.name} — ${v ? `${v.year} ${v.make} ${v.model}` : 'No vehicle'}\n   LTV: ${formatCurrency(c.lifetimeValue)}\n   Last service: ${c.lastServiceDescription}\n\n`
-    })
-    response += 'These customers represent significant potential revenue. I recommend a personal win-back call from you for the top 3.'
-    return response
-  }
-
-  if (q.includes('what should i work on') || q.includes('today') || q.includes('priorit')) {
-    const dueToday = data.followUps.filter(f => f.status === 'Due Today')
-    const missedCalls = data.opportunities.filter(o => o.type === 'Missed Call' && o.status === 'Potential')
-    const maint = data.customers.filter(c => c.status === 'Maintenance Due')
-    let response = `Here's what I recommend you focus on today:\n\n`
-    response += `1. Follow up with ${dueToday.length} customers due today (${formatCurrency(dueToday.reduce((s, f) => s + f.potentialValue, 0))} in potential revenue)\n`
-    response += `2. Return ${missedCalls.length} missed calls\n`
-    response += `3. Send maintenance reminders to ${maint.length} overdue customers\n\n`
-    response += 'Start with the highest-value follow-up and work your way down. You\'ve got this!'
-    return response
-  }
-
-  if (q.includes('facebook') || q.includes('social') || q.includes('post')) {
-    return `Here's a Facebook post I'd recommend for this week:\n\n"Fall is here! Is your vehicle ready for the cooler months? Right now at Mike's Auto & Service, we're offering a Fall Maintenance Special — brake inspection, oil change, and 25-point check for just $89. Don't wait until the first cold morning to find out your battery is weak. Call us at (555) 123-4567 to schedule!\n\n#AutoRepair #FallMaintenance #SpringfieldOH #MikesAuto"\n\nYou can create more posts in the Marketing center.`
-  }
-
-  if (q.includes('overdue') || q.includes('maintenance')) {
-    const maint = data.customers.filter(c => c.status === 'Maintenance Due')
-    let response = `You have ${maint.length} customers overdue for maintenance:\n\n`
-    maint.forEach((c, i) => {
-      const v = data.vehicles.find(v => v.id === c.vehicleId)
-      response += `${i + 1}. ${c.name} — ${v ? `${v.year} ${v.make} ${v.model}` : ''} (${v?.mileage.toLocaleString()} mi)\n   Last service: ${c.lastServiceDescription}\n\n`
-    })
-    response += 'I recommend sending a service reminder to all of them. You can set up a campaign in the Marketing center.'
-    return response
-  }
-
-  if (q.includes('revenue') || q.includes('recover') || q.includes('money')) {
-    const recovered = data.opportunities.filter(o => o.status === 'Collected').reduce((s, o) => s + (o.collectedAmount || 0), 0)
-    const potential = data.opportunities.filter(o => o.status === 'Potential').reduce((s, o) => s + o.potentialValue, 0)
-    return `Here's your revenue recovery snapshot:\n\n• Potential opportunity: ${formatCurrency(potential)}\n• Recovered revenue: ${formatCurrency(recovered)}\n• Recovery rate: ${potential + recovered > 0 ? Math.round(recovered / (potential + recovered) * 1000) / 10 : 0}%\n\nThe biggest opportunity is following up on declined estimates and aging estimates. Check the Revenue Recovery center for details.`
-  }
-
-  if (q.includes('alert') || q.includes('urgent')) {
-    const urgent = data.alerts.filter(a => !a.dismissed && a.severity === 'urgent')
-    let response = `You have ${urgent.length} urgent alerts:\n\n`
-    urgent.forEach((a, i) => {
-      response += `${i + 1}. ${a.customerName || 'Multiple customers'} — ${a.reason}\n   Action: ${a.recommendedAction}\n\n`
-    })
-    response += 'Check the Alerts page for all active alerts.'
-    return response
-  }
-
-  return `I can help you with:\n\n• Finding revenue opportunities ("Find me money")\n• Prioritizing your day ("What should I work on today?")\n• Identifying inactive customers ("Who hasn't been back?")\n• Overdue maintenance customers\n• Creating social media posts\n• Revenue recovery status\n\nTry one of the quick prompts below, or ask me anything about your business!`
-}
+import { Send, User, Sparkles } from 'lucide-react'
+import { supabase } from '../supabase'
 
 interface Message {
   role: 'assistant' | 'user'
@@ -95,32 +12,57 @@ interface Message {
 
 export function AskAssistant() {
   const { data } = useStore()
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: `Good morning, ${data.business.owner.split(' ')[0]}! I'm your Loose Ends Co. assistant. I can help you find revenue opportunities, prioritize your day, and answer questions about your business. What can I help you with?`,
-    },
-  ])
+  const [messages, setMessages] = useState<Message[]>([{
+    role: 'assistant',
+    content: `Hi, ${data.business.owner.split(' ')[0] || 'there'}! I'm your Loose Ends OS advisor. I can analyze available workspace data, help prioritize revenue-recovery opportunities, and answer broader business questions. I'll be clear about what the data does and doesn't prove. What would you like to work on?`,
+  }])
   const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-  }, [messages])
+  }, [messages, loading])
 
-  const send = (text?: string) => {
-    const content = text || input.trim()
-    if (!content) return
-    const userMsg: Message = { role: 'user', content }
-    const assistantMsg: Message = { role: 'assistant', content: generateResponse(content, data) }
-    setMessages(prev => [...prev, userMsg, assistantMsg])
+  const send = async (suggestion?: string) => {
+    const content = (suggestion ?? input).trim()
+    if (!content || loading) return
+    const userMessage: Message = { role: 'user', content }
+    const history = messages.slice(-8)
+    setMessages(prev => [...prev, userMessage])
     setInput('')
+    setLoading(true)
+    try {
+      const { data: result, error } = await supabase.functions.invoke('ai-advisor', {
+        body: { question: content, history },
+      })
+      if (error) {
+        let message = error.message || 'The advisor could not answer right now.'
+        const context = (error as any).context
+        if (context && typeof context.json === 'function') {
+          const detail = await context.json().catch(() => null)
+          if (typeof detail?.error === 'string') message = detail.error
+        }
+        throw new Error(message)
+      }
+      if (typeof result?.answer !== 'string' || !result.answer.trim()) {
+        throw new Error(typeof result?.error === 'string' ? result.error : 'The advisor returned no answer. Please try again.')
+      }
+      setMessages(prev => [...prev, { role: 'assistant', content: result.answer }])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The advisor could not answer right now.'
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `I couldn't complete that answer: ${message}\n\nIf this is the first setup, the free AI provider key may still need to be configured. No action has been taken on your records.`,
+      }])
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div className="space-y-4 animate-fadeIn flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-10rem)]">
-      <PageHeader title="ASK Loose Ends Co." subtitle="Tell me what you need." />
-
+      <PageHeader title="ASK Loose Ends OS" subtitle="Evidence-first business advice grounded in your workspace data." />
       <div className="card flex-1 flex flex-col overflow-hidden">
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((msg, i) => (
@@ -128,43 +70,42 @@ export function AskAssistant() {
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-slate-200' : 'bg-brand-600'}`}>
                 {msg.role === 'user' ? <User className="w-4 h-4 text-slate-600" /> : <Sparkles className="w-4 h-4 text-white" />}
               </div>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === 'user' ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-slate-100 text-slate-800 rounded-tl-sm'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.role === 'user' ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-slate-100 text-slate-800 rounded-tl-sm'}`}>
                 <p className="text-sm whitespace-pre-line">{msg.content}</p>
               </div>
             </div>
           ))}
+          {loading && (
+            <div className="flex gap-3" role="status" aria-live="polite">
+              <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <div className="bg-slate-100 text-slate-600 rounded-2xl rounded-tl-sm px-4 py-3 text-sm">
+                Thinking through your question…
+              </div>
+            </div>
+          )}
         </div>
-
         <div className="px-4 py-2 border-t border-slate-100">
           <div className="flex gap-2 overflow-x-auto pb-2">
             {ASK_SUGGESTIONS.map(s => (
-              <button
-                key={s}
-                onClick={() => send(s)}
-                className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium whitespace-nowrap hover:bg-brand-50 hover:text-brand-700 transition-all flex-shrink-0"
-              >
+              <button key={s} onClick={() => void send(s)} disabled={loading}
+                className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-medium whitespace-nowrap hover:bg-brand-50 hover:text-brand-700 transition-all flex-shrink-0 disabled:opacity-50">
                 {s}
               </button>
             ))}
           </div>
         </div>
-
-        <div className="p-4 border-t border-slate-100">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && send()}
-              placeholder="Ask me anything about your business..."
-              className="input flex-1"
-            />
-            <button onClick={() => send()} className="btn-primary flex-shrink-0">
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <form className="p-4 border-t border-slate-100 flex gap-2" onSubmit={e => { e.preventDefault(); void send() }}>
+          <input type="text" value={input} onChange={e => setInput(e.target.value)}
+            placeholder="Ask a business question…" aria-label="Ask Loose Ends OS"
+            disabled={loading} maxLength={4000} className="input flex-1" />
+          <button type="submit" disabled={loading || !input.trim()} className="btn-primary flex-shrink-0" aria-label="Send question">
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
       </div>
+      <p className="text-xs text-slate-500">AI responses can be wrong. Verify important figures and decisions against source records. The advisor is read-only and will not change records or send messages.</p>
     </div>
   )
 }
