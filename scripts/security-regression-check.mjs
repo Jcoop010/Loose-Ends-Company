@@ -116,6 +116,13 @@ const checks = [
     description: "Workspace members must not change the canonical owner id or promote themselves via the membership bootstrap policy.",
   },
   {
+    file: "supabase/migrations/20261013191419_lock_billing_entitlement_client_writes.sql",
+    required: [
+      "REVOKE UPDATE ON TABLE public.workspace_subscriptions FROM PUBLIC, anon, authenticated",
+    ],
+    description: "Clients cannot write subscription entitlement fields, even when they hold an admin role.",
+  },
+  {
     file: "supabase/migrations/20261013191217_lock_billing_and_integration_state.sql",
     required: [
       "REVOKE INSERT, UPDATE, DELETE ON TABLE public.workspace_subscriptions FROM PUBLIC, anon, authenticated",
