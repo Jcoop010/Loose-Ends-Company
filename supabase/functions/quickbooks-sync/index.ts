@@ -84,7 +84,7 @@ Deno.serve(async (req: Request) => {
       message: readyForOAuth
         ? "QuickBooks credentials are configured; OAuth connection and live sync still need to be completed and verified."
         : "QuickBooks sync bridge is installed. OAuth credentials are still required before live QBO API sync can run.",
-    });
+    }, 200, origin);
   } catch (error) {
     console.error("quickbooks-sync error", error);
     return json({ error: "QuickBooks status check failed" }, 500, origin);
