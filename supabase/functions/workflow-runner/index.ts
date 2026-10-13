@@ -123,19 +123,28 @@ Deno.serve(async (req: Request) => {
     const authorization = req.headers.get("Authorization");
     if (!authorization) return json({ error: "Authorization required" }, 401, origin);
 
-    const db = createClient(url, anon, {
+    // Validate the caller with their own JWT before using the privileged client.
+    const userDb = createClient(url, anon, {
       global: { headers: { Authorization: authorization } },
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: authData, error: authError } = await db.auth.getUser();
+    const { data: authData, error: authError } = await userDb.auth.getUser();
     if (authError || !authData.user) return json({ error: "Invalid session" }, 401, origin);
 
     const user = authData.user;
     const body = await req.json().catch(() => ({}));
     const requestedWorkspaceId = typeof body.workspace_id === "string" && body.workspace_id.trim() ? body.workspace_id.trim() : null;
-    const workspaceId = await workspaceFor(db, user.id, requestedWorkspaceId);
+    const workspaceId = await workspaceFor(userDb, user.id, requestedWorkspaceId);
     if (requestedWorkspaceId && !workspaceId) return json({ error: "You do not have access to the requested workspace." }, 403, origin);
     if (!workspaceId) return json({ error: "No workspace" }, 400, origin);
+
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!serviceKey) return json({ error: "Workflow execution is not configured." }, 503, origin);
+    // Run records are server-owned. All reads/writes below are explicitly scoped to
+    // the membership-verified workspace; clients cannot forge completion or approval fields.
+    const db = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     if (body.approve_run_id) {
       const { data: membership, error: membershipError } = await db.from("workspace_members")
