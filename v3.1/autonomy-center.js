@@ -190,7 +190,7 @@
       if (!w) throw new Error('Sign in to a workspace before running the intelligence scan.');
       state.workspaceId = w;
       var results = await Promise.all([
-        S.from('opportunities').select('id,workspace_id,customer_id,title,source,reason,amount,priority,status,due_at,created_at,updated_at,customers(first_name,last_name,phone)').eq('workspace_id', w).order('updated_at', { ascending: false }).limit(500),
+        S.from('opportunities').select('id,workspace_id,customer_id,title,source,reason,amount,priority,status,due_at,created_at,updated_at,recovered_amount,customers(first_name,last_name,phone)').eq('workspace_id', w).order('updated_at', { ascending: false }).limit(500),
         S.from('tasks').select('id,title,status,due_at,priority,opportunity_id,customer_id').eq('workspace_id', w).order('due_at', { ascending: true }).limit(500),
         S.from('follow_ups').select('id,status,scheduled_at,opportunity_id,customer_id,message,channel').eq('workspace_id', w).order('scheduled_at', { ascending: true }).limit(500),
         S.from('workflows').select('id,name,enabled,mode,trigger_type').eq('workspace_id', w).order('created_at', { ascending: false }).limit(200),

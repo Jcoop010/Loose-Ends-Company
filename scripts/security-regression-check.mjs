@@ -5,6 +5,13 @@ import path from "node:path";
 const read = (file) => fs.readFileSync(path.resolve(file), "utf8");
 const checks = [
   {
+    file: "v3.1/autonomy-center.js",
+    required: [
+      "updated_at,recovered_amount,customers(first_name,last_name,phone)",
+    ],
+    description: "The live opportunity scan must fetch recovered_amount so the confirmed-recovered metric reflects stored records instead of silently showing zero.",
+  },
+  {
     file: "supabase/functions/create-subscription-checkout/index.ts",
     required: [
       "auth.getUser()",
