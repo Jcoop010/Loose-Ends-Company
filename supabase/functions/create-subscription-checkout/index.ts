@@ -15,7 +15,7 @@ function allowedBrowserOrigin(origin: string): string | null {
     if (candidate.protocol !== "https:") return null;
     const host = candidate.hostname.toLowerCase();
     if (host === "loose-ends-os.vercel.app" ||
-        (host.startsWith("loose-ends-v3-1-") && host.endsWith("-loose-ends-co.vercel.app"))) {
+        host === "loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app") {
       return candidate.origin;
     }
   } catch { /* Invalid Origin is rejected below. */ }
