@@ -50,15 +50,18 @@ Deno.serve(async (req: Request) => {
     if (!question) return json({ error: "Enter a question first." }, 400);
     if (question.length > 4000) return json({ error: "Keep the question under 4,000 characters." }, 413);
 
+    const requestedWorkspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
+    if (!requestedWorkspaceId || requestedWorkspaceId.length > 80) {
+      return json({ error: "The active workspace is required. Refresh the app and try again." }, 400);
+    }
     const { data: member, error: memberError } = await db
       .from("workspace_members")
       .select("workspace_id")
+      .eq("workspace_id", requestedWorkspaceId)
       .eq("user_id", userData.user.id)
-      .order("created_at")
-      .limit(1)
       .maybeSingle();
     if (memberError || !member?.workspace_id) {
-      return json({ error: "Unable to verify your workspace. Sign in again or finish workspace setup." }, 403);
+      return json({ error: "You do not have access to the selected workspace." }, 403);
     }
 
     const wid = member.workspace_id;
