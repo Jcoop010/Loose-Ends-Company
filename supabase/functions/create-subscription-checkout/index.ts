@@ -8,10 +8,8 @@ const corsHeaders = (origin: string) => ({
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Vary": "Origin",
 });
-const ALLOWED_BROWSER_ORIGINS = new Set([
-  CANONICAL_ORIGIN,
-  "https://loose-ends-v3-1-by11oyndt-loose-ends-co.vercel.app",
-]);
+// Production Supabase APIs are not exposed to ephemeral Vercel preview deployments.
+const ALLOWED_BROWSER_ORIGINS = new Set([CANONICAL_ORIGIN]);
 function allowedBrowserOrigin(origin: string): string | null {
   if (!origin) return CANONICAL_ORIGIN;
   try {
