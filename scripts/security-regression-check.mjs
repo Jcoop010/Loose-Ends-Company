@@ -136,6 +136,19 @@ const checks = [
     description: "Paid entitlements and integration status must be changed only by trusted server-side functions.",
   },
   {
+    file: "supabase/migrations/20261013192144_rate_limit_public_lead_capture.sql",
+    required: [
+      "CREATE OR REPLACE FUNCTION public.enforce_public_lead_rate_limit()",
+      "SECURITY DEFINER",
+      "pg_advisory_xact_lock",
+      "recent_email_count >= 5",
+      "recent_phone_count >= 5",
+      "REVOKE EXECUTE ON FUNCTION public.enforce_public_lead_rate_limit() FROM anon",
+      "CREATE TRIGGER enforce_public_lead_rate_limit",
+    ],
+    description: "Anonymous lead capture must throttle repeated submissions per normalized email and phone.",
+  },
+  {
     file: "supabase/migrations/20261013191555_revoke_client_workflow_run_writes.sql",
     required: [
       "REVOKE INSERT, UPDATE ON TABLE public.workflow_runs FROM PUBLIC, anon, authenticated",
