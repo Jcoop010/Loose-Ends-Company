@@ -115,7 +115,14 @@ const checks = [
     description: "Paid entitlements and integration status must be changed only by trusted server-side functions.",
   },
   {
-    file: "supabase/migrations/20261013193000_lock_workflow_run_writes_to_service_role.sql",
+    file: "supabase/migrations/20261013191555_revoke_client_workflow_run_writes.sql",
+    required: [
+      "REVOKE INSERT, UPDATE ON TABLE public.workflow_runs FROM PUBLIC, anon, authenticated",
+    ],
+    description: "Authenticated clients must not have table-level write privileges for workflow run state.",
+  },
+  {
+    file: "supabase/migrations/20261013191448_lock_workflow_run_writes_to_service_role.sql",
     required: [
       "DROP POLICY IF EXISTS workflow_runs_member_insert ON public.workflow_runs",
       "DROP POLICY IF EXISTS workflow_runs_member_update ON public.workflow_runs",
