@@ -94,6 +94,17 @@ const checks = [
     description: "Client roles must not invoke the privileged trigger function directly.",
   },
   {
+    file: "supabase/migrations/20261013190000_lock_workflow_run_writes_to_service_role.sql",
+    required: [
+      "DROP POLICY IF EXISTS workflow_runs_member_insert ON public.workflow_runs",
+      "DROP POLICY IF EXISTS workflow_runs_member_update ON public.workflow_runs",
+      "CREATE POLICY workflow_runs_member_select",
+      "TO authenticated",
+      "public.is_workspace_member(workspace_id)",
+    ],
+    description: "Clients may read only their workspace's workflow runs and cannot forge execution status or approval metadata.",
+  },
+  {
     file: "supabase/migrations/20261013181010_tighten_workspace_policies_to_authenticated.sql",
     required: [
       "activity_events_member_insert ON public.activity_events",
