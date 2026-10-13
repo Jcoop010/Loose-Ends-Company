@@ -11,7 +11,7 @@ interface Message {
 }
 
 export function AskAssistant() {
-  const { data } = useStore()
+  const { data, workspaceId } = useStore()
   const [messages, setMessages] = useState<Message[]>([{
     role: 'assistant',
     content: `Hi, ${data.business.owner.split(' ')[0] || 'there'}! I'm your Loose Ends OS advisor. I can analyze available workspace data, help prioritize revenue-recovery opportunities, and answer broader business questions. I'll be clear about what the data does and doesn't prove. What would you like to work on?`,
