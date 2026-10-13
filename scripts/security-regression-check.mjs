@@ -83,6 +83,19 @@ const checks = [
     ],
     description: "Client roles must not invoke the privileged trigger function directly.",
   },
+  {
+    file: "supabase/migrations/20261013180500_tighten_workspace_policies_to_authenticated.sql",
+    required: [
+      "activity_events_member_insert ON public.activity_events",
+      "workflow_events_member_select ON public.workflow_events",
+      "workflow_runs_member_insert ON public.workflow_runs",
+      "workspace_records_member_delete ON public.workspace_records",
+      "workspace_settings_member_update ON public.workspace_settings",
+      "TO authenticated",
+      "public.is_workspace_member(workspace_id)",
+    ],
+    description: "Workspace-scoped RLS policies must be limited to authenticated clients while retaining membership and admin predicates.",
+  },
 ];
 
 for (const check of checks) {
@@ -97,5 +110,8 @@ for (const file of [
 ]) {
   assert.ok(!read(file).includes('"Access-Control-Allow-Origin": "*"'), `${file} must not allow wildcard CORS`);
 }
+const workspacePolicyMigration = read("supabase/migrations/20261013180500_tighten_workspace_policies_to_authenticated.sql");
+assert.ok(!/\\bTO\\s+public\\b/i.test(workspacePolicyMigration), "Workspace-scoped policies must not target PUBLIC");
+assert.ok(!/\\bTO\\s+anon\\b/i.test(workspacePolicyMigration), "Workspace-scoped policies must not target anon");
 
-console.log(`Passed ${checks.length} backend security regression checks plus billing-origin restrictions.`);
+console.log(`Passed ${checks.length} backend security regression checks plus billing-origin and workspace-role restrictions.`);
