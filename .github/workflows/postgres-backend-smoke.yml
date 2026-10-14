@@ -5,8 +5,13 @@ on:
       - 'supabase/migrations/**'
       - 'scripts/postgres-backend-smoke.sql'
       - 'scripts/postgres-auth-permissions.sql'
+      - 'scripts/postgres-full-schema-tests.sql'
+      - 'scripts/postgres-concurrency-tests.sh'
+      - 'scripts/fixtures/**'
       - '.github/workflows/postgres-backend-smoke.yml'
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   postgres-smoke:
     runs-on: ubuntu-latest
@@ -32,7 +37,16 @@ jobs:
       PGDATABASE: smoke
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - name: Run real PostgreSQL migration and transaction smoke tests
         run: |
           psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-backend-smoke.sql
           psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-auth-permissions.sql
+      - name: Replay complete public schema and test synthetic tenants
+        run: |
+          createdb full_schema
+          PGDATABASE=full_schema psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-full-schema-tests.sql
+      - name: Test actual competing database sessions
+        run: PGDATABASE=full_schema bash scripts/postgres-concurrency-tests.sh

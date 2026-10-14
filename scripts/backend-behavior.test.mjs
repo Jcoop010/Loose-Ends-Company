@@ -5,6 +5,28 @@ import vm from 'node:vm';
 import { webcrypto, createHmac } from 'node:crypto';
 import ts from 'typescript';
 
+test('concurrent onboarding refreshes insert one panel into the current page', async () => {
+  let inserted = 0;
+  const elements = new Map();
+  const page = { isConnected: true, insertBefore: (box) => { inserted++; elements.set(box.id, box); } };
+  const chain = (table) => {
+    const result = table === 'workspace_members' ? { data: { workspaces: { id: 'workspace-test', name: 'QA' } } } : { data: null, count: 0 };
+    const query = { select: () => query, eq: () => query, limit: () => query,
+      maybeSingle: async () => result, then: (resolve) => Promise.resolve(result).then(resolve) };
+    return query;
+  };
+  const window = { LESupabase: { auth: { getUser: async () => ({ data: { user: { id: 'user-test' } } }) }, from: chain } };
+  const context = vm.createContext({ window, document: { readyState: 'loading', addEventListener() {},
+    querySelector: () => page, createElement: () => ({}),
+    getElementById: (id) => id === 'le-launch-panel' ? elements.get(id) : {},
+  } });
+  vm.runInContext(fs.readFileSync('v3.1/launch-center.js', 'utf8'), context);
+  window.LELaunchCenter.refresh();
+  window.LELaunchCenter.refresh();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(inserted, 1);
+});
+
 function load(name, createClient = () => { throw new Error('Unexpected database access'); }, env = {}) {
   const source = fs.readFileSync(`supabase/functions/${name}/index.ts`, 'utf8')
     .replace(/^import .*;\r?\n/gm, '');

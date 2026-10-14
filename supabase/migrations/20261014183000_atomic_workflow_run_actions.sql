@@ -39,6 +39,16 @@ begin
   v_customer := nullif(coalesce(v_record->>'customer_id', case when v_entity = 'customers' then v_record->>'id' end),'')::uuid;
   v_opportunity := nullif(coalesce(v_record->>'opportunity_id', case when v_entity = 'opportunities' then v_record->>'id' end),'')::uuid;
 
+  -- Single-column foreign keys establish existence, not tenant ownership.
+  -- A client-controlled source record must not attach privileged actions to
+  -- another workspace's customer or opportunity.
+  if v_customer is not null and not exists (
+    select 1 from public.customers where id = v_customer and workspace_id = p_workspace_id
+  ) then raise exception 'Workflow customer is not in this workspace'; end if;
+  if v_opportunity is not null and not exists (
+    select 1 from public.opportunities where id = v_opportunity and workspace_id = p_workspace_id
+  ) then raise exception 'Workflow opportunity is not in this workspace'; end if;
+
   for v_action in select value from jsonb_array_elements(v_workflow.actions) loop
     if jsonb_typeof(v_action) <> 'object' then raise exception 'Malformed workflow action'; end if;
     if v_action->>'type' in ('create_task','create_follow_up') then
