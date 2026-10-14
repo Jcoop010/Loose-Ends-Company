@@ -31,7 +31,10 @@ function json(body: unknown, status = 200, origin = CANONICAL_ORIGIN) {
 }
 
 function matches(record: any, conditions: any[]) {
-  return (conditions || []).every((c: any) => {
+  // Fail closed on malformed configurations rather than firing unintended actions.
+  if (!Array.isArray(conditions)) return false;
+  return conditions.every((c: any) => {
+    if (!c || typeof c !== "object" || Array.isArray(c) || typeof c.field !== "string" || !c.field || typeof c.operator !== "string") return false;
     const value = record?.[c.field];
     // Missing or nonnumeric fields must never satisfy numeric workflow conditions.
     if (["gt", "gte", "lt", "lte"].includes(c.operator)) {
