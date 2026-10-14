@@ -336,3 +336,18 @@ test('Stripe rejects a provider customer mapped to another workspace', async () 
   assert.equal(response.status, 500);
   assert.equal(entitlementsWritten, false);
 });
+
+test('invalid opportunity updates are rejected before earlier workflow writes', async () => {
+  let writes = 0;
+  const db = { from: () => { writes++; throw new Error('Unexpected database write'); } };
+  const { executeActions } = load('workflow-runner');
+  const run = { context: { event: { entity_type: 'opportunities' }, record: { id: 'opportunity-test' } } };
+  for (const patch of [null, {}, [], { workspace_id: 'foreign-workspace' },
+    { amount: -2 }, { amount: 'bad' }, { priority: -1 }, { priority: 'bad' }]) {
+    await assert.rejects(() => executeActions(db, 'workspace-test', {
+      actions: [{ type: 'create_task', title: 'Should not be saved' },
+        { type: 'update_opportunity', patch }],
+    }, run));
+  }
+  assert.equal(writes, 0);
+});
