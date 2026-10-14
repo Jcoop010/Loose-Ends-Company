@@ -933,3 +933,34 @@ test('Stripe rejects unknown API key mode before privileged access', async () =>
     assert.equal(response.status, 400);
   }
 });
+
+test('live Stripe customer mapping cannot cross workspace when event omits customer', async () => {
+  let wrote = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    let column = '';
+    return {
+      select: () => ({
+        eq: (key) => { column = key; return {
+          maybeSingle: async () => ({ data: column === 'provider_customer_id' ?
+            { workspace_id: 'workspace-foreign' } : null, error: null }),
+        }; },
+      }),
+      upsert: () => { wrote = true; throw new Error('Unexpected cross-workspace billing write'); },
+    };
+  } }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_other_workspace', status: 'active',
+    metadata: { plan_key: 'starter' },
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_live_mapping_conflict', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', metadata: { workspace_id: 'workspace-target' } } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(wrote, false);
+});
