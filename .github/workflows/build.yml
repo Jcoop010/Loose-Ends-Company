@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, security/harden-billing-cors-20261013]
 
 jobs:
   build:
@@ -15,9 +15,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      # Catch syntax errors across every app module before installing dependencies.
       - run: find v3.1 -type f -name '*.js' -print0 | xargs -0 -n1 node --check
-      # Fail early if the dashboard references a missing local script or stylesheet.
       - name: Verify local frontend assets
         run: |
           node --input-type=module <<'NODE'
@@ -40,9 +38,8 @@ jobs:
           NODE
       - name: Check backend security invariants
         run: node scripts/security-regression-check.mjs
-      # The committed lockfile predates the Supabase runtime dependency.
-      # npm install resolves the manifest/lockfile drift; typecheck/build then
-      # validate the actual production dependency graph.
+      - name: Check AI advisor security and free routing
+        run: node scripts/ai-advisor-check.mjs
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
