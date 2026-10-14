@@ -125,4 +125,34 @@ begin
     raise exception 'Duplicate execution created another task'; end if;
 end $$;
 
+
+-- Verify that a workflow cannot edit an opportunity belonging to another workspace.
+do $
+declare
+  home_ws uuid := '11111111-1111-4111-8111-111111111111';
+  foreign_ws uuid := '33333333-3333-4333-8333-333333333333';
+  flow_id uuid := gen_random_uuid();
+  execution_id uuid := gen_random_uuid();
+  foreign_opportunity uuid := gen_random_uuid();
+begin
+  insert into public.opportunities (id, workspace_id, title, status, priority, amount)
+    values (foreign_opportunity, foreign_ws, 'Foreign record', 'open', 1, 100);
+  insert into public.workflows (id, workspace_id, actions)
+    values (flow_id, home_ws, '[{"type":"update_opportunity","patch":{"status":"recovered"}}]');
+  insert into public.workflow_runs (id, workspace_id, workflow_id, status, context)
+    values (execution_id, home_ws, flow_id, 'running',
+      jsonb_build_object('event',jsonb_build_object('entity_type','opportunities'),
+                         'record',jsonb_build_object('id',foreign_opportunity::text)));
+  begin
+    perform public.complete_workflow_run_atomically(execution_id, home_ws, null);
+    raise exception 'Cross-workspace update unexpectedly succeeded';
+  exception when others then
+    if sqlerrm = 'Cross-workspace update unexpectedly succeeded' then raise; end if;
+  end;
+  if (select status from public.opportunities where id = foreign_opportunity) <> 'open'
+    then raise exception 'Foreign opportunity changed'; end if;
+  if (select status from public.workflow_runs where id = execution_id) <> 'running'
+    then raise exception 'Rejected workflow changed state'; end if;
+end $;
+
 select 'Postgres migrations and smoke tests passed' as result;
