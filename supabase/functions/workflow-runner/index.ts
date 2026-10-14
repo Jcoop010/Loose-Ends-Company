@@ -102,6 +102,20 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
       const priority = action.priority === undefined || action.priority === null ? 1 : Number(action.priority);
       if (!Number.isFinite(priority) || priority < 0) throw new Error("Workflow task priority must be a nonnegative finite number");
     }
+    if (action.type === "update_opportunity") {
+      const patch = action.patch;
+      const allowed = new Set(["title", "reason", "status", "priority", "amount", "due_at"]);
+      if (!patch || typeof patch !== "object" || Array.isArray(patch) ||
+          !Object.keys(patch).length || Object.keys(patch).some((key) => !allowed.has(key))) {
+        throw new Error("Invalid opportunity update fields");
+      }
+      if ("amount" in patch && (patch.amount === null || patch.amount === "" || !Number.isFinite(Number(patch.amount)) || Number(patch.amount) < 0)) {
+        throw new Error("Invalid opportunity amount");
+      }
+      if ("priority" in patch && (patch.priority === null || patch.priority === "" || !Number.isFinite(Number(patch.priority)) || Number(patch.priority) < 0)) {
+        throw new Error("Invalid opportunity priority");
+      }
+    }
     if (!["create_task", "create_follow_up", "update_opportunity"].includes(action.type) || (action.type === "update_opportunity" && (!record.id || entity !== "opportunities"))) throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
   }
 
