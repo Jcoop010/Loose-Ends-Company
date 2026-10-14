@@ -41,6 +41,13 @@ Deno.serve(async (req: Request) => {
       !event.data || !event.data.object || typeof event.data.object !== "object") {
     return json({ error: "Invalid Stripe event." }, 400);
   }
+  // Never let a valid test-mode webhook mutate live-mode entitlements (or vice versa).
+  // Stripe credentials are environment-specific, independent of signature validity.
+  if (typeof event.livemode !== "boolean" ||
+      (stripeSecret.startsWith("sk_live_") && !event.livemode) ||
+      (stripeSecret.startsWith("sk_test_") && event.livemode)) {
+    return json({ error: "Stripe event mode does not match billing configuration." }, 400);
+  }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   const { error: ledgerError } = await admin.from("stripe_webhook_events").insert({
