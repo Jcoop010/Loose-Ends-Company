@@ -4,22 +4,22 @@
 
 ## Verified references
 - GitHub PR: https://github.com/Jcoop010/Loose-Ends-Company/pull/19
-- Hardened candidate SHA: `dc062925d29dc5931cdfd463d96f5949b0983bf8`
+- Last independently passing database candidate: `d9036efca7f75de94740ca018a4c0eaa518c6161`; subsequent preview configuration changes require their own CI evidence on PR #19.
 - PR head branch: `security/harden-billing-cors-20261013`
 - PR base branch: `feat/autonomy-center-20261012` (not `main`)
 - Vercel project: `loose-ends-os` (`prj_FmEO0eNjMrUmifo2iZ6e4glKfl3W`)
 - Latest observed Vercel production deployment: `dpl_6CVJSWNLKRQrSTttAYkaCbfa297L`, SHA `b59c72b04a97511f8584869420ac1dc755136107`, branch `feat/autonomy-center-20261012`.
-- Supabase production project: `uehfvpnnoitgybsmdgef` (read-only inspected, no release DDL applied).
+- Supabase production project: `uehfvpnnoitgybsmdgef`. Privilege migration `20261014111000` was applied and independently verified under the earlier authorization. The four later release migrations remain unapplied in production.
 
 ## Successful automated checks on candidate SHA
-- Security and production build: https://github.com/Jcoop010/Loose-Ends-Company/actions/runs/38601586482
-- PostgreSQL smoke and database-role checks: https://github.com/Jcoop010/Loose-Ends-Company/actions/runs/38601586158
-- CI applies later database migrations to isolated fixtures, **not** a complete production schema.
+- Security and production build: https://github.com/Jcoop010/Loose-Ends-Company/actions/runs/38608953955
+- PostgreSQL smoke, full public-schema replay, synthetic tenant tests and competing sessions: https://github.com/Jcoop010/Loose-Ends-Company/actions/runs/38608953532
+- CI replays all captured public tables, constraints, indexes, functions, triggers, policies and grants before the four pending migrations. The catalog snapshot contains no customer rows. It models Auth users/functions for SQL tests; it does not provide hosted Auth HTTP, cron or vault infrastructure.
 - Dependency audit has an explicitly allowed high-severity advisory; a successful CI result does not imply zero outstanding vulnerabilities.
 
 ## Hard launch gates
 - [ ] Resolve or explicitly accept and document the remaining dependency advisory.
-- [ ] Obtain a **separate non-production Supabase environment** with full source schema and safe, synthetic users. Do not use production as staging.
+- [ ] Obtain connector access to the user-approved empty staging project `vdactpndbcwqvsfbzjrk`, provision the hosted schema and safe synthetic users. Current connection can access production but denies staging.
 - [ ] Apply pending migrations in order to the staging copy: `20261014180000`, `20261014181000`, `20261014182000`, `20261014183000`. Confirm rollback/restore strategy and actual schema compatibility.
 - [ ] Test two distinct synthetic users and workspaces: login, unauthorized reads/writes, membership changes, owners versus staff, client/anonymous permissions.
 - [ ] Test actual signup/login/logout, CRUD, recovery, workflow actions and retries, Stripe **test-mode** checkout/webhooks/cancellation and payment entitlements, and failed provider/API responses.
@@ -36,4 +36,4 @@
 4. After deployment, test login and a non-destructive read-only dashboard flow first. Stop rollout if errors or cross-workspace access appear.
 
 ## Known gap
-CI has validated SQL transactions against fixture tables and compared a subset of live constraints. This is **not** equivalent to authentic multi-user E2E tests or a full-schema staging migration replay.
+Native PostgreSQL 17 CI now validates a complete public application schema replay and synthetic multi-tenant SQL transactions, including atomic actions and simultaneous webhook workers. This is **not** equivalent to hosted Supabase signup/login or browser/provider E2E tests. Initial CI failures from fixture setup and publishing quotation were fixed; the final referenced run passed every step. See [staging and release runbook](STAGING_AND_RELEASE_RUNBOOK.md) for the remaining gates and rollback procedure.

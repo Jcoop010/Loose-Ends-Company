@@ -1,14 +1,6 @@
 name: PostgreSQL backend smoke tests
 on:
   pull_request:
-    paths:
-      - 'supabase/migrations/**'
-      - 'scripts/postgres-backend-smoke.sql'
-      - 'scripts/postgres-auth-permissions.sql'
-      - 'scripts/postgres-full-schema-tests.sql'
-      - 'scripts/postgres-concurrency-tests.sh'
-      - 'scripts/fixtures/**'
-      - '.github/workflows/postgres-backend-smoke.yml'
   workflow_dispatch:
 permissions:
   contents: read

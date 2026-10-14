@@ -4,6 +4,20 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto, createHmac } from 'node:crypto';
 import ts from 'typescript';
+import { resolveBrowserConfig, injectBrowserConfig } from './preview-config.mjs';
+
+test('preview configuration refuses production, missing configuration and private keys', () => {
+  const preview = { VERCEL_ENV: 'preview', VITE_SUPABASE_URL: 'https://synthetic-staging.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_synthetic' };
+  assert.throws(() => resolveBrowserConfig({ VERCEL_ENV: 'preview' }), /both/);
+  assert.throws(() => resolveBrowserConfig({ ...preview, VITE_SUPABASE_URL: 'https://uehfvpnnoitgybsmdgef.supabase.co/' }), /isolated/);
+  assert.throws(() => resolveBrowserConfig({ ...preview, VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_synthetic' }), /publishable/);
+  assert.throws(() => resolveBrowserConfig({ ...preview, VITE_SUPABASE_URL: 'https://synthetic-staging.supabase.co/functions/v1' }), /origin/);
+  assert.equal(resolveBrowserConfig({}), null);
+  const config = resolveBrowserConfig(preview);
+  const html = injectBrowserConfig('<script>window.__LOOSE_ENDS_SUPABASE_URL__="old";window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__="old";</script>', config);
+  assert.ok(html.includes(config.url));
+  assert.ok(!html.includes('"old"'));
+});
 
 test('concurrent onboarding refreshes insert one panel into the current page', async () => {
   let inserted = 0;
