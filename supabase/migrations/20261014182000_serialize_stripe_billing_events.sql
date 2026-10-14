@@ -16,6 +16,9 @@ begin
   if p_event_created is null or p_event_created < 0 or p_event_created > 8640000000 then
     raise exception 'Invalid Stripe event creation time';
   end if;
+  if p_workspace_id is null then
+    raise exception 'Stripe workspace is required';
+  end if;
   -- Lock this workspace independently of which event ID received the request.
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_workspace_id::text, 489102));
   select * into v_event from public.stripe_webhook_events where event_id = p_event_id for update;
