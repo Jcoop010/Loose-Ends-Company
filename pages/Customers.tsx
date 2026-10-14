@@ -44,7 +44,11 @@ function TimelineEvent({ event, isLast }: { event: any; isLast: boolean }) {
 }
 
 function CustomerDetail({ customer, onBack }: { customer: Customer; onBack: () => void }) {
-  const { data, addNoteToCustomer } = useStore()
+  const { data, addNoteToCustomer, addOpportunity, addFollowUp } = useStore()
+  const [action, setAction] = useState<'opportunity' | 'followup' | null>(null)
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
+  const [dueDate, setDueDate] = useState('')
   const [noteText, setNoteText] = useState('')
 
   const vehicle = data.vehicles.find(v => v.id === customer.vehicleId)
@@ -122,10 +126,38 @@ function CustomerDetail({ customer, onBack }: { customer: Customer; onBack: () =
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
-        <button className="btn-primary text-sm"><Phone className="w-4 h-4" /> Contact</button>
-        <button className="btn-secondary text-sm"><CalendarClock className="w-4 h-4" /> Schedule Follow-Up</button>
-        <button className="btn-secondary text-sm"><Plus className="w-4 h-4" /> Add Opportunity</button>
+        <a href={`tel:${customer.phone.replace(/[^+\\d]/g, '')}`} className="btn-primary text-sm"><Phone className="w-4 h-4" /> Contact</a>
+        <button type="button" onClick={() => setAction('followup')} className="btn-secondary text-sm"><CalendarClock className="w-4 h-4" /> Schedule Follow-Up</button>
+        <button type="button" onClick={() => setAction('opportunity')} className="btn-secondary text-sm"><Plus className="w-4 h-4" /> Add Opportunity</button>
       </div>
+      {action && (
+        <form className="card p-5 space-y-3" onSubmit={e => {
+          e.preventDefault()
+          const value = Number(amount)
+          if (!description.trim() || !Number.isFinite(value) || value < 0 || (action === 'followup' && !dueDate)) return
+          if (action === 'opportunity') {
+            addOpportunity({ customerId: customer.id, customerName: customer.name, type: 'Other', status: 'Potential', potentialValue: value, dateIdentified: new Date().toISOString(), nextAction: description.trim(), notes: 'Manually entered from customer profile', source: 'manual' })
+          } else {
+            addFollowUp({ customerId: customer.id, customerName: customer.name, reason: description.trim(), potentialValue: value, nextAction: description.trim(), dueDate, status: 'Upcoming' })
+          }
+          setAction(null); setDescription(''); setAmount(''); setDueDate('')
+        }}>
+          <h3 className="font-semibold">{action === 'opportunity' ? 'Add revenue opportunity' : 'Schedule follow-up'}</h3>
+          <label className="block text-sm">Description or next action
+            <input required maxLength={500} className="input w-full mt-1" value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe the work or next action" />
+          </label>
+          <label className="block text-sm">Potential value ($)
+            <input required min="0" step="0.01" type="number" className="input w-full mt-1" value={amount} onChange={e => setAmount(e.target.value)} />
+          </label>
+          {action === 'followup' && <label className="block text-sm">Follow-up date
+            <input required type="date" className="input w-full mt-1" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+          </label>}
+          <div className="flex gap-2">
+            <button type="submit" className="btn-primary text-sm">Save</button>
+            <button type="button" className="btn-secondary text-sm" onClick={() => setAction(null)}>Cancel</button>
+          </div>
+        </form>
+      )}
 
       {/* Service history (timeline) */}
       <div className="card p-5">
