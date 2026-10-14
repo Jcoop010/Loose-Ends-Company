@@ -4,11 +4,11 @@ SET check_function_bodies = false;
 CREATE SCHEMA auth; CREATE SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 -- Roles are cluster-wide; the earlier smoke database may already have created them.
-DO $ BEGIN
+DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
-END $;
+END $$;
 ALTER ROLE authenticated NOLOGIN NOBYPASSRLS; GRANT USAGE ON SCHEMA public,auth,extensions TO authenticated;
 ALTER ROLE anon NOLOGIN NOBYPASSRLS; GRANT USAGE ON SCHEMA public,auth,extensions TO anon;
 ALTER ROLE service_role NOLOGIN BYPASSRLS; GRANT USAGE ON SCHEMA public,auth,extensions TO service_role;
