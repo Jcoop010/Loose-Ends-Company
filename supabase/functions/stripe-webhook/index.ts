@@ -149,7 +149,9 @@ Deno.serve(async (req: Request) => {
       const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
-      if (eventType === "customer.subscription.deleted") status = "canceled";
+      // The live Stripe lookup is authoritative. A delayed deletion webhook must
+      // not cancel a subscription that Stripe currently reports as active.
+      // The 404 fallback above already sets canceled when the subscription is gone.
       // Only subscription invoices reach this path. Reflect failed/action-required
       // subscription payments even if Stripe's subscription read still reports active
       // during its retry/dunning window; never downgrade a terminal subscription state.
