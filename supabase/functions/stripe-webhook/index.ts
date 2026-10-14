@@ -160,7 +160,11 @@ Deno.serve(async (req: Request) => {
       };
       const periodStart = periodDate(liveSubscription?.current_period_start);
       const periodEnd = periodDate(liveSubscription?.current_period_end);
-      let cancelAtPeriodEnd = Boolean(liveSubscription?.cancel_at_period_end);
+      const cancellationValue = liveSubscription?.cancel_at_period_end;
+      if (cancellationValue !== undefined && cancellationValue !== null && typeof cancellationValue !== "boolean") {
+        throw new Error("Invalid Stripe cancellation flag");
+      }
+      const cancelAtPeriodEnd = cancellationValue ?? false;
       // Never write an entitlement using a mismatched provider response.
       // A stale/malformed API response must not redirect billing identities.
       if (!liveSubscription || typeof liveSubscription.id !== "string" || liveSubscription.id !== subscriptionId) {
