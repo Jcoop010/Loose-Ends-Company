@@ -50,12 +50,12 @@ Deno.serve(async (req: Request) => {
       ((stripeSecret.startsWith("sk_test_") || stripeSecret.startsWith("rk_test_")) && event.livemode)) {
     return json({ error: "Stripe event mode does not match billing configuration." }, 400);
   }
-  const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-
   if (typeof event.created !== "number" || !Number.isSafeInteger(event.created) ||
       event.created < 0 || event.created > 8640000000) {
     return json({ error: "Invalid Stripe event creation timestamp." }, 400);
   }
+  const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+
   const claimToken = crypto.randomUUID();
   const { data: claim, error: claimError } = await admin.rpc("claim_stripe_webhook_event", {
     p_event_id: event.id, p_event_type: event.type, p_livemode: event.livemode,
