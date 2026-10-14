@@ -184,6 +184,12 @@ Deno.serve(async (req: Request) => {
       if (liveWorkspaceId && liveWorkspaceId !== workspaceId) {
         throw new Error("Stripe live subscription belongs to a different workspace");
       }
+      // Only trusted subscription metadata may select a plan. Do not accept
+      // arbitrary plan keys copied from stale checkout or event payloads.
+      const livePlanKey = liveSubscription.metadata?.plan_key;
+      if (livePlanKey !== undefined && (typeof livePlanKey !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(livePlanKey))) {
+        throw new Error("Invalid Stripe subscription plan key");
+      }
       const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
