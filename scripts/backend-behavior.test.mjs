@@ -751,3 +751,30 @@ test('Stripe subscription lifecycle event without ID cannot access billing', asy
     assert.equal(touchedBilling, false);
   }
 });
+
+test('malformed Stripe cancellation flag cannot modify subscription entitlement', async () => {
+  for (const flag of ['false', 0, 1, 'true']) {
+    let wrote = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table === 'stripe_webhook_events') return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+      assert.equal(table, 'workspace_subscriptions');
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => { wrote = true; throw new Error('Unexpected entitlement write'); },
+      };
+    } }));
+    context.fetch = async () => ({ ok: true, json: async () => ({
+      id: 'sub_test', customer: 'cus_test', status: 'active', cancel_at_period_end: flag,
+    }) });
+    const response = await context.handler(signedRequest({
+      id: 'evt_bad_cancel_flag', type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_test',
+        metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(wrote, false);
+  }
+});
