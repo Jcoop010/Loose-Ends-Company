@@ -45,8 +45,7 @@ Deno.serve(async (req: Request) => {
   // Stripe credentials are environment-specific, independent of signature validity.
   if (typeof event.livemode !== "boolean" ||
       (!stripeSecret.startsWith("sk_live_") && !stripeSecret.startsWith("sk_test_") &&
-       !stripeSecret.startsWith("rk_live_") && !stripeSecret.startsWith("rk_test_") &&
-       stripeSecret !== "test-only") ||
+       !stripeSecret.startsWith("rk_live_") && !stripeSecret.startsWith("rk_test_")) ||
       ((stripeSecret.startsWith("sk_live_") || stripeSecret.startsWith("rk_live_")) && !event.livemode) ||
       ((stripeSecret.startsWith("sk_test_") || stripeSecret.startsWith("rk_test_")) && event.livemode)) {
     return json({ error: "Stripe event mode does not match billing configuration." }, 400);
