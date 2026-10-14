@@ -643,3 +643,29 @@ test('invalid Stripe subscription period timestamps cannot corrupt billing', asy
     assert.equal(wrote, false);
   }
 });
+
+test('live Stripe subscription cannot update another workspace entitlement', async () => {
+  let wrote = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      upsert: () => { wrote = true; throw new Error('Unexpected entitlement write'); },
+    };
+  } }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_test', status: 'active',
+    metadata: { workspace_id: 'workspace-foreign' },
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_live_workspace_conflict', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test',
+      metadata: { workspace_id: 'workspace-target' } } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(wrote, false);
+});
