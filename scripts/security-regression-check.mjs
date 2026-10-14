@@ -77,7 +77,7 @@ const checks = [
     required: [
       "verifyStripeSignature", "crypto.subtle.sign",
       "Date.now() / 1000 - Number(timestamp)) > 300",
-      "stripe_webhook_events", "processed_at", 'ledgerError.code === "23505"',
+      "claim_stripe_webhook_event", "finish_stripe_webhook_event", "claimToken",
     ],
     description: "Webhook must verify recent Stripe signatures and retain idempotent event-processing records.",
   },
