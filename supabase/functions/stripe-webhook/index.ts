@@ -132,7 +132,11 @@ Deno.serve(async (req: Request) => {
           liveSubscription = body;
         }
       }
-      let status = String(liveSubscription?.status || "incomplete");
+      const allowedStatuses = new Set(["trialing", "active", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired", "paused"]);
+      const status = liveSubscription?.status;
+      if (typeof status !== "string" || !allowedStatuses.has(status)) {
+        throw new Error("Invalid current Stripe subscription status");
+      }
       let periodStart: string | null = liveSubscription?.current_period_start ? new Date(liveSubscription.current_period_start * 1000).toISOString() : null;
       let periodEnd: string | null = liveSubscription?.current_period_end ? new Date(liveSubscription.current_period_end * 1000).toISOString() : null;
       let cancelAtPeriodEnd = Boolean(liveSubscription?.cancel_at_period_end);
