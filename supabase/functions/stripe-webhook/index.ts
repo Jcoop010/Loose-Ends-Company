@@ -132,6 +132,11 @@ Deno.serve(async (req: Request) => {
       if (!liveSubscription || typeof liveSubscription.id !== "string" || liveSubscription.id !== subscriptionId) {
         throw new Error("Stripe subscription response identifier mismatch");
       }
+      const liveCustomerId = typeof liveSubscription.customer === "string"
+        ? liveSubscription.customer : liveSubscription.customer?.id;
+      if (customerId && liveCustomerId && customerId !== liveCustomerId) {
+        throw new Error("Stripe subscription customer identifier mismatch");
+      }
       const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
