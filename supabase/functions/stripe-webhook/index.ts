@@ -127,7 +127,12 @@ Deno.serve(async (req: Request) => {
       let periodStart: string | null = liveSubscription?.current_period_start ? new Date(liveSubscription.current_period_start * 1000).toISOString() : null;
       let periodEnd: string | null = liveSubscription?.current_period_end ? new Date(liveSubscription.current_period_end * 1000).toISOString() : null;
       let cancelAtPeriodEnd = Boolean(liveSubscription?.cancel_at_period_end);
-      const providerSubscriptionId = liveSubscription?.id || subscriptionId;
+      // Never write an entitlement using a mismatched provider response.
+      // A stale/malformed API response must not redirect billing identities.
+      if (!liveSubscription || typeof liveSubscription.id !== "string" || liveSubscription.id !== subscriptionId) {
+        throw new Error("Stripe subscription response identifier mismatch");
+      }
+      const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
       if (eventType === "customer.subscription.deleted") status = "canceled";
