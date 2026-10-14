@@ -3,6 +3,7 @@ import { RouterProvider, useRouter } from './router'
 import { LandingPage } from './pages/Landing'
 import { DashboardLayout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
+import { LeadInbox } from './pages/LeadInbox'
 import { CRM } from './pages/CRM'
 import { SalesOrders } from './pages/SalesOrders'
 import { CalendarPage } from './pages/CalendarPage'
@@ -22,6 +23,7 @@ function DashboardRoutes() {
 
   let page
   if (route === '/dashboard') page = <Dashboard />
+  else if (route === '/dashboard/leads') page = <LeadInbox />
   else if (route === '/dashboard/crm') page = <CRM />
   else if (route.startsWith('/dashboard/customers')) page = <Customers />
   else if (route === '/dashboard/sales' || route.startsWith('/dashboard/orders')) page = <SalesOrders />
