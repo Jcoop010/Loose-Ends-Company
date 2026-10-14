@@ -1234,3 +1234,57 @@ test('workflow atomic transaction failure cannot report successful execution', a
     /Transaction rolled back/,
   );
 });
+
+test('workflow safely resumes an abandoned atomic run without inserting another run', async () => {
+  let clientCount = 0;
+  let eventMarked = false;
+  let rpcCalls = 0;
+  const query = (response) => {
+    const chain = { select: () => chain, eq: () => chain, is: () => chain,
+      order: () => chain, limit: () => chain, maybeSingle: async () => response,
+      then: (resolve, reject) => Promise.resolve(response).then(resolve, reject) };
+    return chain;
+  };
+  const event = { id: 'event-test', event_type: 'insert:customers', entity_type: 'customers',
+    payload: { record: { id: 'customer-test' } } };
+  const workflow = { id: 'workflow-test', trigger_type: 'record_created',
+    trigger_config: { entity_type: 'customers' }, conditions: [], mode: 'automatic',
+    actions: [{ type: 'create_task', title: 'Call customer' }] };
+  const context = load('workflow-runner', () => {
+    clientCount++;
+    if (clientCount === 1) return {
+      auth: { getUser: async () => ({ data: { user: { id: 'test-user' } }, error: null }) },
+      from: () => query({ data: { workspace_id: 'workspace-test' }, error: null }),
+    };
+    return {
+      rpc: async (name, params) => {
+        assert.equal(name, 'complete_workflow_run_atomically');
+        assert.equal(params.p_run_id, 'run-test');
+        rpcCalls++;
+        return { data: [{ type: 'create_task', id: 'task-test' }], error: null };
+      },
+      from: (table) => {
+        if (table === 'workflow_events') {
+          const chain = query({ data: [event], error: null });
+          chain.update = () => { eventMarked = true; return query({ error: null }); };
+          return chain;
+        }
+        if (table === 'workflows') return query({ data: [workflow], error: null });
+        if (table === 'workflow_runs') return query({ data: {
+          id: 'run-test', status: 'running', context: {
+            event, record: event.payload.record, atomic_actions: true },
+          started_at: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+        }, error: null });
+        throw new Error('Unexpected workflow table access: ' + table);
+      },
+    };
+  });
+  const response = await context.handler(new Request('https://example.test', {
+    method: 'POST', headers: { Authorization: 'Bearer test-only' },
+    body: JSON.stringify({ workspace_id: 'workspace-test' }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).results[0].status, 'recovered');
+  assert.equal(rpcCalls, 1);
+  assert.equal(eventMarked, true);
+});
