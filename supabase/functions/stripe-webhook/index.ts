@@ -82,7 +82,7 @@ Deno.serve(async (req: Request) => {
     if (checkout?.mode === "subscription" && !subscriptionId) throw new Error("Subscription checkout is missing its subscription identifier");
     const subscriptionInvoice = Boolean(invoice && subscriptionId);
     const relevant = (eventType === "checkout.session.completed" && obj.mode === "subscription") ||
-      eventType.startsWith("customer.subscription.") ||
+      ["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.paused", "customer.subscription.resumed"].includes(eventType) ||
       (subscriptionInvoice && (
         eventType === "invoice.payment_succeeded" || eventType === "invoice.paid" ||
         eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required"
