@@ -147,7 +147,10 @@ Deno.serve(async (req: Request) => {
       }
       const liveCustomerId = typeof liveSubscription.customer === "string"
         ? liveSubscription.customer : liveSubscription.customer?.id;
-      if (customerId && liveCustomerId && customerId !== liveCustomerId) {
+      if (typeof liveCustomerId !== "string" || !liveCustomerId.startsWith("cus_")) {
+        throw new Error("Stripe subscription response is missing a valid customer identifier");
+      }
+      if (customerId && customerId !== liveCustomerId) {
         throw new Error("Stripe subscription customer identifier mismatch");
       }
       const providerSubscriptionId = liveSubscription.id;
