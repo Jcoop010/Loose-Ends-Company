@@ -33,6 +33,17 @@ function load(name, createClient = () => { throw new Error('Unexpected database 
             .select('event_id').maybeSingle();
           return { data: claimed ? 'claimed' : 'busy', error: claimError };
         }
+        if (fn === 'apply_stripe_subscription_event') {
+          const { error } = await client.from('workspace_subscriptions').upsert({
+            workspace_id: params.p_workspace_id, provider: 'stripe',
+            provider_customer_id: params.p_customer_id,
+            provider_subscription_id: params.p_subscription_id,
+            plan_key: params.p_plan_key, status: params.p_status,
+            current_period_start: params.p_period_start, current_period_end: params.p_period_end,
+            cancel_at_period_end: params.p_cancel_at_period_end,
+          }, { onConflict: 'workspace_id' });
+          return { data: !error, error };
+        }
         if (fn === 'finish_stripe_webhook_event') {
           const patch = params.p_error == null
             ? { processed_at: new Date().toISOString(), processing_error: null }
@@ -1110,4 +1121,38 @@ test('Stripe lease completion sends the same claim token to fencing RPC', async 
   }));
   assert.equal(response.status, 200);
   assert.equal(finished, true);
+});
+
+test('expired Stripe lease prevents entitlement writes through atomic RPC', async () => {
+  let entitlementWrites = false;
+  let attempted = false;
+  const context = load('stripe-webhook', () => ({
+    rpc: async (name, params) => {
+      if (name === 'claim_stripe_webhook_event') return { data: 'claimed', error: null };
+      if (name === 'apply_stripe_subscription_event') {
+        attempted = true;
+        assert.equal(params.p_workspace_id, 'workspace-test');
+        return { data: false, error: null };
+      }
+      if (name === 'finish_stripe_webhook_event') return { data: false, error: null };
+      throw new Error('Unexpected RPC');
+    },
+    from: (table) => {
+      assert.equal(table, 'workspace_subscriptions');
+      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => { entitlementWrites = true; throw new Error('Unfenced direct write'); } };
+    },
+  }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_test', status: 'active',
+    metadata: { plan_key: 'starter', workspace_id: 'workspace-test' },
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_expired_atomic', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test',
+      metadata: { workspace_id: 'workspace-test' } } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(attempted, true);
+  assert.equal(entitlementWrites, false);
 });
