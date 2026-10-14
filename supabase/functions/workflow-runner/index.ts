@@ -98,6 +98,10 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
   for (const action of workflow.actions) {
     if (!action || typeof action !== "object" || Array.isArray(action)) throw new Error("Invalid workflow action");
     if (action.type === "create_task" || action.type === "create_follow_up") validatedDelayHours(action.delay_hours);
+    if (action.type === "create_task") {
+      const priority = action.priority === undefined || action.priority === null ? 1 : Number(action.priority);
+      if (!Number.isInteger(priority) || priority < 0 || priority > 10) throw new Error("Workflow task priority must be an integer between 0 and 10");
+    }
     else if (action.type !== "update_opportunity" || !record.id || entity !== "opportunities") throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
   }
 
