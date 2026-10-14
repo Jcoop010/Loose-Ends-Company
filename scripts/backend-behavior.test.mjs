@@ -259,3 +259,20 @@ test('malformed workflow condition sets fail closed without executing actions', 
   assert.equal(matches(record, []), true, 'Empty valid condition list intentionally matches all');
   assert.equal(matches(record, [{ field: 'amount', operator: 'gt', value: 50 }]), true);
 });
+
+test('Stripe subscription checkout missing subscription ID never writes entitlement', async () => {
+  let recordedError = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    assert.equal(table, 'stripe_webhook_events', 'Only the event ledger should be touched');
+    return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => { recordedError = true; return { error: null }; } }),
+    };
+  } }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_missing_subscription', type: 'checkout.session.completed',
+    data: { object: { mode: 'subscription', customer: 'cus_test', client_reference_id: 'workspace-test' } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(recordedError, true);
+});
