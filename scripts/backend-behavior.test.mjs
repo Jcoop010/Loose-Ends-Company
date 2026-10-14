@@ -351,3 +351,36 @@ test('invalid opportunity updates are rejected before earlier workflow writes', 
   }
   assert.equal(writes, 0);
 });
+
+test('out-of-order Stripe subscription event reconciles current provider state', async () => {
+  let stored = null;
+  let fetched = 0;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      upsert: (row) => { stored = row; return Promise.resolve({ error: null }); },
+    };
+  } }));
+  context.fetch = async (url) => {
+    fetched++;
+    assert.match(String(url), /\/subscriptions\/sub_test$/);
+    return { ok: true, json: async () => ({
+      id: 'sub_test', customer: 'cus_test', status: 'canceled',
+      metadata: { plan_key: 'revenue_recovery' },
+    }) };
+  };
+  const response = await context.handler(signedRequest({
+    id: 'evt_out_of_order', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test', status: 'active',
+      metadata: { workspace_id: 'workspace-test' } } },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(fetched, 1);
+  assert.equal(stored?.status, 'canceled');
+  assert.equal(stored?.workspace_id, 'workspace-test');
+});
