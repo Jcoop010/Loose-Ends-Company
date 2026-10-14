@@ -5,12 +5,12 @@ import vm from 'node:vm';
 import { webcrypto, createHmac } from 'node:crypto';
 import ts from 'typescript';
 
-function load(name, createClient = () => { throw new Error('Unexpected database access'); }) {
+function load(name, createClient = () => { throw new Error('Unexpected database access'); }, env = {}) {
   const source = fs.readFileSync(`supabase/functions/${name}/index.ts`, 'utf8')
     .replace(/^import .*;\r?\n/gm, '');
   const context = vm.createContext({
     crypto: webcrypto, TextEncoder, Response, Request, URL, console,
-    createClient, Deno: { env: { get: () => 'test-only' }, serve: (handler) => { context.handler = handler; } },
+    createClient, Deno: { env: { get: (key) => env[key] || 'test-only' }, serve: (handler) => { context.handler = handler; } },
   });
   vm.runInContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   return context;
@@ -38,7 +38,7 @@ test('workflow conditions fail closed for unsupported operators', () => {
 });
 
 function signedRequest(event) {
-  const body = JSON.stringify(event);
+  const body = JSON.stringify(event && typeof event === 'object' ? { livemode: false, ...event } : event);
   const timestamp = Math.floor(Date.now() / 1000);
   const signature = createHmac('sha256', 'test-only').update(`${timestamp}.${body}`).digest('hex');
   return new Request('https://example.test', { method: 'POST', body,
@@ -907,4 +907,17 @@ test('Stripe persists the verified live customer identifier', async () => {
   }));
   assert.equal(response.status, 200);
   assert.equal(stored?.provider_customer_id, 'cus_verified');
+});
+
+test('Stripe rejects test/live mismatches before privileged database access', async () => {
+  for (const [key, livemode] of [['sk_live_example', false], ['sk_test_example', true]]) {
+    const context = load('stripe-webhook', () => {
+      throw new Error('Database must not be initialized for mismatched Stripe event');
+    }, { STRIPE_SECRET_KEY: key });
+    const response = await context.handler(signedRequest({
+      id: 'evt_wrong_mode', livemode, type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_test' } },
+    }));
+    assert.equal(response.status, 400);
+  }
 });
