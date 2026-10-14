@@ -276,3 +276,13 @@ test('Stripe subscription checkout missing subscription ID never writes entitlem
   assert.equal(response.status, 500);
   assert.equal(recordedError, true);
 });
+
+test('workflow scheduling delays reject unsafe values before actions run', () => {
+  const { validatedDelayHours } = load('workflow-runner');
+  for (const value of [-1, 'bad', Infinity, NaN, 8761]) {
+    assert.throws(() => validatedDelayHours(value), /Workflow delay/);
+  }
+  for (const [value, expected] of [[undefined, 0], [null, 0], [0, 0], ['24', 24], [8760, 8760]]) {
+    assert.equal(validatedDelayHours(value), expected);
+  }
+});
