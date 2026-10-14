@@ -196,7 +196,7 @@ Deno.serve(async (req: Request) => {
         throw new Error("Stripe subscription plan metadata is missing from current provider state");
       }
       const providerSubscriptionId = liveSubscription.id;
-      const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
+      const providerCustomerId = liveCustomerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
       if (typeof planKey !== "string" || !["starter", "growth", "scale", "revenue_recovery"].includes(planKey)) {
         throw new Error("Invalid resolved Stripe subscription plan key");
