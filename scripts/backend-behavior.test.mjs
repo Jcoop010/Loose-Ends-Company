@@ -312,3 +312,27 @@ test('workflow task priority preflight rejects invalid values before writes', as
   }
   assert.equal(writes, 0);
 });
+
+test('Stripe rejects a provider customer mapped to another workspace', async () => {
+  let entitlementsWritten = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { workspace_id: 'other-workspace' }, error: null,
+      }) }) }),
+      upsert: () => { entitlementsWritten = true; throw new Error('Forbidden write'); },
+    };
+  } }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_conflicting_mapping', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test',
+      metadata: { workspace_id: 'target-workspace' }, status: 'active' } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(entitlementsWritten, false);
+});
