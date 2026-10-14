@@ -10,7 +10,39 @@ function load(name, createClient = () => { throw new Error('Unexpected database 
     .replace(/^import .*;\r?\n/gm, '');
   const context = vm.createContext({
     crypto: webcrypto, TextEncoder, Response, Request, URL, console,
-    createClient, Deno: { env: { get: (key) => env[key] || (key === 'STRIPE_SECRET_KEY' ? 'sk_test_only' : 'test-only') }, serve: (handler) => { context.handler = handler; } },
+    createClient: (...args) => {
+      const client = createClient(...args);
+      if (name !== 'stripe-webhook') return client;
+      // Compatibility shim for older behavior tests' in-memory ledger mocks.
+      // New lease-specific tests below exercise the RPC contract directly.
+      return { ...client, rpc: client.rpc || (async (fn, params) => {
+        if (fn === 'claim_stripe_webhook_event') {
+          const { error } = await client.from('stripe_webhook_events').insert({
+            event_id: params.p_event_id, event_type: params.p_event_type, livemode: params.p_livemode,
+          });
+          if (!error) return { data: 'claimed', error: null };
+          if (error.code !== '23505') return { data: null, error };
+          const { data: row, error: lookupError } = await client.from('stripe_webhook_events')
+            .select('processed_at,processing_error').eq('event_id', params.p_event_id).maybeSingle();
+          if (lookupError || !row) return { data: null, error: lookupError || new Error('Missing ledger') };
+          if (row.processed_at) return { data: 'processed', error: null };
+          if (!row.processing_error) return { data: 'busy', error: null };
+          const { data: claimed, error: claimError } = await client.from('stripe_webhook_events')
+            .update({ processing_error: null }).eq('event_id', params.p_event_id)
+            .eq('processing_error', row.processing_error).is('processed_at', null)
+            .select('event_id').maybeSingle();
+          return { data: claimed ? 'claimed' : 'busy', error: claimError };
+        }
+        if (fn === 'finish_stripe_webhook_event') {
+          const patch = params.p_error == null
+            ? { processed_at: new Date().toISOString(), processing_error: null }
+            : { processing_error: params.p_error };
+          const { error } = await client.from('stripe_webhook_events').update(patch).eq('event_id', params.p_event_id);
+          return { data: !error, error };
+        }
+        throw new Error('Unexpected RPC: ' + fn);
+      }) };
+    }, Deno: { env: { get: (key) => env[key] || (key === 'STRIPE_SECRET_KEY' ? 'sk_test_only' : 'test-only') }, serve: (handler) => { context.handler = handler; } },
   });
   vm.runInContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   return context;
