@@ -52,29 +52,18 @@ Deno.serve(async (req: Request) => {
   }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  const { error: ledgerError } = await admin.from("stripe_webhook_events").insert({
-    event_id: event.id, event_type: event.type, livemode: Boolean(event.livemode),
+  const claimToken = crypto.randomUUID();
+  const { data: claim, error: claimError } = await admin.rpc("claim_stripe_webhook_event", {
+    p_event_id: event.id, p_event_type: event.type, p_livemode: event.livemode,
+    p_token: claimToken, p_lease_seconds: 900,
   });
-  if (ledgerError) {
-    if (ledgerError.code === "23505") {
-      const { data: existing, error: lookupError } = await admin.from("stripe_webhook_events")
-        .select("processed_at,processing_error").eq("event_id", event.id).maybeSingle();
-      if (lookupError || !existing) return json({ error: "Could not verify event processing state." }, 500);
-      if (existing.processed_at) return json({ received: true, duplicate: true });
-      // Never process a duplicate while its original delivery may still be running.
-      if (!existing.processing_error) return json({ error: "Webhook event is still processing." }, 503);
-      // Compare-and-clear the recorded failure so only one competing retry claims it.
-      const { data: claim, error: claimError } = await admin.from("stripe_webhook_events")
-        .update({ processing_error: null }).eq("event_id", event.id)
-        .eq("processing_error", existing.processing_error).is("processed_at", null)
-        .select("event_id").maybeSingle();
-      if (claimError) return json({ error: "Could not claim webhook retry." }, 500);
-      if (!claim) return json({ error: "Webhook retry is already being processed." }, 503);
-    } else {
-      console.error("Could not persist Stripe event", ledgerError);
-      return json({ error: "Could not record event." }, 500);
-    }
+  if (claimError) {
+    console.error("Could not claim Stripe event", claimError);
+    return json({ error: "Could not record event." }, 500);
   }
+  if (claim === "processed") return json({ received: true, duplicate: true });
+  if (claim === "busy") return json({ error: "Webhook event is being processed." }, 503);
+  if (claim !== "claimed") return json({ error: "Unexpected webhook claim state." }, 500);
 
   try {
     const obj = event.data?.object || {};
@@ -240,14 +229,18 @@ Deno.serve(async (req: Request) => {
       }, { onConflict: "workspace_id" });
       if (upsertError) throw upsertError;
     }
-    const { error: completionError } = await admin.from("stripe_webhook_events")
-      .update({ processed_at: new Date().toISOString(), processing_error: null }).eq("event_id", event.id);
-    if (completionError) throw completionError;
+    const { data: completed, error: completionError } = await admin.rpc("finish_stripe_webhook_event", {
+      p_event_id: event.id, p_token: claimToken, p_error: null,
+    });
+    if (completionError || completed !== true) throw new Error("Stripe webhook processing lease expired before completion");
     return json({ received: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Processing failed";
     console.error("Stripe webhook processing failed", event.id, message);
-    await admin.from("stripe_webhook_events").update({ processing_error: message }).eq("event_id", event.id);
+    const { error: finishError } = await admin.rpc("finish_stripe_webhook_event", {
+      p_event_id: event.id, p_token: claimToken, p_error: message,
+    });
+    if (finishError) console.error("Could not record Stripe webhook failure", finishError);
     return json({ error: "Webhook processing failed." }, 500);
   }
 });
