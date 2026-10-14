@@ -690,3 +690,24 @@ test('conflicting Stripe checkout workspace identifiers cannot change entitlemen
   assert.equal(response.status, 500);
   assert.equal(touchedEntitlements, false);
 });
+
+test('unknown Stripe subscription events cannot modify paid entitlements', async () => {
+  let entitlementAccess = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table !== 'stripe_webhook_events') {
+      entitlementAccess = true;
+      throw new Error('Unexpected billing access');
+    }
+    return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+  } }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_unknown_subscription', type: 'customer.subscription.unsupported_event',
+    data: { object: { id: 'sub_test', customer: 'cus_test', status: 'active',
+      metadata: { workspace_id: 'workspace-test' } } },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(entitlementAccess, false);
+});
