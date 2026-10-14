@@ -5,6 +5,17 @@ import path from "node:path";
 const read = (file) => fs.readFileSync(path.resolve(file), "utf8");
 const checks = [
   {
+    file: "supabase/migrations/20261014111000_revoke_excess_client_table_privileges.sql",
+    required: [
+      "REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM PUBLIC, anon, authenticated",
+      "REVOKE ALL ON TABLE public.public_leads FROM PUBLIC, anon, authenticated",
+      "GRANT INSERT ON TABLE public.public_leads TO anon, authenticated",
+      "GRANT SELECT ON TABLE public.quickbooks_connections TO authenticated",
+      "GRANT SELECT ON TABLE public.workspace_subscriptions TO authenticated",
+    ],
+    description: "Client roles must not retain privileges outside RLS, public lead reads, or server-owned billing/integration writes.",
+  },
+  {
     file: "v3.1/live-product-layer.js",
     required: ["S.auth.onAuthStateChange", "Workspace fallback lookup failed", "activeWorkspaceId!==w.id", "audit logging needs attention"],
     description: "Live data must initialize after sign-in, recover missing nested workspace joins, switch subscriptions when workspaces change, and surface partial recovery-action failures.",
