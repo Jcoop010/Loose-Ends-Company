@@ -15,7 +15,7 @@ begin
   if p_event_id is null or p_event_id !~ '^evt_[A-Za-z0-9]+$'
     or p_event_type is null or length(p_event_type) = 0
     or p_livemode is null or p_token is null
-    or p_lease_seconds not between 60 and 3600 then
+    or p_lease_seconds is null or p_lease_seconds not between 60 and 3600 then
     raise exception 'Invalid Stripe webhook claim arguments';
   end if;
 
