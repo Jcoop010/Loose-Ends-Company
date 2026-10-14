@@ -33,6 +33,19 @@ create table public.opportunities (
   id uuid primary key, workspace_id uuid not null, title text, reason text,
   status text, priority numeric, amount numeric, due_at timestamptz, updated_at timestamptz
 );
+-- Mirror live-schema CHECK constraints so smoke tests reject invalid persisted states.
+alter table public.workspace_subscriptions add constraint workspace_subscriptions_status_check
+  check (status in ('trialing','active','past_due','canceled','incomplete','paused','unpaid'));
+alter table public.workflow_runs add constraint workflow_runs_status_check
+  check (status in ('queued','running','waiting_approval','completed','failed','skipped'));
+alter table public.tasks add constraint tasks_status_check
+  check (status in ('open','done','dismissed'));
+alter table public.follow_ups add constraint follow_ups_channel_check
+  check (channel in ('call','sms','email','task'));
+alter table public.follow_ups add constraint follow_ups_status_check
+  check (status in ('pending','completed','dismissed'));
+alter table public.opportunities add constraint opportunities_status_check
+  check (status in ('open','contacted','responded','scheduled','completed','recovered','dismissed'));
 \ir ../supabase/migrations/20261014180000_stripe_webhook_processing_leases.sql
 \ir ../supabase/migrations/20261014181000_atomic_stripe_entitlement_completion.sql
 \ir ../supabase/migrations/20261014182000_serialize_stripe_billing_events.sql
