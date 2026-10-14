@@ -4,6 +4,7 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/postgres-backend-smoke.sql'
+      - 'scripts/postgres-auth-permissions.sql'
       - '.github/workflows/postgres-backend-smoke.yml'
   workflow_dispatch:
 jobs:
@@ -32,4 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run real PostgreSQL migration and transaction smoke tests
-        run: psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-backend-smoke.sql
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-backend-smoke.sql
+          psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-auth-permissions.sql
