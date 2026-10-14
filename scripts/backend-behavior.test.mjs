@@ -778,3 +778,30 @@ test('malformed Stripe cancellation flag cannot modify subscription entitlement'
     assert.equal(wrote, false);
   }
 });
+
+test('malformed live Stripe plan keys cannot modify entitlements', async () => {
+  for (const plan_key of ['../../admin', '', 123, 'BAD PLAN']) {
+    let wrote = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table === 'stripe_webhook_events') return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+      assert.equal(table, 'workspace_subscriptions');
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => { wrote = true; throw new Error('Unexpected entitlement write'); },
+      };
+    } }));
+    context.fetch = async () => ({ ok: true, json: async () => ({
+      id: 'sub_test', customer: 'cus_test', status: 'active', metadata: { plan_key },
+    }) });
+    const response = await context.handler(signedRequest({
+      id: 'evt_bad_plan', type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_test',
+        metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(wrote, false);
+  }
+});
