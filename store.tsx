@@ -24,7 +24,7 @@ function loadLocalData(): AppData {
   return cloneSeed()
 }
 interface StoreContextValue {
-  data: AppData; cloudReady: boolean; updateBusiness: (updates: Partial<Business>) => void; updateOpportunity: (id: string, updates: Partial<Opportunity>) => void; updateFollowUp: (id: string, updates: Partial<FollowUp>) => void; dismissAlert: (id: string) => void; addRequest: (req: Omit<Request, 'id' | 'createdAt'>) => void; updateRequest: (id: string, updates: Partial<Request>) => void; updateMarketingTask: (id: string, updates: Partial<MarketingTask>) => void; toggleIntegration: (id: string) => void; addLead: (lead: Omit<Lead, 'id' | 'createdAt'>) => void; addNoteToCustomer: (customerId: string, note: string) => void; addCustomer: (customer: Omit<Customer, 'id' | 'createdAt'>) => string; updateCustomer: (id: string, updates: Partial<Customer>) => void; addOpportunity: (opp: Omit<Opportunity, 'id'>) => void; addFollowUp: (fu: Omit<FollowUp, 'id'>) => void; addRevenueEvent: (event: Omit<RevenueEvent, 'id'>) => void; runRevenueScan: () => { created: number; potential: number }; dismissFollowUp: (id: string) => void; addSalesOrder: (order: Omit<SalesOrder, 'id' | 'number' | 'createdAt'>) => string; updateSalesOrder: (id: string, updates: Partial<SalesOrder>) => void; deleteSalesOrder: (id: string) => void; addCalendarEvent: (event: Omit<CalendarEvent, 'id'>) => string; updateCalendarEvent: (id: string, updates: Partial<CalendarEvent>) => void; deleteCalendarEvent: (id: string) => void; resetData: () => void
+  data: AppData; cloudReady: boolean; collectOpportunity: (id: string, amount: number) => Promise<boolean>; updateBusiness: (updates: Partial<Business>) => void; updateOpportunity: (id: string, updates: Partial<Opportunity>) => void; updateFollowUp: (id: string, updates: Partial<FollowUp>) => void; dismissAlert: (id: string) => void; addRequest: (req: Omit<Request, 'id' | 'createdAt'>) => void; updateRequest: (id: string, updates: Partial<Request>) => void; updateMarketingTask: (id: string, updates: Partial<MarketingTask>) => void; toggleIntegration: (id: string) => void; addLead: (lead: Omit<Lead, 'id' | 'createdAt'>) => void; addNoteToCustomer: (customerId: string, note: string) => void; addCustomer: (customer: Omit<Customer, 'id' | 'createdAt'>) => string; updateCustomer: (id: string, updates: Partial<Customer>) => void; addOpportunity: (opp: Omit<Opportunity, 'id'>) => void; addFollowUp: (fu: Omit<FollowUp, 'id'>) => void; addRevenueEvent: (event: Omit<RevenueEvent, 'id'>) => void; runRevenueScan: () => { created: number; potential: number }; dismissFollowUp: (id: string) => void; addSalesOrder: (order: Omit<SalesOrder, 'id' | 'number' | 'createdAt'>) => string; updateSalesOrder: (id: string, updates: Partial<SalesOrder>) => void; deleteSalesOrder: (id: string) => void; addCalendarEvent: (event: Omit<CalendarEvent, 'id'>) => string; updateCalendarEvent: (id: string, updates: Partial<CalendarEvent>) => void; deleteCalendarEvent: (id: string) => void; resetData: () => void
 }
 const StoreContext = createContext<StoreContextValue | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -47,6 +47,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addOpportunity = useCallback((opp: Omit<Opportunity, 'id'>) => { const created = { ...opp, id: genId() }; setData(prev => ({ ...prev, opportunities: [created, ...prev.opportunities] })); if (workspaceId) void persistOpportunity(created, workspaceId).catch(console.error) }, [workspaceId])
   const addFollowUp = useCallback((fu: Omit<FollowUp, 'id'>) => { const created = { ...fu, id: genId() }; setData(prev => ({ ...prev, followUps: [created, ...prev.followUps] })); if (workspaceId) void persistFollowUp(created, workspaceId).catch(console.error) }, [workspaceId])
   const addRevenueEvent = useCallback((event: Omit<RevenueEvent, 'id'>) => { const created = { ...event, id: genId() }; setData(prev => ({ ...prev, revenueEvents: [created, ...prev.revenueEvents] })); if (workspaceId) void persistRecovery(created, workspaceId).catch(console.error) }, [workspaceId])
+  const collectOpportunity = useCallback(async (id: string, amount: number): Promise<boolean> => {
+    if (!workspaceId) throw new Error('Sign in to record recovered revenue')
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid collected amount')
+    const { data: collected, error } = await supabase.rpc('collect_opportunity', { p_opportunity_id: id, p_amount: amount })
+    if (error) throw error
+    if (!collected) return false
+    const now = new Date().toISOString()
+    setData(prev => {
+      const opportunity = prev.opportunities.find(o => o.id === id)
+      if (!opportunity || opportunity.status === 'Collected') return prev
+      return { ...prev,
+        opportunities: prev.opportunities.map(o => o.id === id ? { ...o, status: 'Collected' as const, collectedAmount: amount, nextAction: 'Complete — revenue recovered' } : o),
+        revenueEvents: [{ id: genId(), opportunityId: id, customerId: opportunity.customerId, customerName: opportunity.customerName, amount, date: now, description: `Confirmed collection for ${opportunity.type}`, type: 'Recovered' as const }, ...prev.revenueEvents]
+      }
+    })
+    return true
+  }, [workspaceId])
   const runRevenueScan = useCallback(() => { const result = scanRevenue(data); result.opportunities.forEach(addOpportunity); return { created: result.opportunities.length, potential: result.totalPotential } }, [data, addOpportunity])
 
   // Revenue intelligence scans automatically after cloud hydration and after
@@ -66,6 +83,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const deleteCalendarEvent = useCallback((id: string) => { setData(prev => ({ ...prev, calendarEvents: (prev.calendarEvents || []).filter(e => e.id !== id) })); if (workspaceId) void deleteWorkspaceRecord('calendarEvents', id, workspaceId).catch(console.error) }, [workspaceId])
   const resetData = useCallback(() => { try { if (typeof window !== 'undefined') { window.localStorage.removeItem(STORAGE_KEY); window.localStorage.removeItem(`${STORAGE_KEY}_notifications`) } } catch {} setData(workspaceId && import.meta.env.PROD ? blankWorkspaceData(cloneSeed()) : cloneSeed()) }, [workspaceId])
   useEffect(() => { const { data: listener } = supabase.auth.onAuthStateChange(() => {}); return () => listener.subscription.unsubscribe() }, [])
-  return <StoreContext.Provider value={{ data, cloudReady, updateBusiness, updateOpportunity, updateFollowUp, dismissAlert, addRequest, updateRequest, updateMarketingTask, toggleIntegration, addLead, addNoteToCustomer, addCustomer, updateCustomer, addOpportunity, addFollowUp, addRevenueEvent, runRevenueScan, dismissFollowUp, addSalesOrder, updateSalesOrder, deleteSalesOrder, addCalendarEvent, updateCalendarEvent, deleteCalendarEvent, resetData }}>{children}</StoreContext.Provider>
+  return <StoreContext.Provider value={{ data, cloudReady, collectOpportunity, updateBusiness, updateOpportunity, updateFollowUp, dismissAlert, addRequest, updateRequest, updateMarketingTask, toggleIntegration, addLead, addNoteToCustomer, addCustomer, updateCustomer, addOpportunity, addFollowUp, addRevenueEvent, runRevenueScan, dismissFollowUp, addSalesOrder, updateSalesOrder, deleteSalesOrder, addCalendarEvent, updateCalendarEvent, deleteCalendarEvent, resetData }}>{children}</StoreContext.Provider>
 }
 export function useStore(): StoreContextValue { const ctx = useContext(StoreContext); if (!ctx) throw new Error('useStore must be used within StoreProvider'); return ctx }
