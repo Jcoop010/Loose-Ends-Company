@@ -188,3 +188,50 @@ test('Stripe returns retryable failure if completion ledger write fails', async 
   assert.equal(response.status, 500);
   assert.equal(writes.length, 2);
 });
+
+test('workflow runner requires authorization before constructing a database client', async () => {
+  const context = load('workflow-runner');
+  const response = await context.handler(new Request('https://example.test', {
+    method: 'POST',
+    body: JSON.stringify({ workspace_id: 'workspace-test' }),
+  }));
+  assert.equal(response.status, 401);
+});
+
+test('Stripe rejects missing signature before constructing a privileged client', async () => {
+  const context = load('stripe-webhook');
+  const response = await context.handler(new Request('https://example.test', {
+    method: 'POST',
+    body: JSON.stringify({ id: 'evt_test', type: 'invoice.paid', data: { object: {} } }),
+  }));
+  assert.equal(response.status, 400);
+});
+
+test('workflow approval rejects a non-admin before any run state change', async () => {
+  let clients = 0;
+  const query = (value) => {
+    const chain = { select: () => chain, eq: () => chain,
+      limit: () => chain, maybeSingle: async () => ({ data: value, error: null }) };
+    return chain;
+  };
+  const context = load('workflow-runner', () => {
+    clients++;
+    if (clients === 1) return {
+      auth: { getUser: async () => ({ data: { user: { id: 'member-user' } }, error: null }) },
+      from: (table) => {
+        assert.equal(table, 'workspace_members');
+        return query({ workspace_id: 'workspace-test' });
+      },
+    };
+    return { from: (table) => {
+      assert.equal(table, 'workspace_members');
+      return query({ role: 'member' });
+    } };
+  });
+  const response = await context.handler(new Request('https://example.test', {
+    method: 'POST', headers: { Authorization: 'Bearer test-only' },
+    body: JSON.stringify({ workspace_id: 'workspace-test', approve_run_id: 'run-test' }),
+  }));
+  assert.equal(response.status, 403);
+  assert.equal(clients, 2);
+});
