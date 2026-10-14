@@ -286,3 +286,16 @@ test('workflow scheduling delays reject unsafe values before actions run', () =>
     assert.equal(validatedDelayHours(value), expected);
   }
 });
+
+test('workflow preflight rejects invalid later action before any database writes', async () => {
+  let writes = 0;
+  const db = { from: () => { writes++; throw new Error('Unexpected write'); } };
+  const context = load('workflow-runner');
+  const run = { context: { event: { entity_type: 'customers' }, record: { id: 'customer-test' } } };
+  for (const invalidAction of [null, {}, { type: 'unknown' }, { type: 'create_follow_up', delay_hours: -10 }]) {
+    await assert.rejects(() => context.executeActions(db, 'workspace-test', {
+      actions: [{ type: 'create_task', title: 'Valid task' }, invalidAction],
+    }, run));
+  }
+  assert.equal(writes, 0);
+});
