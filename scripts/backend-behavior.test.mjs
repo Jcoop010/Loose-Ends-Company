@@ -832,3 +832,28 @@ test('malformed fallback Stripe plan keys cannot write entitlements', async () =
     assert.equal(wrote, false);
   }
 });
+
+test('stale event plan cannot replace missing live Stripe subscription plan', async () => {
+  let wrote = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      upsert: () => { wrote = true; throw new Error('Unexpected entitlement write'); },
+    };
+  } }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_test', status: 'active', metadata: {},
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_stale_plan', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test',
+      metadata: { workspace_id: 'workspace-test', plan_key: 'premium' } } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(wrote, false);
+});
