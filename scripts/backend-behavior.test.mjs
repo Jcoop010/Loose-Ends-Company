@@ -990,3 +990,31 @@ test('checkout refuses to call Stripe when subscription lookup fails', async () 
   assert.equal(response.status, 500);
   assert.equal(stripeCalled, false);
 });
+
+test('checkout blocks new sessions for existing recoverable subscriptions', async () => {
+  const workspace = '12345678-1234-4123-8123-123456789012';
+  for (const status of ['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused']) {
+    let stripeCalled = false;
+    const context = load('create-subscription-checkout', () => ({
+      auth: { getUser: async () => ({ data: { user: { id: 'user-test', email: 'test@example.com' } }, error: null }) },
+      from: (table) => {
+        const chain = {
+          select: () => chain, eq: () => chain,
+          maybeSingle: async () => table === 'workspace_members'
+            ? { data: { workspace_id: workspace, role: 'owner' }, error: null }
+            : { data: { provider_customer_id: 'cus_existing', provider_subscription_id: 'sub_existing', status }, error: null },
+        };
+        return chain;
+      },
+    }));
+    context.fetch = async () => { stripeCalled = true; throw new Error('Unexpected Stripe checkout'); };
+    const response = await context.handler(new Request('https://example.test', {
+      method: 'POST',
+      headers: { Origin: 'https://loose-ends-os.vercel.app', Authorization: 'Bearer test',
+        'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspace, plan_key: 'starter' }),
+    }));
+    assert.equal(response.status, 409);
+    assert.equal(stripeCalled, false);
+  }
+});
