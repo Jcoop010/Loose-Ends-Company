@@ -1201,3 +1201,36 @@ test('Stripe rejects events missing creation time before ledger claims', async (
   assert.equal(response.status, 400);
   assert.equal(accessed, false);
 });
+
+test('workflow actions execute through one atomic RPC without direct writes', async () => {
+  const context = load('workflow-runner');
+  const calls = [];
+  const db = {
+    rpc: async (name, params) => {
+      calls.push({ name, params });
+      return { data: [{ type: 'create_task', id: 'task-test' }], error: null };
+    },
+    from: () => { throw new Error('Workflow actions must not write tables individually'); },
+  };
+  const outputs = await context.executeActions(db, 'workspace-test', {
+    actions: [{ type: 'create_task', title: 'Follow up', delay_hours: 1, priority: 2 }],
+  }, {
+    id: 'run-test', context: { event: { entity_type: 'customers' }, record: { id: 'customer-test' } },
+  });
+  assert.equal(outputs[0].id, 'task-test');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'complete_workflow_run_atomically');
+  assert.equal(calls[0].params.p_run_id, 'run-test');
+  assert.equal(calls[0].params.p_workspace_id, 'workspace-test');
+});
+
+test('workflow atomic transaction failure cannot report successful execution', async () => {
+  const context = load('workflow-runner');
+  const db = { rpc: async () => ({ data: null, error: new Error('Transaction rolled back') }) };
+  await assert.rejects(
+    context.executeActions(db, 'workspace-test', {
+      actions: [{ type: 'create_follow_up', message: 'Reminder', delay_hours: 0 }],
+    }, { id: 'run-test', context: { event: {}, record: {} } }),
+    /Transaction rolled back/,
+  );
+});
