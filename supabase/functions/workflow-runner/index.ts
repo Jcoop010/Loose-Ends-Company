@@ -33,6 +33,11 @@ function json(body: unknown, status = 200, origin = CANONICAL_ORIGIN) {
 function matches(record: any, conditions: any[]) {
   return (conditions || []).every((c: any) => {
     const value = record?.[c.field];
+    // Missing or nonnumeric fields must never satisfy numeric workflow conditions.
+    if (["gt", "gte", "lt", "lte"].includes(c.operator)) {
+      if (value === null || value === undefined || value === "" || c.value === null || c.value === undefined || c.value === "") return false;
+      if (!Number.isFinite(Number(value)) || !Number.isFinite(Number(c.value))) return false;
+    }
     switch (c.operator) {
       case "equals": return String(value ?? "") === String(c.value ?? "");
       case "not_equals": return String(value ?? "") !== String(c.value ?? "");
