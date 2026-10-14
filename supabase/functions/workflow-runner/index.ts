@@ -113,7 +113,7 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
         opportunity_id: opportunityId,
         title: action.title || "Workflow task",
         status: "open",
-        priority: Number(action.priority || 1),
+        priority: Number(action.priority ?? 1),
         due_at: new Date(Date.now() + validatedDelayHours(action.delay_hours) * 3600000).toISOString(),
       }).select().single();
       if (error) throw error;
