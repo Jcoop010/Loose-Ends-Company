@@ -615,3 +615,31 @@ test('Stripe subscription missing live customer identity cannot overwrite billin
     assert.equal(wrote, false);
   }
 });
+
+test('invalid Stripe subscription period timestamps cannot corrupt billing', async () => {
+  for (const bad of [-1, 'yesterday', Infinity, 8640000001, 0.5]) {
+    let wrote = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table === 'stripe_webhook_events') return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+      assert.equal(table, 'workspace_subscriptions');
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => { wrote = true; throw new Error('Unexpected billing write'); },
+      };
+    } }));
+    context.fetch = async () => ({ ok: true, json: async () => ({
+      id: 'sub_test', customer: 'cus_test', status: 'active',
+      current_period_end: bad,
+    }) });
+    const response = await context.handler(signedRequest({
+      id: 'evt_bad_period', type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_test',
+        metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(wrote, false);
+  }
+});
