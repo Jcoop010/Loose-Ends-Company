@@ -87,6 +87,12 @@ Deno.serve(async (req: Request) => {
         eventType === "invoice.payment_succeeded" || eventType === "invoice.paid" ||
         eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required"
       ));
+    // Checkout workspace references must agree; never silently prefer metadata
+    // over a conflicting client_reference_id when assigning paid access.
+    if (checkout?.mode === "subscription" && obj.metadata?.workspace_id &&
+        checkout.client_reference_id && obj.metadata.workspace_id !== checkout.client_reference_id) {
+      throw new Error("Stripe checkout workspace references disagree");
+    }
     let workspaceId = obj.metadata?.workspace_id || checkout?.client_reference_id || null;
     if (relevant && !workspaceId && customerId) {
       const { data: row, error: mappingError } = await admin.from("workspace_subscriptions").select("workspace_id")
