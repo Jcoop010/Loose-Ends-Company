@@ -433,3 +433,28 @@ test('Stripe rejects provider subscription ID mismatch before entitlement change
   assert.equal(response.status, 500);
   assert.equal(stored, false);
 });
+
+test('Stripe rejects provider customer ID mismatch before entitlement changes', async () => {
+  let stored = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      upsert: () => { stored = true; throw new Error('Unexpected entitlement write'); },
+    };
+  } }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_expected', customer: 'cus_different', status: 'active',
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_mismatched_customer', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_expected', customer: 'cus_expected',
+      status: 'active', metadata: { workspace_id: 'workspace-test' } } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(stored, false);
+});
