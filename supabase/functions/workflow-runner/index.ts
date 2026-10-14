@@ -100,7 +100,7 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
     if (action.type === "create_task" || action.type === "create_follow_up") validatedDelayHours(action.delay_hours);
     if (action.type === "create_task") {
       const priority = action.priority === undefined || action.priority === null ? 1 : Number(action.priority);
-      if (!Number.isFinite(priority) || priority < 0) throw new Error("Workflow task priority must be a nonnegative finite number");
+      if (action.priority === "" || !Number.isFinite(priority) || priority < 0) throw new Error("Workflow task priority must be a nonnegative finite number");
     }
     if (action.type === "update_opportunity") {
       const patch = action.patch;
