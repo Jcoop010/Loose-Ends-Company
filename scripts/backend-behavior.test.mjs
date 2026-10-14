@@ -235,3 +235,17 @@ test('workflow approval rejects a non-admin before any run state change', async 
   assert.equal(response.status, 403);
   assert.equal(clients, 2);
 });
+
+test('numeric workflow conditions reject missing, empty, and nonnumeric fields', () => {
+  const { matches } = load('workflow-runner');
+  for (const operator of ['gt', 'gte', 'lt', 'lte']) {
+    for (const value of [undefined, null, '', 'not-a-number']) {
+      assert.equal(matches({ amount: value }, [{ field: 'amount', operator, value: 0 }]), false, `${operator} should reject ${String(value)}`);
+    }
+    assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator, value: 'not-a-number' }]), false);
+    assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator, value: null }]), false);
+  }
+  assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator: 'gte', value: 100 }]), true);
+  assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator: 'lte', value: 100 }]), true);
+  assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator: 'gt', value: 50 }]), true);
+});
