@@ -533,3 +533,31 @@ test('stale Stripe deletion does not cancel a currently active subscription', as
   assert.equal(stored?.status, 'active');
   assert.equal(stored?.workspace_id, 'workspace-test');
 });
+
+test('stale Stripe invoice payment failure cannot downgrade recovered active subscription', async () => {
+  let stored = null;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { workspace_id: 'workspace-test' }, error: null,
+      }) }) }),
+      upsert: (row) => { stored = row; return Promise.resolve({ error: null }); },
+    };
+  } }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_test', status: 'active',
+    metadata: { plan_key: 'revenue_recovery' },
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_old_failure', type: 'invoice.payment_failed',
+    data: { object: { customer: 'cus_test', subscription: 'sub_test' } },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(stored?.status, 'active');
+  assert.equal(stored?.workspace_id, 'workspace-test');
+});
