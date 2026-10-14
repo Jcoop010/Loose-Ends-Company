@@ -140,7 +140,7 @@ Deno.serve(async (req: Request) => {
       const periodDate = (value: unknown): string | null => {
         if (value === undefined || value === null) return null;
         if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 ||
-            value > 8640000000000) throw new Error("Invalid Stripe subscription period timestamp");
+            value > 8640000000) throw new Error("Invalid Stripe subscription period timestamp");
         return new Date(value * 1000).toISOString();
       };
       const periodStart = periodDate(liveSubscription?.current_period_start);
