@@ -711,3 +711,23 @@ test('unknown Stripe subscription events cannot modify paid entitlements', async
   assert.equal(response.status, 200);
   assert.equal(entitlementAccess, false);
 });
+
+test('malformed Stripe subscription identifiers fail before billing lookups', async () => {
+  for (const subscription of ['wrong_prefix', 'sub_test/../other', 'sub_!invalid']) {
+    let touchedBilling = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table !== 'stripe_webhook_events') { touchedBilling = true; throw new Error('Unexpected billing access'); }
+      return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+    } }));
+    const response = await context.handler(signedRequest({
+      id: 'evt_invalid_subscription_id', type: 'checkout.session.completed',
+      data: { object: { mode: 'subscription', subscription,
+        customer: 'cus_test', metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(touchedBilling, false);
+  }
+});
