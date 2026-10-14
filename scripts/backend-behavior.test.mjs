@@ -964,3 +964,29 @@ test('live Stripe customer mapping cannot cross workspace when event omits custo
   assert.equal(response.status, 500);
   assert.equal(wrote, false);
 });
+
+test('checkout refuses to call Stripe when subscription lookup fails', async () => {
+  const workspace = '12345678-1234-4123-8123-123456789012';
+  let stripeCalled = false;
+  const context = load('create-subscription-checkout', () => ({
+    auth: { getUser: async () => ({ data: { user: { id: 'user-test', email: 'test@example.com' } }, error: null }) },
+    from: (table) => {
+      const chain = {
+        select: () => chain, eq: () => chain,
+        maybeSingle: async () => table === 'workspace_members'
+          ? { data: { workspace_id: workspace, role: 'owner' }, error: null }
+          : { data: null, error: { message: 'subscription table unavailable' } },
+      };
+      return chain;
+    },
+  }));
+  context.fetch = async () => { stripeCalled = true; throw new Error('Must not call Stripe'); };
+  const response = await context.handler(new Request('https://example.test', {
+    method: 'POST',
+    headers: { Origin: 'https://loose-ends-os.vercel.app', Authorization: 'Bearer test',
+      'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspace, plan_key: 'starter' }),
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(stripeCalled, false);
+});
