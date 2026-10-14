@@ -202,6 +202,8 @@ const billingOrderingMigration = read("supabase/migrations/20261014182000_serial
 for (const marker of [
   "pg_advisory_xact_lock", "stripe_last_event_created",
   "p_event_created >= v_last_created",
+  "p_customer_id is null", "p_subscription_id is null",
+  "p_plan_key is null", "p_status is null",
   "processing_token is distinct from p_token",
   "processing_lease_until <= clock_timestamp()",
   "processed_at = clock_timestamp()",
