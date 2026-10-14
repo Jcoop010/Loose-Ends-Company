@@ -588,3 +588,30 @@ test('unknown Stripe subscription statuses fail closed without billing writes', 
     assert.equal(stored, false);
   }
 });
+
+test('Stripe subscription missing live customer identity cannot overwrite billing', async () => {
+  for (const customer of [undefined, null, '', 'not-a-stripe-customer']) {
+    let wrote = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table === 'stripe_webhook_events') return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+      assert.equal(table, 'workspace_subscriptions');
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => { wrote = true; throw new Error('Unexpected billing write'); },
+      };
+    } }));
+    context.fetch = async () => ({ ok: true, json: async () => ({
+      id: 'sub_test', status: 'active', customer,
+    }) });
+    const response = await context.handler(signedRequest({
+      id: 'evt_no_live_customer', type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_original',
+        metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(wrote, false);
+  }
+});
