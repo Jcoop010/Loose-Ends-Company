@@ -198,6 +198,9 @@ for (const check of checks) {
   assert.deepEqual(missing, [], `${check.description} Missing markers: ${missing.join(", ")}`);
 }
 
+const stripeLeaseMigration = read("supabase/migrations/20261014180000_stripe_webhook_processing_leases.sql");
+assert.ok(stripeLeaseMigration.includes("p_lease_seconds is null"),
+  "Stripe lease RPC must reject NULL lease durations");
 const billingOrderingMigration = read("supabase/migrations/20261014182000_serialize_stripe_billing_events.sql");
 for (const marker of [
   "pg_advisory_xact_lock", "stripe_last_event_created",
