@@ -731,3 +731,23 @@ test('malformed Stripe subscription identifiers fail before billing lookups', as
     assert.equal(touchedBilling, false);
   }
 });
+
+test('Stripe subscription lifecycle event without ID cannot access billing', async () => {
+  for (const type of ['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted']) {
+    let touchedBilling = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table !== 'stripe_webhook_events') { touchedBilling = true; throw new Error('Unexpected billing access'); }
+      return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+    } }));
+    const response = await context.handler(signedRequest({
+      id: 'evt_missing_subscription_id', type,
+      data: { object: { customer: 'cus_test', status: 'active',
+        metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(touchedBilling, false);
+  }
+});
