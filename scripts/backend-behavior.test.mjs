@@ -1050,3 +1050,64 @@ test('checkout blocks new sessions for existing recoverable subscriptions', asyn
     assert.equal(stripeCalled, false);
   }
 });
+
+test('Stripe lease claim: busy deliveries do not access subscriptions', async () => {
+  let touchedBilling = false;
+  const context = load('stripe-webhook', () => ({
+    rpc: async (name) => {
+      assert.equal(name, 'claim_stripe_webhook_event');
+      return { data: 'busy', error: null };
+    },
+    from: () => { touchedBilling = true; throw new Error('No database writes for busy event'); },
+  }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_lease_busy', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test' } },
+  }));
+  assert.equal(response.status, 503);
+  assert.equal(touchedBilling, false);
+});
+
+test('Stripe lease claim: finished delivery is acknowledged without reprocessing', async () => {
+  let touchedBilling = false;
+  const context = load('stripe-webhook', () => ({
+    rpc: async (name) => {
+      assert.equal(name, 'claim_stripe_webhook_event');
+      return { data: 'processed', error: null };
+    },
+    from: () => { touchedBilling = true; throw new Error('No database reads for processed event'); },
+  }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_lease_done', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test' } },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).duplicate, true);
+  assert.equal(touchedBilling, false);
+});
+
+test('Stripe lease completion sends the same claim token to fencing RPC', async () => {
+  let claimedToken = '';
+  let finished = false;
+  const context = load('stripe-webhook', () => ({
+    rpc: async (name, params) => {
+      if (name === 'claim_stripe_webhook_event') {
+        claimedToken = params.p_token;
+        assert.equal(params.p_lease_seconds, 900);
+        return { data: 'claimed', error: null };
+      }
+      assert.equal(name, 'finish_stripe_webhook_event');
+      assert.equal(params.p_token, claimedToken);
+      assert.equal(params.p_error, null);
+      finished = true;
+      return { data: true, error: null };
+    },
+    from: () => { throw new Error('No subscription access for unrelated event'); },
+  }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_lease_finished', type: 'unrelated.event',
+    data: { object: {} },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(finished, true);
+});
