@@ -15,6 +15,11 @@ create table public.workspace_subscriptions (
 create table public.workflows (
   id uuid primary key, workspace_id uuid not null, actions jsonb not null
 );
+create table public.customers (
+  id uuid primary key, workspace_id uuid not null
+);
+insert into public.customers (id, workspace_id) values
+  ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111');
 create table public.workflow_runs (
   id uuid primary key, workspace_id uuid not null, workflow_id uuid not null,
   status text not null, context jsonb not null default '{}'::jsonb,
