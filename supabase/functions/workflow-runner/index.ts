@@ -79,6 +79,12 @@ async function workspaceFor(db: any, userId: string, requestedWorkspaceId?: stri
   return data?.workspace_id || null;
 }
 
+function validatedDelayHours(value: unknown): number {
+  const hours = value === undefined || value === null ? 0 : Number(value);
+  if (!Number.isFinite(hours) || hours < 0 || hours > 8760) throw new Error("Workflow delay must be between 0 and 8760 hours");
+  return hours;
+}
+
 async function executeActions(db: any, workspaceId: string, workflow: any, run: any) {
   const event = run.context?.event || {};
   const record = run.context?.record || event?.payload?.record || {};
@@ -96,7 +102,7 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
         title: action.title || "Workflow task",
         status: "open",
         priority: Number(action.priority || 1),
-        due_at: new Date(Date.now() + Number(action.delay_hours || 0) * 3600000).toISOString(),
+        due_at: new Date(Date.now() + validatedDelayHours(action.delay_hours) * 3600000).toISOString(),
       }).select().single();
       if (error) throw error;
       outputs.push({ type: action.type, id: data?.id });
@@ -107,7 +113,7 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
         opportunity_id: opportunityId,
         channel: action.channel || "task",
         status: "pending",
-        scheduled_at: new Date(Date.now() + Number(action.delay_hours || 0) * 3600000).toISOString(),
+        scheduled_at: new Date(Date.now() + validatedDelayHours(action.delay_hours) * 3600000).toISOString(),
         message: action.message || "Workflow follow-up",
       }).select().single();
       if (error) throw error;
