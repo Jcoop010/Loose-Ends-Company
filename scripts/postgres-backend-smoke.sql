@@ -74,4 +74,42 @@ begin
   if (select status from public.workflow_runs where id=run_id) <> 'completed' then
     raise exception 'Workflow was not completed'; end if;
 end $$;
+
+-- An invalid second action must roll back the first action and run completion.
+do $
+declare ws uuid := '11111111-1111-4111-8111-111111111111';
+workflow_id uuid := gen_random_uuid(); run_id uuid := gen_random_uuid();
+begin
+  insert into public.workflows (id,workspace_id,actions) values
+    (workflow_id,ws,'[{"type":"create_task","title":"Must roll back"},{"type":"not_supported"}]');
+  insert into public.workflow_runs (id,workspace_id,workflow_id,status,context) values
+    (run_id,ws,workflow_id,'running','{}');
+  begin
+    perform public.complete_workflow_run_atomically(run_id,ws,null);
+    raise exception 'Expected unsupported workflow action failure';
+  exception when others then
+    if sqlerrm = 'Expected unsupported workflow action failure' then raise; end if;
+  end;
+  if (select count(*) from public.tasks where workspace_id=ws) <> 1 then
+    raise exception 'Partial task insert survived failed atomic workflow'; end if;
+  if (select status from public.workflow_runs where id=run_id) <> 'running' then
+    raise exception 'Failed workflow was marked complete'; end if;
+end $;
+
+-- A successfully completed run must not execute twice.
+do $
+declare ws uuid := '11111111-1111-4111-8111-111111111111';
+workflow_id uuid := gen_random_uuid(); run_id uuid := gen_random_uuid();
+begin
+  select id into run_id from public.workflow_runs where status='completed' limit 1;
+  begin
+    perform public.complete_workflow_run_atomically(run_id,ws,null);
+    raise exception 'Expected duplicate workflow rejection';
+  exception when others then
+    if sqlerrm = 'Expected duplicate workflow rejection' then raise; end if;
+  end;
+  if (select count(*) from public.tasks where workspace_id=ws) <> 1 then
+    raise exception 'Duplicate execution created another task'; end if;
+end $;
+
 select 'Postgres migrations and smoke tests passed' as result;
