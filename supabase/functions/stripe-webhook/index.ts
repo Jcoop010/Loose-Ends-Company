@@ -159,6 +159,12 @@ Deno.serve(async (req: Request) => {
       if (customerId && customerId !== liveCustomerId) {
         throw new Error("Stripe subscription customer identifier mismatch");
       }
+      // A subscription's authenticated Stripe metadata must not contradict the
+      // workspace selected from the signed event or existing provider mappings.
+      const liveWorkspaceId = liveSubscription.metadata?.workspace_id;
+      if (liveWorkspaceId && liveWorkspaceId !== workspaceId) {
+        throw new Error("Stripe live subscription belongs to a different workspace");
+      }
       const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
