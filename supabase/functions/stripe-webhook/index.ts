@@ -193,6 +193,9 @@ Deno.serve(async (req: Request) => {
       const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
+      if (typeof planKey !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(planKey)) {
+        throw new Error("Invalid resolved Stripe subscription plan key");
+      }
       // The live Stripe lookup is authoritative. A delayed deletion webhook must
       // not cancel a subscription that Stripe currently reports as active.
       // The 404 fallback above already sets canceled when the subscription is gone.
