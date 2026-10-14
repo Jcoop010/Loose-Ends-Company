@@ -669,3 +669,24 @@ test('live Stripe subscription cannot update another workspace entitlement', asy
   assert.equal(response.status, 500);
   assert.equal(wrote, false);
 });
+
+test('conflicting Stripe checkout workspace identifiers cannot change entitlements', async () => {
+  let touchedEntitlements = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table !== 'stripe_webhook_events') { touchedEntitlements = true; throw new Error('Unexpected billing access'); }
+    return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+  } }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_conflicting_checkout_references', type: 'checkout.session.completed',
+    data: { object: {
+      mode: 'subscription', subscription: 'sub_test', customer: 'cus_test',
+      metadata: { workspace_id: 'workspace-one' },
+      client_reference_id: 'workspace-two',
+    } },
+  }));
+  assert.equal(response.status, 500);
+  assert.equal(touchedEntitlements, false);
+});
