@@ -127,7 +127,7 @@ end $$;
 
 
 -- Verify that a workflow cannot edit an opportunity belonging to another workspace.
-do $
+do $$
 declare
   home_ws uuid := '11111111-1111-4111-8111-111111111111';
   foreign_ws uuid := '33333333-3333-4333-8333-333333333333';
@@ -153,6 +153,6 @@ begin
     then raise exception 'Foreign opportunity changed'; end if;
   if (select status from public.workflow_runs where id = execution_id) <> 'running'
     then raise exception 'Rejected workflow changed state'; end if;
-end $;
+end $$;
 
 select 'Postgres migrations and smoke tests passed' as result;
