@@ -27,7 +27,11 @@ begin
     or v_event.processing_lease_until is null
     or v_event.processing_lease_until <= clock_timestamp() then return false; end if;
 
-  if p_workspace_id is null or p_customer_id is null or p_customer_id !~ '^cus_[A-Za-z0-9]+
+  if p_workspace_id is null or p_customer_id is null or p_customer_id !~ '^cus_[A-Za-z0-9]+$'
+    or p_subscription_id is null or p_subscription_id !~ '^sub_[A-Za-z0-9]+$'
+    or p_plan_key is null or p_plan_key not in ('starter','growth','scale','revenue_recovery')
+    or p_status is null or p_status not in ('trialing','active','past_due','canceled','unpaid','incomplete','incomplete_expired','paused')
+    or p_cancel_at_period_end is null then
     raise exception 'Invalid Stripe entitlement update';
   end if;
 
