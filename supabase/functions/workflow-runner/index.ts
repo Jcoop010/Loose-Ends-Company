@@ -229,7 +229,7 @@ Deno.serve(async (req: Request) => {
         if (matchesUpdated && conditions.length > 0 && matches(oldRecord, conditions)) continue;
 
         const idempotencyKey = `${event.id}:${workflow.id}`;
-        const { data: existing, error: existingError } = await db.from("workflow_runs").select("id,status")
+        const { data: existing, error: existingError } = await db.from("workflow_runs").select("id,status,context,started_at")
           .eq("workspace_id", workspaceId).eq("workflow_id", workflow.id).eq("idempotency_key", idempotencyKey).maybeSingle();
         if (existingError) {
           eventHadError = true;
@@ -237,6 +237,21 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         if (existing) {
+          // Only new atomic-action runs can be safely resumed after interruption.
+          // Legacy runs may have partial effects and always require manual review.
+          const elapsed = Date.now() - Date.parse(String(existing.started_at || ""));
+          if (existing.status === "running" && existing.context?.atomic_actions === true &&
+              Number.isFinite(elapsed) && elapsed > 15 * 60 * 1000) {
+            try {
+              const outputs = await executeActions(db, workspaceId, workflow, existing);
+              results.push({ workflow_id: workflow.id, status: "recovered", run_id: existing.id, outputs });
+            } catch (error: any) {
+              eventHadError = true;
+              results.push({ workflow_id: workflow.id, status: "retry_pending",
+                run_id: existing.id, error: error?.message || String(error) });
+            }
+            continue;
+          }
           const duplicate = duplicateResult(existing, workflow.id);
           if (!duplicate.settled) eventHadError = true;
           results.push(duplicate.result);
@@ -250,7 +265,7 @@ Deno.serve(async (req: Request) => {
           trigger_event_id: event.id,
           status: waiting ? "waiting_approval" : "running",
           idempotency_key: idempotencyKey,
-          context: { event, record },
+          context: { event, record, atomic_actions: true },
           started_at: new Date().toISOString(),
         }).select().single();
 
@@ -259,7 +274,7 @@ Deno.serve(async (req: Request) => {
           // insert after our earlier lookup. Treat that race as a duplicate, not a
           // failed event; the winning run owns execution for this event/workflow pair.
           if (runError.code === "23505") {
-            const { data: duplicateRun, error: duplicateLookupError } = await db.from("workflow_runs").select("id,status")
+            const { data: duplicateRun, error: duplicateLookupError } = await db.from("workflow_runs").select("id,status,context,started_at")
               .eq("workspace_id", workspaceId).eq("workflow_id", workflow.id).eq("idempotency_key", idempotencyKey).maybeSingle();
             if (!duplicateLookupError && duplicateRun) {
               const duplicate = duplicateResult(duplicateRun, workflow.id);
