@@ -36,6 +36,11 @@ Deno.serve(async (req: Request) => {
   if (!await verifyStripeSignature(rawBody, signature, secret)) return json({ error: "Invalid webhook signature." }, 400);
   let event: any;
   try { event = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON." }, 400); }
+  if (!event || typeof event.id !== "string" || !event.id.startsWith("evt_") ||
+      typeof event.type !== "string" || !event.type ||
+      !event.data || !event.data.object || typeof event.data.object !== "object") {
+    return json({ error: "Invalid Stripe event." }, 400);
+  }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   const { error: ledgerError } = await admin.from("stripe_webhook_events").insert({
@@ -43,7 +48,8 @@ Deno.serve(async (req: Request) => {
   });
   if (ledgerError) {
     if (ledgerError.code === "23505") {
-      const { data: existing } = await admin.from("stripe_webhook_events").select("processed_at").eq("event_id", event.id).maybeSingle();
+      const { data: existing, error: lookupError } = await admin.from("stripe_webhook_events").select("processed_at").eq("event_id", event.id).maybeSingle();
+      if (lookupError || !existing) return json({ error: "Could not verify event processing state." }, 500);
       if (existing?.processed_at) return json({ received: true, duplicate: true });
       // An earlier attempt failed before completion; safely retry its idempotent upsert.
     } else {
@@ -64,21 +70,23 @@ Deno.serve(async (req: Request) => {
       (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null) ||
       (invoice?.parent?.subscription_details?.subscription || null);
     const subscriptionInvoice = Boolean(invoice && subscriptionId);
-    const relevant = eventType === "checkout.session.completed" ||
+    const relevant = (eventType === "checkout.session.completed" && obj.mode === "subscription") ||
       eventType.startsWith("customer.subscription.") ||
       (subscriptionInvoice && (
         eventType === "invoice.payment_succeeded" || eventType === "invoice.paid" ||
         eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required"
       ));
     let workspaceId = obj.metadata?.workspace_id || checkout?.client_reference_id || null;
-    if (!workspaceId && customerId) {
-      const { data: row } = await admin.from("workspace_subscriptions").select("workspace_id")
+    if (relevant && !workspaceId && customerId) {
+      const { data: row, error: mappingError } = await admin.from("workspace_subscriptions").select("workspace_id")
         .eq("provider_customer_id", customerId).maybeSingle();
+      if (mappingError) throw mappingError;
       workspaceId = row?.workspace_id || null;
     }
-    if (!workspaceId && subscriptionId) {
-      const { data: row } = await admin.from("workspace_subscriptions").select("workspace_id")
+    if (relevant && !workspaceId && subscriptionId) {
+      const { data: row, error: mappingError } = await admin.from("workspace_subscriptions").select("workspace_id")
         .eq("provider_subscription_id", subscriptionId).maybeSingle();
+      if (mappingError) throw mappingError;
       workspaceId = row?.workspace_id || null;
     }
     if (relevant && !workspaceId) throw new Error("Could not map Stripe event to a workspace");

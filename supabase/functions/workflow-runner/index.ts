@@ -48,6 +48,21 @@ function matches(record: any, conditions: any[]) {
   });
 }
 
+function duplicateResult(run: any, workflowId: string) {
+  // A failed or interrupted run can have partial side effects. Keep its event
+  // pending and require review rather than re-executing or hiding the failure.
+  const settled = ["completed", "waiting_approval"].includes(run.status);
+  return {
+    settled,
+    result: {
+      workflow_id: workflowId, run_id: run.id,
+      status: settled ? "duplicate" : "blocked",
+      run_status: run.status,
+      ...(settled ? {} : { error: "An existing run is failed or unfinished. Review its history before retrying actions." }),
+    },
+  };
+}
+
 async function workspaceFor(db: any, userId: string, requestedWorkspaceId?: string | null) {
   let query = db.from("workspace_members").select("workspace_id").eq("user_id", userId);
   if (requestedWorkspaceId) query = query.eq("workspace_id", requestedWorkspaceId);
@@ -221,7 +236,9 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         if (existing) {
-          results.push({ workflow_id: workflow.id, status: "duplicate", run_id: existing.id });
+          const duplicate = duplicateResult(existing, workflow.id);
+          if (!duplicate.settled) eventHadError = true;
+          results.push(duplicate.result);
           continue;
         }
 
@@ -244,7 +261,9 @@ Deno.serve(async (req: Request) => {
             const { data: duplicateRun, error: duplicateLookupError } = await db.from("workflow_runs").select("id,status")
               .eq("workspace_id", workspaceId).eq("workflow_id", workflow.id).eq("idempotency_key", idempotencyKey).maybeSingle();
             if (!duplicateLookupError && duplicateRun) {
-              results.push({ workflow_id: workflow.id, status: "duplicate", run_id: duplicateRun.id });
+              const duplicate = duplicateResult(duplicateRun, workflow.id);
+              if (!duplicate.settled) eventHadError = true;
+              results.push(duplicate.result);
               continue;
             }
           }

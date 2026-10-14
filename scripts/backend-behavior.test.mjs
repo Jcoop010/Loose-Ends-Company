@@ -37,6 +37,129 @@ test('workflow conditions fail closed for unsupported operators', () => {
   assert.equal(context.matches({ amount: 100 }, [{ field: 'amount', operator: 'gt', value: 50 }]), true);
 });
 
+function signedRequest(event) {
+  const body = JSON.stringify(event);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = createHmac('sha256', 'test-only').update(`${timestamp}.${body}`).digest('hex');
+  return new Request('https://example.test', { method: 'POST', body,
+    headers: { 'Stripe-Signature': `t=${timestamp},v1=${signature}` } });
+}
+
+for (const status of ['failed', 'blocked', 'completed']) {
+  test(`workflow UI surfaces ${status} batch outcome`, async () => {
+    let rendered = '';
+    const chain = { select: () => chain, eq: () => chain, order: () => chain, limit: async () => ({ data: [], error: null }) };
+    const client = { auth: {
+      getUser: async () => ({ data: { user: { id: 'user-test' } } }),
+      getSession: async () => ({ data: { session: { access_token: 'test-only' } } }),
+    }, from: () => chain };
+    const window = { LESupabase: client, __LOOSE_ENDS_SUPABASE_URL__: 'https://example.test', LE: { getState: () => ({ workspaceId: 'workspace-test' }) } };
+    const context = vm.createContext({ window, fetch: async () => ({ ok: true, json: async () => ({ results: [{ status }] }) }),
+      document: { readyState: 'loading', addEventListener() {},
+        querySelector: () => ({ appendChild: (box) => { rendered = box.innerHTML; } }),
+        getElementById: (id) => id === 'workflowCenter' ? null : {},
+        createElement: () => ({ querySelectorAll: () => [] }),
+      } });
+    vm.runInContext(fs.readFileSync('v3.1/workflow-engine.js', 'utf8'), context);
+    await window.LEWorkflows.pump();
+    assert.equal(rendered.includes('Automation runner needs attention'), status !== 'completed');
+  });
+}
+
+test('Stripe workspace lookup failure returns retryable error without entitlement writes', async () => {
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return { insert: async () => ({ error: null }), update: () => ({ eq: async () => ({ error: null }) }) };
+    assert.equal(table, 'workspace_subscriptions');
+    return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'mapping unavailable' } }) }) }) };
+  } }));
+  const response = await context.handler(signedRequest({ id: 'evt_test', type: 'customer.subscription.updated', data: { object: { id: 'sub_test', customer: 'cus_test' } } }));
+  assert.equal(response.status, 500);
+});
+
+test('Stripe malformed signed event is rejected before database access', async () => {
+  const context = load('stripe-webhook');
+  assert.equal((await context.handler(signedRequest(null))).status, 400);
+});
+
+for (const lookup of [{ data: null, error: { message: 'database unavailable' } }, { data: null, error: null }]) {
+  test('Stripe duplicate requires a confirmed ledger row before reprocessing', async () => {
+    const context = load('stripe-webhook', () => ({ from: () => ({
+      insert: async () => ({ error: { code: '23505' } }),
+      select: () => ({ eq: () => ({ maybeSingle: async () => lookup }) }),
+    }) }));
+    assert.equal((await context.handler(signedRequest({ id: 'evt_test', type: 'unhandled.test', data: { object: {} } }))).status, 500);
+  });
+}
+
+test('Stripe completed duplicate is acknowledged without entitlement writes', async () => {
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    assert.equal(table, 'stripe_webhook_events');
+    return { insert: async () => ({ error: { code: '23505' } }),
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { processed_at: '2026-10-14' }, error: null }) }) }) };
+  } }));
+  const response = await context.handler(signedRequest({ id: 'evt_test', type: 'checkout.session.completed', data: { object: { mode: 'subscription' } } }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).duplicate, true);
+});
+
+test('Stripe one-time checkout cannot modify subscription entitlements', async () => {
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    assert.equal(table, 'stripe_webhook_events');
+    return { insert: async () => ({ error: null }), update: () => ({ eq: async () => ({ error: null }) }) };
+  } }));
+  const response = await context.handler(signedRequest({ id: 'evt_test', type: 'checkout.session.completed', data: { object: { mode: 'payment', customer: 'cus_test', metadata: { workspace_id: 'workspace-test' } } } }));
+  assert.equal(response.status, 200);
+});
+
+for (const runStatus of ['failed', 'running', 'pending', 'completed', 'waiting_approval']) {
+  test(`workflow duplicate ${runStatus}: never repeat actions and retain unresolved event`, async () => {
+    let clientCount = 0;
+    let eventMarked = false;
+    const query = (response) => {
+      const chain = { select: () => chain, eq: () => chain, is: () => chain,
+        order: () => chain, limit: () => chain, maybeSingle: async () => response,
+        then: (resolve, reject) => Promise.resolve(response).then(resolve, reject) };
+      return chain;
+    };
+    const context = load('workflow-runner', () => {
+      clientCount++;
+      if (clientCount === 1) return {
+        auth: { getUser: async () => ({ data: { user: { id: 'test-user' } }, error: null }) },
+        from: (table) => { assert.equal(table, 'workspace_members'); return query({ data: { workspace_id: 'workspace-test' }, error: null }); },
+      };
+      return { from: (table) => {
+        if (table === 'workflow_events') {
+          const chain = query({ data: [{ id: 'event-test', event_type: 'insert:customers', entity_type: 'customers', payload: { record: { id: 'customer-test' } } }], error: null });
+          chain.update = () => { eventMarked = true; return query({ error: null }); };
+          return chain;
+        }
+        if (table === 'workflows') return query({ data: [{ id: 'workflow-test', trigger_type: 'record_created', trigger_config: { entity_type: 'customers' }, conditions: [], mode: 'automatic' }], error: null });
+        if (table === 'workflow_runs') return query({ data: { id: 'run-test', status: runStatus }, error: null });
+        throw new Error(`Unexpected action write to ${table}`);
+      } };
+    });
+    const response = await context.handler(new Request('https://example.test', { method: 'POST', headers: { Authorization: 'Bearer test-only' }, body: JSON.stringify({ workspace_id: 'workspace-test' }) }));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const settled = ['completed', 'waiting_approval'].includes(runStatus);
+    assert.equal(eventMarked, settled);
+    assert.equal(body.results[0].status, settled ? 'duplicate' : 'blocked');
+  });
+}
+
+test('workflow rejects foreign workspace before creating privileged client', async () => {
+  let clientCount = 0;
+  const chain = { select: () => chain, eq: () => chain, limit: () => chain, maybeSingle: async () => ({ data: null, error: null }) };
+  const context = load('workflow-runner', () => {
+    clientCount++;
+    assert.equal(clientCount, 1);
+    return { auth: { getUser: async () => ({ data: { user: { id: 'user-test' } }, error: null }) }, from: () => chain };
+  });
+  const response = await context.handler(new Request('https://example.test', { method: 'POST', headers: { Authorization: 'Bearer test-only' }, body: JSON.stringify({ workspace_id: 'foreign-workspace' }) }));
+  assert.equal(response.status, 403);
+  assert.equal(clientCount, 1);
+});
+
 test('Stripe signatures reject tampered and expired payloads and accept rotated secrets', async () => {
   const context = load('stripe-webhook');
   const timestamp = Math.floor(Date.now() / 1000);
