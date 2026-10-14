@@ -37,7 +37,15 @@ jobs:
       - name: Report dependency audit
         run: npm audit --json > npm-audit.json || true
       - name: Summarize dependency audit
-        run: node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('npm-audit.json','utf8')); console.log(JSON.stringify(a.metadata?.vulnerabilities ?? {},null,2)); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) console.log(name+': '+v.severity+' | direct='+v.isDirect+' | fixAvailable='+JSON.stringify(v.fixAvailable));"
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const audit = JSON.parse(fs.readFileSync("npm-audit.json", "utf8"));
+          console.log(JSON.stringify(audit.metadata?.vulnerabilities ?? {}, null, 2));
+          for (const [name, vulnerability] of Object.entries(audit.vulnerabilities ?? {})) {
+            console.log(`${name}: ${vulnerability.severity} | direct=${vulnerability.isDirect} | fixAvailable=${JSON.stringify(vulnerability.fixAvailable)}`);
+          }
+          NODE
       - name: Fail on remaining known vulnerabilities
         run: npm audit --audit-level=moderate
       - name: Typecheck
