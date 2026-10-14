@@ -52,6 +52,10 @@ Deno.serve(async (req: Request) => {
   }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
+  if (typeof event.created !== "number" || !Number.isSafeInteger(event.created) ||
+      event.created < 0 || event.created > 8640000000) {
+    return json({ error: "Invalid Stripe event creation timestamp." }, 400);
+  }
   const claimToken = crypto.randomUUID();
   const { data: claim, error: claimError } = await admin.rpc("claim_stripe_webhook_event", {
     p_event_id: event.id, p_event_type: event.type, p_livemode: event.livemode,
@@ -222,6 +226,7 @@ Deno.serve(async (req: Request) => {
         p_customer_id: providerCustomerId, p_subscription_id: providerSubscriptionId,
         p_plan_key: planKey, p_status: status, p_period_start: periodStart,
         p_period_end: periodEnd, p_cancel_at_period_end: cancelAtPeriodEnd,
+        p_event_created: event.created,
       });
       if (upsertError || applied !== true) throw new Error("Stripe processing lease expired before entitlement update");
       return json({ received: true });
