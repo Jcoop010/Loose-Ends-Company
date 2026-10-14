@@ -91,6 +91,17 @@ Deno.serve(async (req: Request) => {
       if (mappingError) throw mappingError;
       workspaceId = row?.workspace_id || null;
     }
+    // A valid Stripe signature does not authorize changing another workspace's billing row.
+    // Reject conflicts between event metadata and established provider identifiers.
+    if (relevant && workspaceId && (customerId || subscriptionId)) {
+      for (const [column, providerId] of [["provider_customer_id", customerId], ["provider_subscription_id", subscriptionId]] as const) {
+        if (!providerId) continue;
+        const { data: mapped, error: mappingError } = await admin.from("workspace_subscriptions")
+          .select("workspace_id").eq(column, providerId).maybeSingle();
+        if (mappingError) throw mappingError;
+        if (mapped && mapped.workspace_id !== workspaceId) throw new Error("Stripe provider identifier belongs to a different workspace");
+      }
+    }
     if (relevant && !workspaceId) throw new Error("Could not map Stripe event to a workspace");
     if (workspaceId && relevant) {
       let liveSubscription: any = subscription;
