@@ -249,3 +249,13 @@ test('numeric workflow conditions reject missing, empty, and nonnumeric fields',
   assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator: 'lte', value: 100 }]), true);
   assert.equal(matches({ amount: 100 }, [{ field: 'amount', operator: 'gt', value: 50 }]), true);
 });
+
+test('malformed workflow condition sets fail closed without executing actions', () => {
+  const { matches } = load('workflow-runner');
+  const record = { amount: 100 };
+  for (const conditions of [null, {}, 'bad', 42, [null], [{}], [[]], [{ field: '', operator: 'gt', value: 0 }], [{ field: 'amount' }]]) {
+    assert.equal(matches(record, conditions), false, `Malformed condition should not match: ${JSON.stringify(conditions)}`);
+  }
+  assert.equal(matches(record, []), true, 'Empty valid condition list intentionally matches all');
+  assert.equal(matches(record, [{ field: 'amount', operator: 'gt', value: 50 }]), true);
+});
