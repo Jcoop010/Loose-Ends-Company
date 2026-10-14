@@ -185,17 +185,17 @@ export function LandingPage() {
               <h3 className="font-bold text-slate-900 mb-1">Founding Shop Monthly</h3>
               <p className="text-3xl font-bold text-brand-600 mb-4">$199<span className="text-base font-normal text-slate-500">/month</span></p>
               <ul className="space-y-2 text-sm text-slate-600">
-                {['Revenue recovery tracking', 'Follow-up system', 'Monthly operations review', 'Unlimited support requests', 'Marketing assistance'].map((f, i) => (
+                {['Revenue opportunity tracking', 'Follow-up priority list', 'Monthly results review', 'Supervised onboarding and support', 'Owner-approved customer outreach'].map((f, i) => (
                   <li key={i} className="flex items-center gap-2"><Check className="w-4 h-4 text-success-600" /> {f}</li>
                 ))}
               </ul>
             </div>
             <div className="bg-slate-900 rounded-xl p-8 text-white">
-              <h3 className="font-bold mb-1">30-Day Pilot</h3>
+              <h3 className="font-bold mb-1">Free Revenue Checkup</h3>
               <p className="text-3xl font-bold text-brand-400 mb-4">Free</p>
-              <p className="text-sm text-slate-400 mb-4">A supervised introduction before a paid commitment.</p>
+              <p className="text-sm text-slate-400 mb-4">A free 15-minute discovery call and sample-data demonstration. A longer pilot is available only by mutual agreement.</p>
               <ul className="space-y-2 text-sm text-slate-300">
-                {['Free 15-minute revenue checkup', 'Demonstration with sample data', 'Owner-approved follow-up only', 'No guaranteed recovery claims'].map((f, i) => (
+                {['15-minute discovery call', 'Demonstration using sample data', 'No customer-data access required for the checkup', 'No guaranteed recovery claims'].map((f, i) => (
                   <li key={i} className="flex items-center gap-2"><Check className="w-4 h-4 text-success-400" /> {f}</li>
                 ))}
               </ul>
