@@ -78,6 +78,10 @@ Deno.serve(async (req: Request) => {
       (typeof obj.subscription === "string" ? obj.subscription : obj.subscription?.id) ||
       (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null) ||
       (invoice?.parent?.subscription_details?.subscription || null);
+    // Fail closed on malformed provider IDs before any billing mapping or Stripe API read.
+    if (subscriptionId && (typeof subscriptionId !== "string" || !/^sub_[a-zA-Z0-9]+$/.test(subscriptionId))) {
+      throw new Error("Invalid Stripe subscription identifier");
+    }
     // Never create or overwrite a paid entitlement from a checkout missing a subscription.
     if (checkout?.mode === "subscription" && !subscriptionId) throw new Error("Subscription checkout is missing its subscription identifier");
     const subscriptionInvoice = Boolean(invoice && subscriptionId);
