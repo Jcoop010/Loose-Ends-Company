@@ -92,8 +92,16 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
   const customerId = record.customer_id || (entity === "customers" ? record.id : null);
   const opportunityId = record.opportunity_id || (entity === "opportunities" ? record.id : null);
   const outputs: any[] = [];
+  // Validate all actions before the first side effect; malformed later actions
+  // must not leave earlier tasks or follow-ups created unnecessarily.
+  if (!Array.isArray(workflow.actions)) throw new Error("Workflow actions must be an array");
+  for (const action of workflow.actions) {
+    if (!action || typeof action !== "object" || Array.isArray(action)) throw new Error("Invalid workflow action");
+    if (action.type === "create_task" || action.type === "create_follow_up") validatedDelayHours(action.delay_hours);
+    else if (action.type !== "update_opportunity" || !record.id || entity !== "opportunities") throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
+  }
 
-  for (const action of workflow.actions || []) {
+  for (const action of workflow.actions) {
     if (action.type === "create_task") {
       const { data, error } = await db.from("tasks").insert({
         workspace_id: workspaceId,
