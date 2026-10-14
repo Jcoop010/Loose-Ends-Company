@@ -561,3 +561,30 @@ test('stale Stripe invoice payment failure cannot downgrade recovered active sub
   assert.equal(stored?.status, 'active');
   assert.equal(stored?.workspace_id, 'workspace-test');
 });
+
+test('unknown Stripe subscription statuses fail closed without billing writes', async () => {
+  for (const status of [undefined, null, 'unknown_future_status']) {
+    let stored = false;
+    const context = load('stripe-webhook', () => ({ from: (table) => {
+      if (table === 'stripe_webhook_events') return {
+        insert: async () => ({ error: null }),
+        update: () => ({ eq: async () => ({ error: null }) }),
+      };
+      assert.equal(table, 'workspace_subscriptions');
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => { stored = true; throw new Error('Unexpected entitlement write'); },
+      };
+    } }));
+    context.fetch = async () => ({ ok: true, json: async () => ({
+      id: 'sub_test', customer: 'cus_test', status,
+    }) });
+    const response = await context.handler(signedRequest({
+      id: 'evt_invalid_status', type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_test',
+        metadata: { workspace_id: 'workspace-test' } } },
+    }));
+    assert.equal(response.status, 500);
+    assert.equal(stored, false);
+  }
+});
