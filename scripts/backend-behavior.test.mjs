@@ -458,3 +458,51 @@ test('Stripe rejects provider customer ID mismatch before entitlement changes', 
   assert.equal(response.status, 500);
   assert.equal(stored, false);
 });
+
+test('Stripe duplicate still processing returns retryable 503 without entitlement writes', async () => {
+  let touchedEntitlements = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table !== 'stripe_webhook_events') { touchedEntitlements = true; throw new Error('Unexpected entitlement access'); }
+    return {
+      insert: async () => ({ error: { code: '23505' } }),
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { processed_at: null, processing_error: null }, error: null,
+      }) }) }),
+    };
+  } }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_concurrent', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test' } },
+  }));
+  assert.equal(response.status, 503);
+  assert.equal(touchedEntitlements, false);
+});
+
+test('Stripe failed duplicate requires successful atomic claim before retry', async () => {
+  let touchedEntitlements = false;
+  let conditionalClaim = false;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table !== 'stripe_webhook_events') { touchedEntitlements = true; throw new Error('Unexpected entitlement access'); }
+    return {
+      insert: async () => ({ error: { code: '23505' } }),
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({
+        data: { processed_at: null, processing_error: 'previous failure' }, error: null,
+      }) }) }),
+      update: () => {
+        const chain = {
+          eq: (key, value) => { if (key === 'processing_error' && value === 'previous failure') conditionalClaim = true; return chain; },
+          is: () => chain, select: () => chain,
+          maybeSingle: async () => ({ data: null, error: null }),
+        };
+        return chain;
+      },
+    };
+  } }));
+  const response = await context.handler(signedRequest({
+    id: 'evt_failed_race', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test' } },
+  }));
+  assert.equal(response.status, 503);
+  assert.equal(conditionalClaim, true);
+  assert.equal(touchedEntitlements, false);
+});
