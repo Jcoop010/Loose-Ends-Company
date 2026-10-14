@@ -187,6 +187,16 @@ Deno.serve(async (req: Request) => {
       if (customerId && customerId !== liveCustomerId) {
         throw new Error("Stripe subscription customer identifier mismatch");
       }
+      // The event may omit its customer ID. In that case its earlier mapping
+      // checks never covered the customer returned by Stripe's live API.
+      // Resolve that live customer before allowing a workspace entitlement write.
+      const { data: liveCustomerMapping, error: liveCustomerMappingError } = await admin
+        .from("workspace_subscriptions").select("workspace_id")
+        .eq("provider_customer_id", liveCustomerId).maybeSingle();
+      if (liveCustomerMappingError) throw liveCustomerMappingError;
+      if (liveCustomerMapping && liveCustomerMapping.workspace_id !== workspaceId) {
+        throw new Error("Stripe live customer belongs to a different workspace");
+      }
       // A subscription's authenticated Stripe metadata must not contradict the
       // workspace selected from the signed event or existing provider mappings.
       const liveWorkspaceId = liveSubscription.metadata?.workspace_id;
