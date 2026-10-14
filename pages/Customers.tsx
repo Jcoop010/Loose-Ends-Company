@@ -126,7 +126,7 @@ function CustomerDetail({ customer, onBack }: { customer: Customer; onBack: () =
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
-        <a href={`tel:${customer.phone.replace(/[^+\\d]/g, '')}`} className="btn-primary text-sm"><Phone className="w-4 h-4" /> Contact</a>
+        <a href={`tel:${customer.phone.replace(/[^+\d]/g, '')}`} className="btn-primary text-sm"><Phone className="w-4 h-4" /> Contact</a>
         <button type="button" onClick={() => setAction('followup')} className="btn-secondary text-sm"><CalendarClock className="w-4 h-4" /> Schedule Follow-Up</button>
         <button type="button" onClick={() => setAction('opportunity')} className="btn-secondary text-sm"><Plus className="w-4 h-4" /> Add Opportunity</button>
       </div>
