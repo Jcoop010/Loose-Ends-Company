@@ -59,9 +59,11 @@ export function RevenueRecovery() {
   }
 
   const confirmCollect = () => {
-    if (collectModal && collectAmount) {
-      const amount = parseFloat(collectAmount)
-      if (!isNaN(amount) && amount > 0) {
+    // Guard against duplicate confirmation from repeated clicks or stale modal state.
+    const current = data.opportunities.find(o => o.id === collectModal?.id)
+    if (collectModal && current && current.status !== 'Collected' && collectAmount) {
+      const amount = Number(collectAmount)
+      if (Number.isFinite(amount) && amount > 0) {
         const now = new Date().toISOString()
         updateOpportunity(collectModal.id, { status: 'Collected', collectedAmount: amount, nextAction: 'Complete — revenue recovered' })
         addRevenueEvent({ opportunityId: collectModal.id, customerId: collectModal.customerId, customerName: collectModal.customerName, amount, date: now, description: `Confirmed collection for ${collectModal.type}`, type: 'Recovered' })
