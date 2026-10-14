@@ -921,3 +921,15 @@ test('Stripe rejects test/live mismatches before privileged database access', as
     assert.equal(response.status, 400);
   }
 });
+
+test('Stripe rejects unknown API key mode before privileged access', async () => {
+  for (const key of ['invalid_configured_key', 'pk_live_wrongkind', '']) {
+    const context = load('stripe-webhook', () => { throw new Error('Unexpected privileged database access'); },
+      { STRIPE_SECRET_KEY: key || 'bad_key' });
+    const response = await context.handler(signedRequest({
+      id: 'evt_unknown_key', livemode: false, type: 'customer.subscription.updated',
+      data: { object: { id: 'sub_test', customer: 'cus_test' } },
+    }));
+    assert.equal(response.status, 400);
+  }
+});
