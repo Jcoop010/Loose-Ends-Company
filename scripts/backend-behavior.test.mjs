@@ -81,7 +81,7 @@ test('workflow conditions fail closed for unsupported operators', () => {
 });
 
 function signedRequest(event) {
-  const body = JSON.stringify(event && typeof event === 'object' ? { livemode: false, ...event } : event);
+  const body = JSON.stringify(event && typeof event === 'object' ? { livemode: false, created: Math.floor(Date.now() / 1000), ...event } : event);
   const timestamp = Math.floor(Date.now() / 1000);
   const signature = createHmac('sha256', 'test-only').update(`${timestamp}.${body}`).digest('hex');
   return new Request('https://example.test', { method: 'POST', body,
@@ -224,7 +224,7 @@ test('Stripe returns retryable failure if completion ledger write fails', async 
       update: (patch) => ({ eq: async () => { writes.push(patch); return { error: patch.processed_at ? new Error('ledger unavailable') : null }; } }),
     };
   } }));
-  const body = JSON.stringify({ id: 'evt_test', livemode: false, type: 'unhandled.test', data: { object: {} } });
+  const body = JSON.stringify({ id: 'evt_test', livemode: false, created: Math.floor(Date.now() / 1000), type: 'unhandled.test', data: { object: {} } });
   const timestamp = Math.floor(Date.now() / 1000);
   const signature = createHmac('sha256', 'test-only').update(`${timestamp}.${body}`).digest('hex');
   const response = await context.handler(new Request('https://example.test', { method: 'POST', body, headers: { 'Stripe-Signature': `t=${timestamp},v1=${signature}` } }));
@@ -1155,4 +1155,49 @@ test('expired Stripe lease prevents entitlement writes through atomic RPC', asyn
   assert.equal(response.status, 500);
   assert.equal(attempted, true);
   assert.equal(entitlementWrites, false);
+});
+
+test('Stripe billing RPC receives signed event creation time for monotonic writes', async () => {
+  let seenCreated = null;
+  const context = load('stripe-webhook', () => ({
+    rpc: async (name, params) => {
+      if (name === 'claim_stripe_webhook_event') return { data: 'claimed', error: null };
+      if (name === 'apply_stripe_subscription_event') {
+        seenCreated = params.p_event_created;
+        return { data: true, error: null };
+      }
+      throw new Error('Unexpected RPC ' + name);
+    },
+    from: (table) => {
+      assert.equal(table, 'workspace_subscriptions');
+      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+    },
+  }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_test', status: 'active',
+    metadata: { workspace_id: 'workspace-test', plan_key: 'starter' },
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_ordered_test', created: 1792000000,
+    type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', customer: 'cus_test',
+      metadata: { workspace_id: 'workspace-test' } } },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(seenCreated, 1792000000);
+});
+
+test('Stripe rejects events missing creation time before ledger claims', async () => {
+  let accessed = false;
+  const context = load('stripe-webhook', () => { accessed = true; throw new Error('No database access'); });
+  const unsignedEvent = { id: 'evt_missing_created', livemode: false,
+    type: 'customer.subscription.updated', data: { object: { id: 'sub_test' } } };
+  const body = JSON.stringify(unsignedEvent);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = createHmac('sha256', 'test-only').update(`${timestamp}.${body}`).digest('hex');
+  const response = await context.handler(new Request('https://example.test', {
+    method: 'POST', body, headers: { 'Stripe-Signature': `t=${timestamp},v1=${signature}` },
+  }));
+  assert.equal(response.status, 400);
+  assert.equal(accessed, false);
 });
