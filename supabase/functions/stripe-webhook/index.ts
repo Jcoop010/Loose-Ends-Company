@@ -152,12 +152,9 @@ Deno.serve(async (req: Request) => {
       // The live Stripe lookup is authoritative. A delayed deletion webhook must
       // not cancel a subscription that Stripe currently reports as active.
       // The 404 fallback above already sets canceled when the subscription is gone.
-      // Only subscription invoices reach this path. Reflect failed/action-required
-      // subscription payments even if Stripe's subscription read still reports active
-      // during its retry/dunning window; never downgrade a terminal subscription state.
-      if (eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required") {
-        if (!["canceled", "unpaid", "incomplete_expired"].includes(status)) status = "past_due";
-      }
+      // Do not turn a currently active subscription past_due solely because a
+      // delayed invoice failure event arrived after recovery. The live Stripe
+      // subscription status is the source of truth for entitlement state.
       const { error: upsertError } = await admin.from("workspace_subscriptions").upsert({
         workspace_id: workspaceId,
         provider: "stripe",
