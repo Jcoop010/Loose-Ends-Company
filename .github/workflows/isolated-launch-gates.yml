@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - test/isolated-launch-gates-20261014
+      - security/harden-billing-cors-20261013
 
 permissions:
   contents: read
