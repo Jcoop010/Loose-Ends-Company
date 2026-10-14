@@ -181,7 +181,7 @@ test('Stripe returns retryable failure if completion ledger write fails', async 
       update: (patch) => ({ eq: async () => { writes.push(patch); return { error: patch.processed_at ? new Error('ledger unavailable') : null }; } }),
     };
   } }));
-  const body = JSON.stringify({ id: 'evt_test', type: 'unhandled.test', data: { object: {} } });
+  const body = JSON.stringify({ id: 'evt_test', livemode: false, type: 'unhandled.test', data: { object: {} } });
   const timestamp = Math.floor(Date.now() / 1000);
   const signature = createHmac('sha256', 'test-only').update(`${timestamp}.${body}`).digest('hex');
   const response = await context.handler(new Request('https://example.test', { method: 'POST', body, headers: { 'Stripe-Signature': `t=${timestamp},v1=${signature}` } }));
