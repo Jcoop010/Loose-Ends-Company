@@ -883,3 +883,28 @@ test('well-formed but unsupported Stripe plan cannot grant entitlements', async 
   assert.equal(response.status, 500);
   assert.equal(wrote, false);
 });
+
+test('Stripe persists the verified live customer identifier', async () => {
+  let stored = null;
+  const context = load('stripe-webhook', () => ({ from: (table) => {
+    if (table === 'stripe_webhook_events') return {
+      insert: async () => ({ error: null }),
+      update: () => ({ eq: async () => ({ error: null }) }),
+    };
+    assert.equal(table, 'workspace_subscriptions');
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      upsert: (row) => { stored = row; return Promise.resolve({ error: null }); },
+    };
+  } }));
+  context.fetch = async () => ({ ok: true, json: async () => ({
+    id: 'sub_test', customer: 'cus_verified', status: 'active',
+    metadata: { plan_key: 'starter', workspace_id: 'workspace-test' },
+  }) });
+  const response = await context.handler(signedRequest({
+    id: 'evt_verified_customer', type: 'customer.subscription.updated',
+    data: { object: { id: 'sub_test', metadata: { workspace_id: 'workspace-test' } } },
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(stored?.provider_customer_id, 'cus_verified');
+});
