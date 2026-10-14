@@ -40,8 +40,8 @@ create table public.opportunities (
 
 do $$
 declare claimed text; token uuid := gen_random_uuid(); other uuid := gen_random_uuid();
-declare ws uuid := '11111111-1111-4111-8111-111111111111';
-declare ok boolean; status_after text; run_id uuid := gen_random_uuid(); workflow_id uuid := gen_random_uuid();
+ws uuid := '11111111-1111-4111-8111-111111111111';
+ok boolean; status_after text; run_id uuid := gen_random_uuid(); workflow_id uuid := gen_random_uuid();
 begin
   claimed := public.claim_stripe_webhook_event('evt_testone','customer.subscription.updated',false,token,60);
   if claimed <> 'claimed' then raise exception 'Could not claim new event'; end if;
