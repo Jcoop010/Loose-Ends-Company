@@ -190,6 +190,11 @@ Deno.serve(async (req: Request) => {
       if (livePlanKey !== undefined && (typeof livePlanKey !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(livePlanKey))) {
         throw new Error("Invalid Stripe subscription plan key");
       }
+      // Stripe subscription state is authoritative for the plan. An event's
+      // historical metadata must not overwrite current plan information.
+      if (!livePlanKey && (obj.metadata?.plan_key || checkout?.metadata?.plan_key)) {
+        throw new Error("Stripe subscription plan metadata is missing from current provider state");
+      }
       const providerSubscriptionId = liveSubscription.id;
       const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
