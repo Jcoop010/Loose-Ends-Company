@@ -85,7 +85,7 @@ function validatedDelayHours(value: unknown): number {
   return hours;
 }
 
-async function executeActions(db: any, workspaceId: string, workflow: any, run: any) {
+async function executeActions(db: any, workspaceId: string, workflow: any, run: any, approvedBy: string | null = null) {
   const event = run.context?.event || {};
   const record = run.context?.record || event?.payload?.record || {};
   const entity = event.entity_type || "";
@@ -119,49 +119,14 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
     if (!["create_task", "create_follow_up", "update_opportunity"].includes(action.type) || (action.type === "update_opportunity" && (!record.id || entity !== "opportunities"))) throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
   }
 
-  for (const action of workflow.actions) {
-    if (action.type === "create_task") {
-      const { data, error } = await db.from("tasks").insert({
-        workspace_id: workspaceId,
-        customer_id: customerId,
-        opportunity_id: opportunityId,
-        title: action.title || "Workflow task",
-        status: "open",
-        priority: Number(action.priority ?? 1),
-        due_at: new Date(Date.now() + validatedDelayHours(action.delay_hours) * 3600000).toISOString(),
-      }).select().single();
-      if (error) throw error;
-      outputs.push({ type: action.type, id: data?.id });
-    } else if (action.type === "create_follow_up") {
-      const { data, error } = await db.from("follow_ups").insert({
-        workspace_id: workspaceId,
-        customer_id: customerId,
-        opportunity_id: opportunityId,
-        channel: action.channel || "task",
-        status: "pending",
-        scheduled_at: new Date(Date.now() + validatedDelayHours(action.delay_hours) * 3600000).toISOString(),
-        message: action.message || "Workflow follow-up",
-      }).select().single();
-      if (error) throw error;
-      outputs.push({ type: action.type, id: data?.id });
-    } else if (action.type === "update_opportunity" && record.id && entity === "opportunities") {
-      const input = action.patch || {};
-      const patch: Record<string, unknown> = {};
-      for (const key of ["title", "reason", "status", "priority", "amount", "due_at"]) {
-        if (Object.prototype.hasOwnProperty.call(input, key)) patch[key] = input[key];
-      }
-      if (Object.keys(patch).length) {
-        const { error } = await db.from("opportunities").update({ ...patch, updated_at: new Date().toISOString() })
-          .eq("id", record.id).eq("workspace_id", workspaceId);
-        if (error) throw error;
-      }
-      outputs.push({ type: action.type, id: record.id });
-    } else {
-      // Never mark a workflow complete when an action was silently skipped.
-      throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
-    }
-  }
-  return outputs;
+  // All effects and run completion occur in one Postgres transaction.
+  // A crashed request cannot leave a partially committed multi-action run.
+  const { data: atomicOutputs, error: atomicError } = await db.rpc("complete_workflow_run_atomically", {
+    p_run_id: run.id, p_workspace_id: workspaceId, p_approved_by: approvedBy,
+  });
+  if (atomicError) throw atomicError;
+  if (!Array.isArray(atomicOutputs)) throw new Error("Atomic workflow execution did not return outputs");
+  return atomicOutputs;
 }
 
 Deno.serve(async (req: Request) => {
@@ -227,12 +192,8 @@ Deno.serve(async (req: Request) => {
       if (!claimedRun) return json({ error: "This run was already claimed or is no longer awaiting approval.", status: "conflict" }, 409, origin);
 
       try {
-        const outputs = await executeActions(db, workspaceId, workflow, run);
-        const { data: done, error: doneError } = await db.from("workflow_runs")
-          .update({ status: "completed", result: { outputs, approved_by: user.id }, approved_by: user.id, completed_at: new Date().toISOString() })
-          .eq("id", run.id).eq("workspace_id", workspaceId).select().single();
-        if (doneError) throw doneError;
-        return json({ ok: true, status: "completed", run: done, outputs }, 200, origin);
+        const outputs = await executeActions(db, workspaceId, workflow, run, user.id);
+        return json({ ok: true, status: "completed", run: { ...run, status: "completed" }, outputs }, 200, origin);
       } catch (error: any) {
         const message = error?.message || String(error);
         await db.from("workflow_runs").update({ status: "failed", error: message, completed_at: new Date().toISOString() })
@@ -318,10 +279,6 @@ Deno.serve(async (req: Request) => {
 
         try {
           const outputs = await executeActions(db, workspaceId, workflow, run);
-          const { error: completeError } = await db.from("workflow_runs")
-            .update({ status: "completed", result: { outputs }, completed_at: new Date().toISOString() })
-            .eq("id", run.id).eq("workspace_id", workspaceId);
-          if (completeError) throw completeError;
           results.push({ workflow_id: workflow.id, status: "completed", run_id: run.id, outputs });
         } catch (error: any) {
           const message = error?.message || String(error);
