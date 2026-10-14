@@ -76,7 +76,7 @@ begin
 end $$;
 
 -- An invalid second action must roll back the first action and run completion.
-do $
+do $$
 declare ws uuid := '11111111-1111-4111-8111-111111111111';
 workflow_id uuid := gen_random_uuid(); run_id uuid := gen_random_uuid();
 begin
@@ -94,10 +94,10 @@ begin
     raise exception 'Partial task insert survived failed atomic workflow'; end if;
   if (select status from public.workflow_runs where id=run_id) <> 'running' then
     raise exception 'Failed workflow was marked complete'; end if;
-end $;
+end $$;
 
 -- A successfully completed run must not execute twice.
-do $
+do $$
 declare ws uuid := '11111111-1111-4111-8111-111111111111';
 workflow_id uuid := gen_random_uuid(); run_id uuid := gen_random_uuid();
 begin
@@ -110,6 +110,6 @@ begin
   end;
   if (select count(*) from public.tasks where workspace_id=ws) <> 1 then
     raise exception 'Duplicate execution created another task'; end if;
-end $;
+end $$;
 
 select 'Postgres migrations and smoke tests passed' as result;
