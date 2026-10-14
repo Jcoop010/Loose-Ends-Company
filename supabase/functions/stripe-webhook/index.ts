@@ -104,8 +104,9 @@ Deno.serve(async (req: Request) => {
     }
     if (relevant && !workspaceId) throw new Error("Could not map Stripe event to a workspace");
     if (workspaceId && relevant) {
-      let liveSubscription: any = subscription;
-      if (!liveSubscription && subscriptionId) {
+      // Reconcile against Stripe's current state: webhook snapshots can arrive out of order.
+      let liveSubscription: any = null;
+      if (subscriptionId) {
         const response = await fetch("https://api.stripe.com/v1/subscriptions/" + encodeURIComponent(subscriptionId), {
           headers: { Authorization: "Bearer " + stripeSecret },
         });
