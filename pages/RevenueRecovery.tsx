@@ -12,11 +12,13 @@ const OPPORTUNITY_FILTERS: Array<'All' | OpportunityType> = [
 ]
 
 export function RevenueRecovery() {
-  const { data, updateOpportunity, addRevenueEvent, runRevenueScan } = useStore()
+  const { data, updateOpportunity, collectOpportunity, runRevenueScan } = useStore()
   const [typeFilter, setTypeFilter] = useState<string>('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [collectModal, setCollectModal] = useState<Opportunity | null>(null)
   const [collectAmount, setCollectAmount] = useState('')
+  const [collecting, setCollecting] = useState(false)
+  const [collectError, setCollectError] = useState('')
   const [scanMessage, setScanMessage] = useState('')
 
   const filtered = useMemo(
@@ -58,22 +60,24 @@ export function RevenueRecovery() {
     }
   }
 
-  const confirmCollect = () => {
-    // Guard against duplicate confirmation from repeated clicks or stale modal state.
-    const current = data.opportunities.find(o => o.id === collectModal?.id)
-    if (collectModal && current && current.status !== 'Collected' && collectAmount) {
-      const amount = Number(collectAmount)
-      if (Number.isFinite(amount) && amount > 0) {
-        const now = new Date().toISOString()
-        updateOpportunity(collectModal.id, { status: 'Collected', collectedAmount: amount, nextAction: 'Complete — revenue recovered' })
-        addRevenueEvent({ opportunityId: collectModal.id, customerId: collectModal.customerId, customerName: collectModal.customerName, amount, date: now, description: `Confirmed collection for ${collectModal.type}`, type: 'Recovered' })
-      }
+  const confirmCollect = async () => {
+    if (!collectModal || collecting) return
+    const amount = Number(collectAmount)
+    if (!Number.isFinite(amount) || amount <= 0) return
+    setCollecting(true)
+    setCollectError('')
+    try {
+      await collectOpportunity(collectModal.id, amount)
+      setCollectModal(null)
+      setCollectAmount('')
+    } catch (error) {
+      setCollectError(error instanceof Error ? error.message : 'Collection could not be saved')
+    } finally {
+      setCollecting(false)
     }
-    setCollectModal(null)
-    setCollectAmount('')
   }
 
-  const snooze = (opp: Opportunity) => updateOpportunity(opp.id, { nextAction: 'Snoozed — review later' })
+    const snooze = (opp: Opportunity) => updateOpportunity(opp.id, { nextAction: 'Snoozed — review later' })
 
   const runScan = () => {
     const result = runRevenueScan()
@@ -159,7 +163,7 @@ export function RevenueRecovery() {
             <p className="text-sm text-slate-600 mb-1"><span className="font-semibold">{collectModal.customerName}</span> — {collectModal.type}</p>
             <p className="text-xs text-slate-500 mb-4">Estimated potential: {formatCurrency(collectModal.potentialValue)}</p>
             <div className="mb-4"><label className="label">Confirmed Revenue Amount</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0.01" step="0.01" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} className="input pl-7" placeholder="0" autoFocus onKeyDown={e => e.key === 'Enter' && confirmCollect()} /><p className="text-xs text-slate-500 mt-1.5">Enter the actual amount collected. Only this confirmed amount counts toward Recovered Revenue.</p></div></div>
-            <div className="flex gap-2"><button onClick={() => { setCollectModal(null); setCollectAmount('') }} className="btn-secondary flex-1">Cancel</button><button onClick={confirmCollect} className="btn-success flex-1" disabled={!collectAmount || parseFloat(collectAmount) <= 0}><DollarSign className="w-4 h-4" /> Confirm Collected</button></div>
+            {collectError && <p role="alert" className="text-sm text-red-600 mb-2">{collectError}</p>}<div className="flex gap-2"><button onClick={() => { setCollectModal(null); setCollectAmount('') }} className="btn-secondary flex-1">Cancel</button><button onClick={confirmCollect} className="btn-success flex-1" disabled={collecting || !collectAmount || parseFloat(collectAmount) <= 0}><DollarSign className="w-4 h-4" /> Confirm Collected</button></div>
           </div>
         </div>
       )}
