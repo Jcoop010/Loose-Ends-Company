@@ -36,21 +36,38 @@ Deno.serve(async (req: Request) => {
   if (!await verifyStripeSignature(rawBody, signature, secret)) return json({ error: "Invalid webhook signature." }, 400);
   let event: any;
   try { event = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON." }, 400); }
+  if (!event || typeof event.id !== "string" || !event.id.startsWith("evt_") ||
+      typeof event.type !== "string" || !event.type ||
+      !event.data || !event.data.object || typeof event.data.object !== "object") {
+    return json({ error: "Invalid Stripe event." }, 400);
+  }
+  // Never let a valid test-mode webhook mutate live-mode entitlements (or vice versa).
+  // Stripe credentials are environment-specific, independent of signature validity.
+  if (typeof event.livemode !== "boolean" ||
+      (!stripeSecret.startsWith("sk_live_") && !stripeSecret.startsWith("sk_test_") &&
+       !stripeSecret.startsWith("rk_live_") && !stripeSecret.startsWith("rk_test_")) ||
+      ((stripeSecret.startsWith("sk_live_") || stripeSecret.startsWith("rk_live_")) && !event.livemode) ||
+      ((stripeSecret.startsWith("sk_test_") || stripeSecret.startsWith("rk_test_")) && event.livemode)) {
+    return json({ error: "Stripe event mode does not match billing configuration." }, 400);
+  }
+  if (typeof event.created !== "number" || !Number.isSafeInteger(event.created) ||
+      event.created < 0 || event.created > 8640000000) {
+    return json({ error: "Invalid Stripe event creation timestamp." }, 400);
+  }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  const { error: ledgerError } = await admin.from("stripe_webhook_events").insert({
-    event_id: event.id, event_type: event.type, livemode: Boolean(event.livemode),
+  const claimToken = crypto.randomUUID();
+  const { data: claim, error: claimError } = await admin.rpc("claim_stripe_webhook_event", {
+    p_event_id: event.id, p_event_type: event.type, p_livemode: event.livemode,
+    p_token: claimToken, p_lease_seconds: 900,
   });
-  if (ledgerError) {
-    if (ledgerError.code === "23505") {
-      const { data: existing } = await admin.from("stripe_webhook_events").select("processed_at").eq("event_id", event.id).maybeSingle();
-      if (existing?.processed_at) return json({ received: true, duplicate: true });
-      // An earlier attempt failed before completion; safely retry its idempotent upsert.
-    } else {
-      console.error("Could not persist Stripe event", ledgerError);
-      return json({ error: "Could not record event." }, 500);
-    }
+  if (claimError) {
+    console.error("Could not claim Stripe event", claimError);
+    return json({ error: "Could not record event." }, 500);
   }
+  if (claim === "processed") return json({ received: true, duplicate: true });
+  if (claim === "busy") return json({ error: "Webhook event is being processed." }, 503);
+  if (claim !== "claimed") return json({ error: "Unexpected webhook claim state." }, 500);
 
   try {
     const obj = event.data?.object || {};
@@ -63,69 +80,169 @@ Deno.serve(async (req: Request) => {
       (typeof obj.subscription === "string" ? obj.subscription : obj.subscription?.id) ||
       (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null) ||
       (invoice?.parent?.subscription_details?.subscription || null);
+    // Fail closed on malformed provider IDs before any billing mapping or Stripe API read.
+    if (subscriptionId && (typeof subscriptionId !== "string" || !/^sub_[a-zA-Z0-9]+$/.test(subscriptionId))) {
+      throw new Error("Invalid Stripe subscription identifier");
+    }
+    // Relevant subscription lifecycle notifications must carry an unambiguous ID;
+    // a missing ID must never be resolved from customer metadata alone.
+    if (eventType.startsWith("customer.subscription.") && !subscriptionId) {
+      throw new Error("Stripe subscription event is missing its subscription identifier");
+    }
+    // Never create or overwrite a paid entitlement from a checkout missing a subscription.
+    if (checkout?.mode === "subscription" && !subscriptionId) throw new Error("Subscription checkout is missing its subscription identifier");
     const subscriptionInvoice = Boolean(invoice && subscriptionId);
-    const relevant = eventType === "checkout.session.completed" ||
-      eventType.startsWith("customer.subscription.") ||
+    const relevant = (eventType === "checkout.session.completed" && obj.mode === "subscription") ||
+      ["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.paused", "customer.subscription.resumed"].includes(eventType) ||
       (subscriptionInvoice && (
         eventType === "invoice.payment_succeeded" || eventType === "invoice.paid" ||
         eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required"
       ));
+    // Checkout workspace references must agree; never silently prefer metadata
+    // over a conflicting client_reference_id when assigning paid access.
+    if (checkout?.mode === "subscription" && obj.metadata?.workspace_id &&
+        checkout.client_reference_id && obj.metadata.workspace_id !== checkout.client_reference_id) {
+      throw new Error("Stripe checkout workspace references disagree");
+    }
     let workspaceId = obj.metadata?.workspace_id || checkout?.client_reference_id || null;
-    if (!workspaceId && customerId) {
-      const { data: row } = await admin.from("workspace_subscriptions").select("workspace_id")
+    if (relevant && !workspaceId && customerId) {
+      const { data: row, error: mappingError } = await admin.from("workspace_subscriptions").select("workspace_id")
         .eq("provider_customer_id", customerId).maybeSingle();
+      if (mappingError) throw mappingError;
       workspaceId = row?.workspace_id || null;
     }
-    if (!workspaceId && subscriptionId) {
-      const { data: row } = await admin.from("workspace_subscriptions").select("workspace_id")
+    if (relevant && !workspaceId && subscriptionId) {
+      const { data: row, error: mappingError } = await admin.from("workspace_subscriptions").select("workspace_id")
         .eq("provider_subscription_id", subscriptionId).maybeSingle();
+      if (mappingError) throw mappingError;
       workspaceId = row?.workspace_id || null;
+    }
+    // A valid Stripe signature does not authorize changing another workspace's billing row.
+    // Reject conflicts between event metadata and established provider identifiers.
+    if (relevant && workspaceId && (customerId || subscriptionId)) {
+      for (const [column, providerId] of [["provider_customer_id", customerId], ["provider_subscription_id", subscriptionId]] as const) {
+        if (!providerId) continue;
+        const { data: mapped, error: mappingError } = await admin.from("workspace_subscriptions")
+          .select("workspace_id").eq(column, providerId).maybeSingle();
+        if (mappingError) throw mappingError;
+        if (mapped && mapped.workspace_id !== workspaceId) throw new Error("Stripe provider identifier belongs to a different workspace");
+      }
     }
     if (relevant && !workspaceId) throw new Error("Could not map Stripe event to a workspace");
     if (workspaceId && relevant) {
-      let liveSubscription: any = subscription;
-      if (!liveSubscription && subscriptionId) {
+      // Reconcile against Stripe's current state: webhook snapshots can arrive out of order.
+      let liveSubscription: any = null;
+      if (subscriptionId) {
         const response = await fetch("https://api.stripe.com/v1/subscriptions/" + encodeURIComponent(subscriptionId), {
           headers: { Authorization: "Bearer " + stripeSecret },
         });
         const body = await response.json();
-        if (!response.ok) throw new Error(body?.error?.message || "Could not retrieve subscription from Stripe");
-        liveSubscription = body;
+        if (!response.ok) {
+          // Stripe may no longer return a deleted subscription. A signed deletion
+          // event is only allowed to move entitlement state to canceled, never active.
+          if (response.status === 404 && eventType === "customer.subscription.deleted") {
+            liveSubscription = { ...subscription, status: "canceled" };
+          } else {
+            throw new Error(body?.error?.message || "Could not retrieve subscription from Stripe");
+          }
+        } else {
+          liveSubscription = body;
+        }
       }
-      let status = String(liveSubscription?.status || "incomplete");
-      let periodStart: string | null = liveSubscription?.current_period_start ? new Date(liveSubscription.current_period_start * 1000).toISOString() : null;
-      let periodEnd: string | null = liveSubscription?.current_period_end ? new Date(liveSubscription.current_period_end * 1000).toISOString() : null;
-      let cancelAtPeriodEnd = Boolean(liveSubscription?.cancel_at_period_end);
-      const providerSubscriptionId = liveSubscription?.id || subscriptionId;
-      const providerCustomerId = (typeof liveSubscription?.customer === "string" ? liveSubscription.customer : liveSubscription?.customer?.id) || customerId;
+      const allowedStatuses = new Set(["trialing", "active", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired", "paused"]);
+      const status = liveSubscription?.status;
+      if (typeof status !== "string" || !allowedStatuses.has(status)) {
+        throw new Error("Invalid current Stripe subscription status");
+      }
+      const periodDate = (value: unknown): string | null => {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 ||
+            value > 8640000000) throw new Error("Invalid Stripe subscription period timestamp");
+        return new Date(value * 1000).toISOString();
+      };
+      const periodStart = periodDate(liveSubscription?.current_period_start);
+      const periodEnd = periodDate(liveSubscription?.current_period_end);
+      const cancellationValue = liveSubscription?.cancel_at_period_end;
+      if (cancellationValue !== undefined && cancellationValue !== null && typeof cancellationValue !== "boolean") {
+        throw new Error("Invalid Stripe cancellation flag");
+      }
+      const cancelAtPeriodEnd = cancellationValue ?? false;
+      // Never write an entitlement using a mismatched provider response.
+      // A stale/malformed API response must not redirect billing identities.
+      if (!liveSubscription || typeof liveSubscription.id !== "string" || liveSubscription.id !== subscriptionId) {
+        throw new Error("Stripe subscription response identifier mismatch");
+      }
+      const liveCustomerId = typeof liveSubscription.customer === "string"
+        ? liveSubscription.customer : liveSubscription.customer?.id;
+      if (typeof liveCustomerId !== "string" || !liveCustomerId.startsWith("cus_")) {
+        throw new Error("Stripe subscription response is missing a valid customer identifier");
+      }
+      if (customerId && customerId !== liveCustomerId) {
+        throw new Error("Stripe subscription customer identifier mismatch");
+      }
+      // The event may omit its customer ID. In that case its earlier mapping
+      // checks never covered the customer returned by Stripe's live API.
+      // Resolve that live customer before allowing a workspace entitlement write.
+      const { data: liveCustomerMapping, error: liveCustomerMappingError } = await admin
+        .from("workspace_subscriptions").select("workspace_id")
+        .eq("provider_customer_id", liveCustomerId).maybeSingle();
+      if (liveCustomerMappingError) throw liveCustomerMappingError;
+      if (liveCustomerMapping && liveCustomerMapping.workspace_id !== workspaceId) {
+        throw new Error("Stripe live customer belongs to a different workspace");
+      }
+      // A subscription's authenticated Stripe metadata must not contradict the
+      // workspace selected from the signed event or existing provider mappings.
+      const liveWorkspaceId = liveSubscription.metadata?.workspace_id;
+      if (liveWorkspaceId && liveWorkspaceId !== workspaceId) {
+        throw new Error("Stripe live subscription belongs to a different workspace");
+      }
+      // Only trusted subscription metadata may select a plan. Do not accept
+      // arbitrary plan keys copied from stale checkout or event payloads.
+      const livePlanKey = liveSubscription.metadata?.plan_key;
+      if (livePlanKey !== undefined && (typeof livePlanKey !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(livePlanKey))) {
+        throw new Error("Invalid Stripe subscription plan key");
+      }
+      // Stripe subscription state is authoritative for the plan. An event's
+      // historical metadata must not overwrite current plan information.
+      if (!livePlanKey && (obj.metadata?.plan_key || checkout?.metadata?.plan_key)) {
+        throw new Error("Stripe subscription plan metadata is missing from current provider state");
+      }
+      const providerSubscriptionId = liveSubscription.id;
+      const providerCustomerId = liveCustomerId;
       const planKey = liveSubscription?.metadata?.plan_key || obj.metadata?.plan_key || checkout?.metadata?.plan_key || "revenue_recovery";
-      if (eventType === "customer.subscription.deleted") status = "canceled";
-      // Only subscription invoices reach this path. Reflect failed/action-required
-      // subscription payments even if Stripe's subscription read still reports active
-      // during its retry/dunning window; never downgrade a terminal subscription state.
-      if (eventType === "invoice.payment_failed" || eventType === "invoice.payment_action_required") {
-        if (!["canceled", "unpaid", "incomplete_expired"].includes(status)) status = "past_due";
+      if (typeof planKey !== "string" || !["starter", "growth", "scale", "revenue_recovery"].includes(planKey)) {
+        throw new Error("Invalid resolved Stripe subscription plan key");
       }
-      const { error: upsertError } = await admin.from("workspace_subscriptions").upsert({
-        workspace_id: workspaceId,
-        provider: "stripe",
-        provider_customer_id: providerCustomerId || null,
-        provider_subscription_id: providerSubscriptionId || null,
-        plan_key: planKey,
-        status,
-        current_period_start: periodStart,
-        current_period_end: periodEnd,
-        cancel_at_period_end: cancelAtPeriodEnd,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "workspace_id" });
-      if (upsertError) throw upsertError;
+      // The live Stripe lookup is authoritative. A delayed deletion webhook must
+      // not cancel a subscription that Stripe currently reports as active.
+      // The 404 fallback above already sets canceled when the subscription is gone.
+      // Do not turn a currently active subscription past_due solely because a
+      // delayed invoice failure event arrived after recovery. The live Stripe
+      // subscription status is the source of truth for entitlement state.
+      // The database checks this worker's lease and commits entitlement +
+      // event completion atomically. A stale worker cannot write after takeover.
+      const { data: applied, error: upsertError } = await admin.rpc("apply_stripe_subscription_event", {
+        p_event_id: event.id, p_token: claimToken, p_workspace_id: workspaceId,
+        p_customer_id: providerCustomerId, p_subscription_id: providerSubscriptionId,
+        p_plan_key: planKey, p_status: status, p_period_start: periodStart,
+        p_period_end: periodEnd, p_cancel_at_period_end: cancelAtPeriodEnd,
+        p_event_created: event.created,
+      });
+      if (upsertError || applied !== true) throw new Error("Stripe processing lease expired before entitlement update");
+      return json({ received: true });
     }
-    await admin.from("stripe_webhook_events").update({ processed_at: new Date().toISOString(), processing_error: null }).eq("event_id", event.id);
+    const { data: completed, error: completionError } = await admin.rpc("finish_stripe_webhook_event", {
+      p_event_id: event.id, p_token: claimToken, p_error: null,
+    });
+    if (completionError || completed !== true) throw new Error("Stripe webhook processing lease expired before completion");
     return json({ received: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Processing failed";
     console.error("Stripe webhook processing failed", event.id, message);
-    await admin.from("stripe_webhook_events").update({ processing_error: message }).eq("event_id", event.id);
+    const { error: finishError } = await admin.rpc("finish_stripe_webhook_event", {
+      p_event_id: event.id, p_token: claimToken, p_error: message,
+    });
+    if (finishError) console.error("Could not record Stripe webhook failure", finishError);
     return json({ error: "Webhook processing failed." }, 500);
   }
 });

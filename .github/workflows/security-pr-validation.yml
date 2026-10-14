@@ -1,0 +1,76 @@
+name: Security PR Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - security/harden-billing-cors-20261013
+      - test/isolated-launch-gates-20261014
+  pull_request:
+    branches:
+      - feat/autonomy-center-20261012
+
+concurrency:
+  group: loose-ends-security-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check JavaScript syntax
+        run: find v3.1 -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Check security invariants
+        run: node scripts/security-regression-check.mjs
+      - name: Install committed dependencies
+        run: npm ci
+      - name: Test backend behavior
+        run: node --test scripts/backend-behavior.test.mjs
+      - name: Report dependency audit
+        run: npm audit --json > npm-audit.json || true
+      - name: Enforce dependency audit policy
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const audit = JSON.parse(fs.readFileSync("npm-audit.json", "utf8"));
+          const allowedAdvisories = new Set([
+            "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+          ]);
+          const unresolved = [];
+          for (const [name, vulnerability] of Object.entries(audit.vulnerabilities ?? {})) {
+            for (const advisory of vulnerability.via ?? []) {
+              if (typeof advisory === "string") continue;
+              const url = advisory.url ?? "";
+              if (!allowedAdvisories.has(url)) {
+                unresolved.push({
+                  package: name,
+                  severity: vulnerability.severity,
+                  advisory: url || advisory.name || "unknown advisory",
+                  title: advisory.title ?? ""
+                });
+              }
+            }
+          }
+          console.log(JSON.stringify({
+            counts: audit.metadata?.vulnerabilities ?? {},
+            explicitlyAllowedBuildToolAdvisories: [...allowedAdvisories],
+            unresolved
+          }, null, 2));
+          if (unresolved.length) process.exit(1);
+          NODE
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build

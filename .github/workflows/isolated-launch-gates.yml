@@ -1,0 +1,56 @@
+name: Isolated Launch Gates
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test/isolated-launch-gates-20261014
+      - security/harden-billing-cors-20261013
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: loose_ends_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:local_test_only@localhost:5432/loose_ends_test
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Verify no live credentials are available
+        run: |
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${STRIPE_SECRET_KEY:-}"
+          test -z "${VERCEL_TOKEN:-}"
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run security regression assertions
+        run: node scripts/security-regression-check.mjs
+      - name: Run mocked backend and Stripe behavior
+        run: node --test scripts/backend-behavior.test.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build

@@ -1,15 +1,33 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const CANONICAL_ORIGIN = "https://loose-ends-os.vercel.app";
+// Production Supabase APIs are not exposed to ephemeral Vercel preview deployments.
+const ALLOWED_BROWSER_ORIGINS = new Set([CANONICAL_ORIGIN]);
+function allowedBrowserOrigin(origin: string): string | null {
+  if (!origin) return CANONICAL_ORIGIN;
+  try {
+    const candidate = new URL(origin);
+    if (candidate.protocol === "https:" && ALLOWED_BROWSER_ORIGINS.has(candidate.origin)) return candidate.origin;
+  } catch { /* Invalid Origin is rejected below. */ }
+  return null;
+}
+function corsHeaders(origin: string) {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return new Response(JSON.stringify({ error: "method_not_allowed" }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  const origin = allowedBrowserOrigin(req.headers.get("Origin") || "");
+  if (!origin) return new Response(JSON.stringify({ error: "Origin is not allowed." }), {
+    status: 403, headers: { "Content-Type": "application/json", "Vary": "Origin" },
+  });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(origin) });
+  if (req.method !== "POST") return new Response(JSON.stringify({ error: "method_not_allowed" }), { status: 405, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } });
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -37,7 +55,7 @@ Deno.serve(async (req: Request) => {
 
     const existing = await admin.from("workspace_members").select("workspace_id,workspaces(*)").eq("user_id", user.id).limit(1).maybeSingle();
     if (existing.error) throw existing.error;
-    if (existing.data?.workspaces) return new Response(JSON.stringify({ workspace: existing.data.workspaces }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (existing.data?.workspaces) return new Response(JSON.stringify({ workspace: existing.data.workspaces }), { status: 200, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } });
 
     let workspace: Record<string, unknown> | null = null;
     const created = await admin
@@ -69,15 +87,15 @@ Deno.serve(async (req: Request) => {
         const { data: confirmed, error: confirmError } = await admin.from("workspace_members")
           .select("workspace_id").eq("workspace_id", workspace.id).eq("user_id", user.id).maybeSingle();
         if (confirmError) throw confirmError;
-        if (confirmed) return new Response(JSON.stringify({ workspace }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (confirmed) return new Response(JSON.stringify({ workspace }), { status: 200, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } });
       }
       // Do not delete the workspace here: another concurrent request may
       // already have successfully attached the user to it.
       throw memberError;
     }
 
-    return new Response(JSON.stringify({ workspace }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ workspace }), { status: 200, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "workspace_bootstrap_failed" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "workspace_bootstrap_failed" }), { status: 400, headers: { ...corsHeaders(origin), "Content-Type": "application/json" } });
   }
 });

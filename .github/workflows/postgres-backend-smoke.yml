@@ -1,0 +1,44 @@
+name: PostgreSQL backend smoke tests
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: smoke
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run real PostgreSQL migration and transaction smoke tests
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-backend-smoke.sql
+          psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-auth-permissions.sql
+      - name: Replay complete public schema and test synthetic tenants
+        run: |
+          createdb full_schema
+          PGDATABASE=full_schema psql -X -v ON_ERROR_STOP=1 -f scripts/postgres-full-schema-tests.sql
+      - name: Test actual competing database sessions
+        run: PGDATABASE=full_schema bash scripts/postgres-concurrency-tests.sh

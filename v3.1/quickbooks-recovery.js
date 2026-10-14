@@ -1,8 +1,9 @@
 /* Loose Ends V4 — QuickBooks Sync Bridge client */
 (function(){
-  const SUPABASE_URL = window.SUPABASE_URL || 'https://uehfvpnnoitgybsmdgef.supabase.co';
+  const SUPABASE_URL = String(window.__LOOSE_ENDS_SUPABASE_URL__ || '').replace(/\/$/, '');
   const FN = SUPABASE_URL + '/functions/v1/quickbooks-sync';
   async function sync(workspaceId){
+    if(!SUPABASE_URL) throw new Error('Supabase configuration unavailable');
     if(!workspaceId) throw new Error('Workspace required');
     const client = window.LE && window.LE.supabase;
     if(!client) throw new Error('Supabase client unavailable');
