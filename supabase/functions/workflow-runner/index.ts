@@ -102,7 +102,7 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
       const priority = action.priority === undefined || action.priority === null ? 1 : Number(action.priority);
       if (!Number.isFinite(priority) || priority < 0) throw new Error("Workflow task priority must be a nonnegative finite number");
     }
-    else if (action.type !== "update_opportunity" || !record.id || entity !== "opportunities") throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
+    if (!["create_task", "create_follow_up", "update_opportunity"].includes(action.type) || (action.type === "update_opportunity" && (!record.id || entity !== "opportunities"))) throw new Error(`Unsupported workflow action: ${String(action.type || "unknown")}`);
   }
 
   for (const action of workflow.actions) {
