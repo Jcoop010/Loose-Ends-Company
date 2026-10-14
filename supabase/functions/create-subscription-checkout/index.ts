@@ -82,10 +82,10 @@ Deno.serve(async (req: Request) => {
     if (!["owner", "admin"].includes(member.role)) return json({ error: "Only a workspace owner or admin can manage billing." }, 403, origin);
 
     const { data: subRow, error: subscriptionLookupError } = await admin.from("workspace_subscriptions")
-      .select("provider_customer_id,status")
+      .select("provider_customer_id,provider_subscription_id,status")
       .eq("workspace_id", workspaceId).maybeSingle();
     if (subscriptionLookupError) throw new Error("Could not verify existing workspace subscription");
-    if (subRow?.status === "active" || (subRow?.status === "trialing" && subRow?.provider_customer_id)) {
+    if (subRow?.provider_subscription_id && ["active", "trialing", "past_due", "unpaid", "incomplete", "paused"].includes(subRow.status)) {
       return json({ error: "This workspace already has an active subscription. Use Manage Billing instead." }, 409, origin);
     }
     const params: Record<string, string> = {
