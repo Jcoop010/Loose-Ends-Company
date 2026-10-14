@@ -10,7 +10,7 @@ function load(name, createClient = () => { throw new Error('Unexpected database 
     .replace(/^import .*;\r?\n/gm, '');
   const context = vm.createContext({
     crypto: webcrypto, TextEncoder, Response, Request, URL, console,
-    createClient, Deno: { env: { get: (key) => env[key] || 'test-only' }, serve: (handler) => { context.handler = handler; } },
+    createClient, Deno: { env: { get: (key) => env[key] || (key === 'STRIPE_SECRET_KEY' ? 'sk_test_only' : 'test-only') }, serve: (handler) => { context.handler = handler; } },
   });
   vm.runInContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   return context;
