@@ -215,19 +215,16 @@ Deno.serve(async (req: Request) => {
       // Do not turn a currently active subscription past_due solely because a
       // delayed invoice failure event arrived after recovery. The live Stripe
       // subscription status is the source of truth for entitlement state.
-      const { error: upsertError } = await admin.from("workspace_subscriptions").upsert({
-        workspace_id: workspaceId,
-        provider: "stripe",
-        provider_customer_id: providerCustomerId || null,
-        provider_subscription_id: providerSubscriptionId || null,
-        plan_key: planKey,
-        status,
-        current_period_start: periodStart,
-        current_period_end: periodEnd,
-        cancel_at_period_end: cancelAtPeriodEnd,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "workspace_id" });
-      if (upsertError) throw upsertError;
+      // The database checks this worker's lease and commits entitlement +
+      // event completion atomically. A stale worker cannot write after takeover.
+      const { data: applied, error: upsertError } = await admin.rpc("apply_stripe_subscription_event", {
+        p_event_id: event.id, p_token: claimToken, p_workspace_id: workspaceId,
+        p_customer_id: providerCustomerId, p_subscription_id: providerSubscriptionId,
+        p_plan_key: planKey, p_status: status, p_period_start: periodStart,
+        p_period_end: periodEnd, p_cancel_at_period_end: cancelAtPeriodEnd,
+      });
+      if (upsertError || applied !== true) throw new Error("Stripe processing lease expired before entitlement update");
+      return json({ received: true });
     }
     const { data: completed, error: completionError } = await admin.rpc("finish_stripe_webhook_event", {
       p_event_id: event.id, p_token: claimToken, p_error: null,
