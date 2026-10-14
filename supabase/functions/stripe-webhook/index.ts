@@ -120,7 +120,9 @@ Deno.serve(async (req: Request) => {
       }, { onConflict: "workspace_id" });
       if (upsertError) throw upsertError;
     }
-    await admin.from("stripe_webhook_events").update({ processed_at: new Date().toISOString(), processing_error: null }).eq("event_id", event.id);
+    const { error: completionError } = await admin.from("stripe_webhook_events")
+      .update({ processed_at: new Date().toISOString(), processing_error: null }).eq("event_id", event.id);
+    if (completionError) throw completionError;
     return json({ received: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Processing failed";
