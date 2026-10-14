@@ -69,6 +69,8 @@ Deno.serve(async (req: Request) => {
       (typeof obj.subscription === "string" ? obj.subscription : obj.subscription?.id) ||
       (checkout && typeof checkout.subscription === "string" ? checkout.subscription : null) ||
       (invoice?.parent?.subscription_details?.subscription || null);
+    // Never create or overwrite a paid entitlement from a checkout missing a subscription.
+    if (checkout?.mode === "subscription" && !subscriptionId) throw new Error("Subscription checkout is missing its subscription identifier");
     const subscriptionInvoice = Boolean(invoice && subscriptionId);
     const relevant = (eventType === "checkout.session.completed" && obj.mode === "subscription") ||
       eventType.startsWith("customer.subscription.") ||
