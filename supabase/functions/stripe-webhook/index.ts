@@ -137,8 +137,14 @@ Deno.serve(async (req: Request) => {
       if (typeof status !== "string" || !allowedStatuses.has(status)) {
         throw new Error("Invalid current Stripe subscription status");
       }
-      let periodStart: string | null = liveSubscription?.current_period_start ? new Date(liveSubscription.current_period_start * 1000).toISOString() : null;
-      let periodEnd: string | null = liveSubscription?.current_period_end ? new Date(liveSubscription.current_period_end * 1000).toISOString() : null;
+      const periodDate = (value: unknown): string | null => {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 ||
+            value > 8640000000000) throw new Error("Invalid Stripe subscription period timestamp");
+        return new Date(value * 1000).toISOString();
+      };
+      const periodStart = periodDate(liveSubscription?.current_period_start);
+      const periodEnd = periodDate(liveSubscription?.current_period_end);
       let cancelAtPeriodEnd = Boolean(liveSubscription?.cancel_at_period_end);
       // Never write an entitlement using a mismatched provider response.
       // A stale/malformed API response must not redirect billing identities.
