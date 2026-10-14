@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - security/harden-billing-cors-20261013
+      - test/isolated-launch-gates-20261014
   pull_request:
     branches:
       - feat/autonomy-center-20261012
