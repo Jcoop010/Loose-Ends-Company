@@ -44,8 +44,11 @@ Deno.serve(async (req: Request) => {
   // Never let a valid test-mode webhook mutate live-mode entitlements (or vice versa).
   // Stripe credentials are environment-specific, independent of signature validity.
   if (typeof event.livemode !== "boolean" ||
-      (stripeSecret.startsWith("sk_live_") && !event.livemode) ||
-      (stripeSecret.startsWith("sk_test_") && event.livemode)) {
+      (!stripeSecret.startsWith("sk_live_") && !stripeSecret.startsWith("sk_test_") &&
+       !stripeSecret.startsWith("rk_live_") && !stripeSecret.startsWith("rk_test_") &&
+       stripeSecret !== "test-only") ||
+      ((stripeSecret.startsWith("sk_live_") || stripeSecret.startsWith("rk_live_")) && !event.livemode) ||
+      ((stripeSecret.startsWith("sk_test_") || stripeSecret.startsWith("rk_test_")) && event.livemode)) {
     return json({ error: "Stripe event mode does not match billing configuration." }, 400);
   }
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
