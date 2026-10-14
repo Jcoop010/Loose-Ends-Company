@@ -111,8 +111,17 @@ Deno.serve(async (req: Request) => {
           headers: { Authorization: "Bearer " + stripeSecret },
         });
         const body = await response.json();
-        if (!response.ok) throw new Error(body?.error?.message || "Could not retrieve subscription from Stripe");
-        liveSubscription = body;
+        if (!response.ok) {
+          // Stripe may no longer return a deleted subscription. A signed deletion
+          // event is only allowed to move entitlement state to canceled, never active.
+          if (response.status === 404 && eventType === "customer.subscription.deleted") {
+            liveSubscription = { ...subscription, status: "canceled" };
+          } else {
+            throw new Error(body?.error?.message || "Could not retrieve subscription from Stripe");
+          }
+        } else {
+          liveSubscription = body;
+        }
       }
       let status = String(liveSubscription?.status || "incomplete");
       let periodStart: string | null = liveSubscription?.current_period_start ? new Date(liveSubscription.current_period_start * 1000).toISOString() : null;
