@@ -201,6 +201,20 @@ for (const check of checks) {
 const stripeLeaseMigration = read("supabase/migrations/20261014180000_stripe_webhook_processing_leases.sql");
 assert.ok(stripeLeaseMigration.includes("p_lease_seconds is null"),
   "Stripe lease RPC must reject NULL lease durations");
+const atomicWorkflowMigration = read("supabase/migrations/20261014183000_atomic_workflow_run_actions.sql");
+const workflowRunner = read("supabase/functions/workflow-runner/index.ts");
+for (const marker of ["for update", "status = 'completed'", "public.tasks", "public.follow_ups",
+  "to service_role"]) {
+  assert.ok(atomicWorkflowMigration.includes(marker),
+    `Atomic workflow completion must retain transactional protections: ${marker}`);
+}
+assert.ok(workflowRunner.includes('db.rpc("complete_workflow_run_atomically"'),
+  "Workflow action execution must use the atomic database RPC");
+assert.ok(workflowRunner.includes("atomic_actions: true"),
+  "New workflow runs must identify atomic execution for safe crash recovery");
+assert.ok(!workflowRunner.includes('db.from("tasks").insert(')
+  && !workflowRunner.includes('db.from("follow_ups").insert('),
+  "Workflow runner must never create actions through partial direct inserts");
 const billingOrderingMigration = read("supabase/migrations/20261014182000_serialize_stripe_billing_events.sql");
 for (const marker of [
   "pg_advisory_xact_lock", "stripe_last_event_created",
