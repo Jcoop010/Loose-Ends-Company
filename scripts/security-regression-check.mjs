@@ -197,6 +197,27 @@ for (const check of checks) {
   const missing = check.required.filter((marker) => !source.includes(marker));
   assert.deepEqual(missing, [], `${check.description} Missing markers: ${missing.join(", ")}`);
 }
+
+const billingOrderingMigration = read("supabase/migrations/20261014182000_serialize_stripe_billing_events.sql");
+for (const marker of [
+  "pg_advisory_xact_lock", "stripe_last_event_created",
+  "p_event_created >= v_last_created",
+  "processing_token is distinct from p_token",
+  "processing_lease_until <= clock_timestamp()",
+  "processed_at = clock_timestamp()",
+  "to service_role",
+]) {
+  assert.ok(billingOrderingMigration.includes(marker),
+    `Stripe billing must retain serialized, fenced, monotonic processing: ${marker}`);
+}
+const billingWebhook = read("supabase/functions/stripe-webhook/index.ts");
+assert.ok(billingWebhook.includes("p_event_created: event.created"),
+  "Stripe billing RPC must receive the signed event creation time");
+assert.ok(billingWebhook.includes('admin.rpc("apply_stripe_subscription_event"'),
+  "Stripe entitlement updates must use the atomic billing RPC");
+assert.ok(!billingWebhook.includes('from("workspace_subscriptions").upsert('),
+  "Stripe webhook must not bypass the fenced entitlement RPC");
+
 const originRestrictedFunctions = [
   "supabase/functions/bootstrap-workspace/index.ts",
   "supabase/functions/create-subscription-checkout/index.ts",
