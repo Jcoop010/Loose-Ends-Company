@@ -305,7 +305,7 @@ test('workflow task priority preflight rejects invalid values before writes', as
   const db = { from: () => { writes++; throw new Error('Unexpected database write'); } };
   const { executeActions } = load('workflow-runner');
   const run = { context: { event: { entity_type: 'customers' }, record: { id: 'customer-test' } } };
-  for (const priority of [-1, 'invalid', Infinity, NaN]) {
+  for (const priority of [-1, '', 'invalid', Infinity, NaN]) {
     await assert.rejects(() => executeActions(db, 'workspace-test', {
       actions: [{ type: 'create_follow_up' }, { type: 'create_task', priority }],
     }, run), /Workflow task priority/);
