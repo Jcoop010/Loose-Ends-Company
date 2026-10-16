@@ -71,9 +71,9 @@ export function RevenueRecovery() {
   }
 
   const confirmCollect = () => {
-    if (collectModal && collectAmount) {
+    if (collectModal && collectModal.status !== 'Collected' && collectAmount.trim()) {
       const amount = parseFloat(collectAmount)
-      if (!isNaN(amount) && amount > 0) {
+      if (Number.isFinite(amount) && amount > 0 && /^\d+(?:\.\d{1,2})?$/.test(collectAmount.trim())) {
         const now = new Date().toISOString()
         updateOpportunity(collectModal.id, { status: 'Collected', collectedAmount: amount, nextAction: 'Complete — revenue recovered' })
         addRevenueEvent({ opportunityId: collectModal.id, customerId: collectModal.customerId, customerName: collectModal.customerName, amount, date: now, description: `Confirmed collection for ${collectModal.type}`, type: 'Recovered' })
@@ -170,7 +170,7 @@ export function RevenueRecovery() {
             <p className="text-sm text-slate-600 mb-1"><span className="font-semibold">{collectModal.customerName}</span> — {collectModal.type}</p>
             <p className="text-xs text-slate-500 mb-4">Estimated potential: {formatCurrency(collectModal.potentialValue)}</p>
             <div className="mb-4"><label className="label">Confirmed Revenue Amount</label><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0.01" step="0.01" value={collectAmount} onChange={e => setCollectAmount(e.target.value)} className="input pl-7" placeholder="0" autoFocus onKeyDown={e => e.key === 'Enter' && confirmCollect()} /><p className="text-xs text-slate-500 mt-1.5">Enter the actual amount collected. Only this confirmed amount counts toward Recovered Revenue.</p></div></div>
-            <div className="flex gap-2"><button onClick={() => { setCollectModal(null); setCollectAmount('') }} className="btn-secondary flex-1">Cancel</button><button onClick={confirmCollect} className="btn-success flex-1" disabled={!collectAmount || parseFloat(collectAmount) <= 0}><DollarSign className="w-4 h-4" /> Confirm Collected</button></div>
+            <div className="flex gap-2"><button onClick={() => { setCollectModal(null); setCollectAmount('') }} className="btn-secondary flex-1">Cancel</button><button onClick={confirmCollect} className="btn-success flex-1" disabled={!/^\d+(?:\.\d{1,2})?$/.test(collectAmount.trim()) || !Number.isFinite(Number(collectAmount)) || Number(collectAmount) <= 0}><DollarSign className="w-4 h-4" /> Confirm Collected</button></div>
           </div>
         </div>
       )}
