@@ -3,8 +3,9 @@
   'use strict';
   if(location.pathname==='/demo'||location.pathname.indexOf('/demo/')===0)return;
   if(location.pathname!=='/dashboard'&&location.pathname!=='/dashboard/'&&location.pathname!=='/index.html'&&location.pathname!=='/')return;
-  var S=window.LESupabase, KEY='loose_ends_sales_crm_v1', workspaceId=null, ready=false, busy=false, queue=Promise.resolve(), idMap={};
+  var S=window.LESupabase, KEY='loose_ends_sales_crm_v1', workspaceId=null, ready=false, generation=0, queue=Promise.resolve(), idMap={};
   if(!S||!S.auth)return;
+  try{localStorage.removeItem(KEY);}catch(e){}
   var nativeSet=Storage.prototype.setItem;
   function toast(msg){var e=document.getElementById('toast');if(e){e.textContent=msg;e.className='toast show';setTimeout(function(){e.className='toast';},2400);}}
   function parseMeta(s){try{return JSON.parse(s||'{}')||{};}catch(e){return {loc:s||''};}}
@@ -18,17 +19,18 @@
     if(m.error)throw m.error;
     return m.data&&m.data.workspace_id||null;
   }
-  function clearLocal(){if(location.pathname!=='/dashboard'&&location.pathname!=='/dashboard/')return;window.__LE_SALES_SYNCING=true;if(window.LESalesCRM&&window.LESalesCRM.setData)window.LESalesCRM.setData({orders:[],events:[]});else nativeSet.call(localStorage,KEY,JSON.stringify({orders:[],events:[]}));window.__LE_SALES_SYNCING=false;}
+  function clearLocal(){window.__LE_SALES_SYNCING=true;if(window.LESalesCRM&&window.LESalesCRM.setData)window.LESalesCRM.setData({orders:[],events:[]});else localStorage.removeItem(KEY);window.__LE_SALES_SYNCING=false;}
   async function hydrate(){
-    if(busy)return;busy=true;
+    var request=++generation;
     try{
-      var w=await getWorkspace();if(!w){ready=false;workspaceId=null;clearLocal();return;}
+      var w=await getWorkspace();if(request!==generation)return;if(!w){ready=false;workspaceId=null;clearLocal();return;}
       if(ready&&workspaceId===w)return;
       workspaceId=w;
       var results=await Promise.all([
         S.from('workspace_records').select('record_key,data').eq('workspace_id',w).eq('record_type','sales_order').order('created_at',{ascending:true}),
         S.from('appointments').select('*').eq('workspace_id',w).order('starts_at',{ascending:true})
       ]);
+      if(request!==generation)return;
       if(results[0].error)throw results[0].error;
       if(results[1].error)throw results[1].error;
       var orders=(results[0].data||[]).map(function(r){var d=r.data||{};d.id=String(r.record_key||d.id||'');return d;});
@@ -39,25 +41,28 @@
       ready=true;
       window.__LE_SALES_SYNCING=true;
       if(window.LESalesCRM&&window.LESalesCRM.setData)window.LESalesCRM.setData({orders:orders,events:events});
-      else nativeSet.call(localStorage,KEY,JSON.stringify({orders:orders,events:events}));
+      else localStorage.removeItem(KEY);
       window.__LE_SALES_SYNCING=false;
-    }catch(e){window.__LE_SALES_SYNCING=false;console.error('Sales/calendar sync load failed',e);toast('Sales & calendar could not load: '+(e.message||'connection error'));}
-    finally{busy=false;}
+    }catch(e){if(request!==generation)return;ready=false;workspaceId=null;clearLocal();window.__LE_SALES_SYNCING=false;console.error('Sales/calendar sync load failed',e);toast('Sales & calendar could not load: '+(e.message||'connection error'));}
+
   }
-  async function sync(data){
+  async function sync(data,w,request){
+    if(request!==generation||w!==workspaceId)return;
     if(!ready||!workspaceId||!data||!Array.isArray(data.orders)||!Array.isArray(data.events))return;
-    var w=workspaceId;
     var oldOrders=await S.from('workspace_records').select('record_key').eq('workspace_id',w).eq('record_type','sales_order');
+    if(request!==generation||w!==workspaceId)return;
     if(oldOrders.error)throw oldOrders.error;
     var rows=data.orders.map(function(o){return {workspace_id:w,record_type:'sales_order',record_key:String(o.id),data:o,updated_at:new Date().toISOString()};});
     if(rows.length){var up=await S.from('workspace_records').upsert(rows,{onConflict:'workspace_id,record_type,record_key'});if(up.error)throw up.error;}
     var keys=rows.map(function(r){return r.record_key;});
-    for(var i=0;i<(oldOrders.data||[]).length;i++){var key=String(oldOrders.data[i].record_key);if(keys.indexOf(key)<0){var del=await S.from('workspace_records').delete().eq('workspace_id',w).eq('record_type','sales_order').eq('record_key',key);if(del.error)throw del.error;}}
+    for(var i=0;i<(oldOrders.data||[]).length;i++){if(request!==generation||w!==workspaceId)return;var key=String(oldOrders.data[i].record_key);if(keys.indexOf(key)<0){var del=await S.from('workspace_records').delete().eq('workspace_id',w).eq('record_type','sales_order').eq('record_key',key);if(del.error)throw del.error;}}
     var remote=await S.from('appointments').select('id,notes').eq('workspace_id',w);
+    if(request!==generation||w!==workspaceId)return;
     if(remote.error)throw remote.error;
     var remoteById={};(remote.data||[]).forEach(function(r){remoteById[r.id]=r;});
     var currentIds=[];
     for(var j=0;j<data.events.length;j++){
+      if(request!==generation||w!==workspaceId)return;
       var e=data.events[j], id=String(e.id||'');
       if(!isUuid(id)&&idMap[id]){id=idMap[id];e.id=id;}
       var starts=iso(e.start);if(!starts)continue;
@@ -77,6 +82,7 @@
       }
     }
     for(var k=0;k<(remote.data||[]).length;k++){
+      if(request!==generation||w!==workspaceId)return;
       var rr=remote.data[k], rm=parseMeta(rr.notes);
       if(rm.source==='sales_crm'&&currentIds.indexOf(rr.id)<0){
         var rmv=await S.from('appointments').delete().eq('id',rr.id).eq('workspace_id',w);
@@ -84,15 +90,23 @@
       }
     }
     if(data.events.some(function(e){return isUuid(e.id)&&!((remote.data||[]).some(function(r){return r.id===e.id;}));})){
-      window.__LE_SALES_SYNCING=true;nativeSet.call(localStorage,KEY,JSON.stringify(data));window.__LE_SALES_SYNCING=false;
+      if(request!==generation||w!==workspaceId)return;window.__LE_SALES_SYNCING=true;if(window.LESalesCRM&&window.LESalesCRM.setData)window.LESalesCRM.setData(data);window.__LE_SALES_SYNCING=false;
     }
   }
   Storage.prototype.setItem=function(k,v){
-    nativeSet.call(this,k,v);
+    // Production sales data stays in memory; the CRM emits this call as a save signal.
+    if(this!==localStorage||k!==KEY)nativeSet.call(this,k,v);
     if(this!==localStorage||k!==KEY||window.__LE_SALES_SYNCING||!ready)return;
     var data;try{data=JSON.parse(v);}catch(e){return;}
-    queue=queue.then(function(){return sync(data);}).catch(function(e){console.error('Sales/calendar save failed',e);toast('Save failed: '+(e.message||'please retry'));});
+    var requestedWorkspace=workspaceId,request=generation;
+    queue=queue.then(function(){return sync(data,requestedWorkspace,request);}).catch(function(e){console.error('Sales/calendar save failed',e);toast('Save failed: '+(e.message||'please retry'));});
   };
-  S.auth.onAuthStateChange(function(event){if(event==='SIGNED_IN'||event==='INITIAL_SESSION'||event==='TOKEN_REFRESHED')setTimeout(hydrate,0);if(event==='SIGNED_OUT'){ready=false;workspaceId=null;idMap={};clearLocal();}});
+  S.auth.onAuthStateChange(function(event){
+    if(event==='SIGNED_OUT'||event==='SIGNED_IN'){
+      generation++;ready=false;workspaceId=null;idMap={};clearLocal();
+    }
+    if(event==='SIGNED_IN'||event==='INITIAL_SESSION'||(event==='TOKEN_REFRESHED'&&!ready))setTimeout(hydrate,0);
+  });
   hydrate();
 })();
+

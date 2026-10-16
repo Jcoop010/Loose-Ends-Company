@@ -4,6 +4,7 @@
   var S=window.LESupabase;
   if(!S) return;
   var KEY='loose_ends_v31_state', MAP='loose_ends_live_map';
+  try{localStorage.removeItem(KEY);localStorage.removeItem(MAP);}catch(e){}
   var sessionUser=null, workspace=null, live=false, generation=0;
   function esc(s){return String(s||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c];});}
   function toast(m){var e=document.getElementById('toast');if(e){e.textContent=m;e.className='toast show';setTimeout(function(){e.className='toast';},2200)}}

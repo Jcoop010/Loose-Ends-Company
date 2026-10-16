@@ -107,4 +107,31 @@ assert.equal(productWindow.__LELiveData, null)
 productPending.splice(0).forEach(resolve => resolve())
 await lateProduct
 assert.equal(productWindow.__LELiveData, null, 'late secondary data must not survive sign-out')
+
+// Exercise the actual sales HTML encoder with hostile customer-supplied text.
+const salesPrefix = read('v3.1/sales-crm.js').split('  function load(){')[0]
+const salesWindow = {}
+runInNewContext(salesPrefix + 'window.encode = esc;})();', { window: salesWindow })
+assert.equal(salesWindow.encode('<img src=x onerror="alert(1)"> &'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp;')
+
+const salesListeners = [], salesPending = [], nativeWrites = [], salesSnapshots = [], scheduled = []
+class FixtureStorage { setItem(k, v) { nativeWrites.push([k, v]) } removeItem() {} }
+const storage = new FixtureStorage()
+const salesSyncWindow = { LESalesCRM: { setData: data => salesSnapshots.push(data) }, LESupabase: {
+  auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), onAuthStateChange: fn => salesListeners.push(fn) },
+  from(table) {
+    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this },
+      maybeSingle: async () => ({ data: { workspace_id: 'workspace-fixture' } }),
+      then(resolve, reject) { return new Promise(r => salesPending.push(() => r({ data: table === 'workspace_records' ? [{ record_key: 'fixture', data: { customer: 'Private sales fixture' } }] : [] }))).then(resolve, reject) }
+    }
+  }
+} }
+runInNewContext(read('v3.1/sales-live-sync.js'), { window: salesSyncWindow, location: { pathname: '/dashboard' }, Storage: FixtureStorage, localStorage: storage, document: { getElementById: () => null }, setTimeout: fn => scheduled.push(fn), console })
+await tick()
+salesListeners.forEach(fn => fn('SIGNED_OUT'))
+salesPending.splice(0).forEach(resolve => resolve())
+await tick()
+assert.ok(salesSnapshots.every(s => s.orders.length === 0), 'late sales hydration must not reveal the previous account')
+storage.setItem('loose_ends_sales_crm_v1', JSON.stringify({ orders: [{ customer: 'Private fixture' }], events: [] }))
+assert.equal(nativeWrites.length, 0, 'production sales save signals must not cache customer records')
 console.log('Production runtime session, stale-response, network failure, cache, and recovery-path tests passed')
