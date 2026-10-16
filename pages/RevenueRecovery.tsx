@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import { PIPELINE_STAGES } from '../data'
 import type { Opportunity, OpportunityType } from '../types'
@@ -18,10 +18,16 @@ export function RevenueRecovery() {
   const [collectModal, setCollectModal] = useState<Opportunity | null>(null)
   const [collectAmount, setCollectAmount] = useState('')
   const [scanMessage, setScanMessage] = useState('')
+  const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get('opportunity'))
+
+  useEffect(() => {
+    if (!selectedId) return
+    document.getElementById(`opportunity-${selectedId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [selectedId, data.opportunities])
 
   const filtered = useMemo(
     () => data.opportunities
-      .filter(o => !(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter))
+      .filter(o => o.id === selectedId || (!(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter)))
       .sort((a, b) => {
         if (a.status === 'Collected' && b.status !== 'Collected') return 1
         if (b.status === 'Collected' && a.status !== 'Collected') return -1
@@ -29,7 +35,7 @@ export function RevenueRecovery() {
         const bScore = b.potentialValue * (b.confidence ?? 0.5)
         return bScore - aScore
       }),
-    [data.opportunities, typeFilter, statusFilter],
+    [data.opportunities, typeFilter, statusFilter, selectedId],
   )
 
   const pipelineValues = useMemo(() => {
@@ -123,9 +129,10 @@ export function RevenueRecovery() {
         </div>
       </div>
 
+      {selectedId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>Opportunity selected from the dashboard</span><button className="font-semibold underline" onClick={() => { setSelectedId(null); window.history.replaceState({}, "", window.location.pathname) }}>Show full queue</button></div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map(opp => (
-          <div key={opp.id} className="card p-4 hover:shadow-md transition-shadow">
+          <div id={`opportunity-${opp.id}`} key={opp.id} className={`card p-4 hover:shadow-md transition-shadow ${selectedId === opp.id ? "ring-2 ring-emerald-500" : ""}`}>
             <div className="flex items-start justify-between mb-3">
               <div>
                 <div className="flex items-center gap-2 flex-wrap"><h3 className="font-bold text-slate-900">{opp.customerName}</h3><OpportunityTypeBadge type={opp.type} /></div>
