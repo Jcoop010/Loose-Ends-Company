@@ -289,7 +289,7 @@ export function Customers() {
   const { data, addCustomer } = useStore()
   const { search: locationSearch } = useRouter()
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
-  useEffect(() => { setSearch(new URLSearchParams(locationSearch).get('search') || '') }, [locationSearch])
+  useEffect(() => { setSearch(new URLSearchParams(locationSearch).get('search') || ''); setSelectedId(null); setStatusFilter('All') }, [locationSearch])
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
@@ -299,7 +299,7 @@ export function Customers() {
     () => data.customers.filter(c => {
       if (statusFilter !== 'All' && c.status !== statusFilter) return false
       if (search) {
-        const q = search.toLowerCase()
+        const q = search.trim().toLowerCase()
         return c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.email.toLowerCase().includes(q)
       }
       return true
