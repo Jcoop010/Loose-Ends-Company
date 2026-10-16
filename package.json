@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview",
-    "test:recovery": "node tests/revenue-recovery.test.mjs"
+    "test:recovery": "node tests/revenue-recovery.test.mjs",
+    "test:runtime": "node tests/production-runtime.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",

@@ -4,7 +4,7 @@
   var S=window.LESupabase;
   if(!S) return;
   var KEY='loose_ends_v31_state', MAP='loose_ends_live_map';
-  var sessionUser=null, workspace=null, live=false, demoSnapshot=null;
+  var sessionUser=null, workspace=null, live=false, generation=0;
   function esc(s){return String(s||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c];});}
   function toast(m){var e=document.getElementById('toast');if(e){e.textContent=m;e.className='toast show';setTimeout(function(){e.className='toast';},2200)}}
   function setPill(){var p=document.getElementById('le-auth-pill');if(!p)return;p.innerHTML=live?'● LIVE · '+esc(workspace?workspace.name:'Workspace'):'◌ DEMO MODE';p.className='le-auth-pill '+(live?'live':'demo');}
@@ -12,10 +12,36 @@
   function pill(){var p=document.createElement('button');p.id='le-auth-pill';p.onclick=openAuth;p.setAttribute('aria-label','Account and live mode');document.body.appendChild(p);setPill()}
   function openAuth(){var old=document.getElementById('le-auth-modal');if(old)old.remove();var d=document.createElement('div');d.id='le-auth-modal';d.className='le-auth-modal';d.innerHTML='<div class="le-auth-card"><button class="le-auth-close" onclick="document.getElementById(\'le-auth-modal\').remove()">×</button><div class="eyebrow">LOOSE ENDS</div><h2>'+(sessionUser?'Live workspace':'Turn demo into your workspace')+'</h2><p>'+(sessionUser?'Your account is connected. Live data is isolated to your workspace.':'Create an account to save real customers, opportunities, follow-ups, and recovery events.')+'</p>'+(sessionUser?'<div class="le-auth-user"><div><strong>'+esc(sessionUser.email)+'</strong><small>Signed in</small></div><button class="le-auth-btn le-auth-secondary" onclick="LELive.signOut()">Sign out</button></div><div class="le-auth-lock">Secure browser session · database access protected by Supabase Auth + RLS.</div>':'<form id="le-auth-form"><label class="le-auth-field">Email</label><input class="le-auth-input" name="email" type="email" autocomplete="email" required placeholder="you@business.com"><label class="le-auth-field">Password</label><input class="le-auth-input" name="password" type="password" minlength="8" autocomplete="current-password" required placeholder="At least 8 characters"><div class="le-auth-actions"><button class="le-auth-btn le-auth-primary" type="submit">Sign in</button><button class="le-auth-btn le-auth-secondary" type="button" id="le-signup">Create account</button></div><div class="le-auth-note" id="le-auth-note">Use Sign in for an existing account, or Create account for a new workspace.</div></form>')+'</div>';document.body.appendChild(d);var f=document.getElementById('le-auth-form');if(f)f.addEventListener('submit',function(e){e.preventDefault();auth(false,f)});var su=document.getElementById('le-signup');if(su)su.addEventListener('click',function(){auth(true,document.getElementById('le-auth-form'))})}
   async function auth(signup,f){var note=document.getElementById('le-auth-note'),buttons=f.querySelectorAll('button'),email=f.email.value.trim(),password=f.password.value;buttons.forEach(function(b){b.disabled=true});if(note)note.textContent=signup?'Creating your account…':'Signing you in…';try{var r=signup?await S.auth.signUp({email:email,password:password,options:{emailRedirectTo:window.location.origin+'/dashboard'}}):await S.auth.signInWithPassword({email:email,password:password});if(r.error)throw r.error;if(signup&&!r.data.session){if(note)note.textContent='Account created. Check your email to confirm, then sign in.';return}await bootSession();if(!sessionUser||!workspace)throw new Error('You are signed in, but your business workspace could not be loaded. Please try again or contact support.');var m=document.getElementById('le-auth-modal');if(m)m.remove();if(location.pathname==='/'||location.pathname==='/index.html')location.assign('/dashboard');}catch(err){if(note)note.textContent=(err&&err.message)||'Sign-in failed. Check your connection and try again.';}finally{buttons.forEach(function(b){b.disabled=false})}}
-  async function bootSession(){var r=await S.auth.getUser();sessionUser=r.data&&r.data.user;if(!sessionUser){live=false;workspace=null;setPill();return}var q=await S.from('workspace_members').select('workspace_id,role,workspaces(*)').eq('user_id',sessionUser.id).limit(1).maybeSingle();if(q.error){console.warn(q.error);toast('Could not load workspace');return}if(!q.data){var rr=await S.functions.invoke('bootstrap-workspace',{body:{name:'My Business',slug:'my-business-'+sessionUser.id.replaceAll('-','').slice(0,8)}});if(rr.error){toast(rr.error.message||'Could not create workspace');return}workspace=rr.data.workspace}else workspace=q.data.workspaces;live=true;setPill();await loadLive()}
-  async function loadLive(){if(!workspace)return;demoSnapshot=JSON.parse(localStorage.getItem(KEY)||'null');var c=await S.from('customers').select('*').eq('workspace_id',workspace.id).order('created_at',{ascending:false});var o=await S.from('opportunities').select('*,customers(*)').eq('workspace_id',workspace.id).in('status',['open','contacted','scheduled']).order('amount',{ascending:false});if(c.error||o.error){toast('Live data could not be loaded');return}var opps=(o.data||[]).map(function(x,i){var cu=x.customers||{};return{id:i+1,uuid:x.id,type:x.title||x.source||'Opportunity',cls:classFor(x.source),customer:((cu.first_name||'')+' '+(cu.last_name||'')).trim()||'Customer',phone:cu.phone||'',vehicle:cu.notes||'Customer record',amount:Number(x.amount||0),priority:Number(x.priority||0)>=80?'High':Number(x.priority||0)>=50?'Medium':'Low',source:x.source||'Imported',reason:x.reason||'Revenue opportunity identified.',next:'Review this opportunity and contact the customer.',message:'Hi '+(cu.first_name||'there')+', this is your business following up on your recent service.'}});var ids={};(o.data||[]).forEach(function(x,i){ids[i+1]=x.id});localStorage.setItem(MAP,JSON.stringify(ids));var old=JSON.parse(localStorage.getItem(KEY)||'{}')||{};old.view=old.view||'overview';old.query='';old.opps=opps;old.recovered=0;old.activities=[];old.followUps=[];localStorage.setItem(KEY,JSON.stringify(old));if(window.LE&&window.LE.setView)window.LE.setView(old.view);var b=document.getElementById('le-live-banner');if(!b){b=document.createElement('div');b.id='le-live-banner';b.className='le-live-banner';b.textContent='LIVE DATA · '+(o.data||[]).length+' active opportunities';document.body.appendChild(b)}}
+  async function bootSession(){
+    var request=++generation;
+    live=false;workspace=null;sessionUser=null;setPill();
+    var r=await S.auth.getUser();if(request!==generation)return;
+    sessionUser=r.data&&r.data.user;
+    if(!sessionUser){setPill();return;}
+    var q=await S.from('workspace_members').select('workspace_id,role,workspaces(*)').eq('user_id',sessionUser.id).limit(1).maybeSingle();
+    if(request!==generation)return;
+    if(q.error){toast('Could not load workspace');return;}
+    if(!q.data){
+      var rr=await S.functions.invoke('bootstrap-workspace',{body:{name:'My Business',slug:'my-business-'+sessionUser.id.replaceAll('-','').slice(0,8)}});
+      if(request!==generation)return;
+      if(rr.error){toast('Could not create workspace');return;}
+      workspace=rr.data&&rr.data.workspace;
+    }else workspace=q.data.workspaces;
+    live=!!workspace;setPill();if(live)await loadLive();
+  }
+  async function loadLive(){
+    // The production runtime owns workspace state. Never cache customer records in browser storage.
+    try{localStorage.removeItem(KEY);localStorage.removeItem(MAP);}catch(e){}
+    if(window.LE&&window.LE.refresh)await window.LE.refresh();
+  }
   function classFor(s){s=String(s||'').toLowerCase();if(s.indexOf('declin')>=0)return'red';if(s.indexOf('miss')>=0)return'purple';if(s.indexOf('dorm')>=0)return'blue';return'amber'}
-  async function signOut(){await S.auth.signOut();live=false;workspace=null;sessionUser=null;var snap=demoSnapshot;if(snap)localStorage.setItem(KEY,JSON.stringify(snap));setPill();var m=document.getElementById('le-auth-modal');if(m)m.remove();location.reload()}
+  async function signOut(){
+    try{localStorage.removeItem(KEY);localStorage.removeItem(MAP);}catch(e){}
+    var result=await S.auth.signOut();
+    if(result&&result.error){toast('Sign out failed. Please try again.');return;}
+    live=false;workspace=null;sessionUser=null;setPill();location.reload();
+  }
   // Recovery writes are handled by v3.1/app.js after explicit owner confirmation.
-  window.LELive={openAuth:openAuth,signOut:signOut,loadLive:loadLive};styles();pill();S.auth.onAuthStateChange(function(){setTimeout(bootSession,0)});bootSession();
+  window.LELive={openAuth:openAuth,signOut:signOut,loadLive:loadLive};styles();pill();S.auth.onAuthStateChange(function(){generation++;live=false;workspace=null;sessionUser=null;setPill();setTimeout(bootSession,0)});bootSession();
 })();
+
