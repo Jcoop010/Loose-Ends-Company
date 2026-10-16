@@ -21,5 +21,16 @@ jobs:
       # npm install resolves the manifest/lockfile drift; typecheck/build then
       # validate the actual production dependency graph.
       - run: npm install
+      - name: Audit dependency vulnerabilities
+        run: |
+          npm audit --json > dependency-audit.json || true
+          node -e "const a=require('./dependency-audit.json'); console.log('Dependency audit:', JSON.stringify(a.metadata?.vulnerabilities || {}))"
+      - name: Upload dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: dependency-audit.json
+          if-no-files-found: warn
       - run: npm run typecheck
       - run: npm run build
