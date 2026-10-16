@@ -155,7 +155,7 @@ export function RevenueRecovery() {
             <div className="flex items-center gap-2 text-sm text-slate-700 mb-3"><CalendarClock className="w-4 h-4 text-slate-400 flex-shrink-0" /><span>{opp.nextAction}</span></div>
             <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
               <button onClick={() => updateOpportunity(opp.id, { status: 'Contacted', lastContact: new Date().toISOString(), nextAction: 'Wait for response or schedule the next step' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status !== 'Potential'}><Check className="w-3.5 h-3.5" /> Mark contacted</button>
-              <button onClick={() => updateOpportunity(opp.id, { status: 'Scheduled', nextAction: 'Complete the scheduled recovery step' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status === 'Collected' || opp.status === 'Completed'}><CalendarClock className="w-3.5 h-3.5" /> Schedule</button>
+              <button onClick={() => updateOpportunity(opp.id, { status: 'Scheduled', nextAction: 'Complete the scheduled recovery step' })} className="btn-ghost text-xs px-2.5 py-1.5" disabled={opp.status === 'Collected' || opp.status === 'Completed' || opp.status === 'Scheduled'}><CalendarClock className="w-3.5 h-3.5" /> Schedule</button>
               {opp.status !== 'Collected' && <button onClick={() => advanceStage(opp)} className="btn-secondary text-xs px-2.5 py-1.5"><ChevronRight className="w-3.5 h-3.5" />{opp.status === 'Completed' ? 'Mark Collected' : 'Advance'}</button>}
               {opp.status !== 'Collected' && <button onClick={() => snooze(opp)} className="btn-ghost text-xs px-2.5 py-1.5 ml-auto"><BellOff className="w-3.5 h-3.5" /> Snooze</button>}
             </div>
