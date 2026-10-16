@@ -38,24 +38,24 @@
   function style(){
     if(document.getElementById('le-launch-control-style'))return;
     var s=document.createElement('style');s.id='le-launch-control-style';s.textContent='\
-#leLaunchControl{margin:0 0 16px;background:#fff;border:1px solid #dce3ea;border-radius:18px;padding:18px;box-shadow:0 8px 24px rgba(16,24,40,.06)}\
+#leLaunchControl{margin:0 0 16px;background:#0b1b33;color:#f4f7fb;border:1px solid #233b5b;border-radius:18px;padding:18px;box-shadow:0 12px 30px rgba(4,12,26,.24)}\
 #leLaunchControl .lc-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}\
-#leLaunchControl .lc-title{font-size:17px;font-weight:850;color:#101828}\
-#leLaunchControl .lc-sub{font-size:12px;color:#667085;margin-top:4px}\
+#leLaunchControl .lc-title{font-size:17px;font-weight:850;color:#f8fafc}\
+#leLaunchControl .lc-sub{font-size:12px;color:#a8bad1;margin-top:4px}\
 #leLaunchControl .lc-actions{display:flex;gap:8px;flex-wrap:wrap}\
-#leLaunchControl button{border:1px solid #d0d5dd;background:#fff;border-radius:9px;padding:8px 11px;font-weight:750;cursor:pointer}\
-#leLaunchControl .lc-primary{background:#101828;color:#fff;border-color:#101828}\
+#leLaunchControl button{border:1px solid #385273;background:#132946;color:#f8fafc;border-radius:9px;padding:8px 11px;font-weight:750;cursor:pointer}\
+#leLaunchControl .lc-primary{background:#f28c28;color:#111827;border-color:#f28c28}\
 #leLaunchControl .lc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0}\
-#leLaunchControl .lc-stat{background:#f8fafc;border:1px solid #eaecf0;border-radius:12px;padding:11px}\
-#leLaunchControl .lc-stat span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#667085}\
-#leLaunchControl .lc-stat b{display:block;font-size:20px;margin-top:4px;color:#101828}\
+#leLaunchControl .lc-stat{background:#102642;border:1px solid #294566;border-radius:12px;padding:11px}\
+#leLaunchControl .lc-stat span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#a8bad1}\
+#leLaunchControl .lc-stat b{display:block;font-size:20px;margin-top:4px;color:#f8fafc}\
 #leLaunchControl .lc-health{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}\
-#leLaunchControl .lc-health-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid #eaecf0;border-radius:10px}\
+#leLaunchControl .lc-health-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid #294566;background:#102642;border-radius:10px}\
 #leLaunchControl .lc-health-row strong{font-size:12px}\
-#leLaunchControl .lc-health-row small{display:block;color:#667085;margin-top:2px}\
+#leLaunchControl .lc-health-row small{display:block;color:#a8bad1;margin-top:2px}\
 #leLaunchControl .lc-badge{font-size:9px;font-weight:850;letter-spacing:.04em;white-space:nowrap}\
 #leLaunchControl .lc-badge.ok{color:#067647}.lc-badge.warn{color:#b54708}\
-#leLaunchControl .lc-foot{font-size:10px;color:#98a2b3;margin-top:11px}\
+#leLaunchControl .lc-foot{font-size:10px;color:#8299b7;margin-top:11px}\
 @media(max-width:760px){#leLaunchControl .lc-top{flex-direction:column}#leLaunchControl .lc-grid{grid-template-columns:repeat(2,1fr)}#leLaunchControl .lc-health{grid-template-columns:1fr}}';document.head.appendChild(s);
   }
   function render(d){

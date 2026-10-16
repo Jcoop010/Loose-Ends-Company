@@ -130,14 +130,14 @@ export function LandingPage() {
       <section id="lead-form" className="py-16 px-4 sm:px-6 lg:px-8 bg-slate-50">
         <div className="max-w-2xl mx-auto">
           <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center mb-2">Get Your Free Revenue & Operations Audit</h2>
-          <p className="text-center text-slate-500 mb-8">We'll identify missed revenue opportunities in your business — no cost, no obligation.</p>
+          <p className="text-center text-slate-500 mb-8">We discuss missed estimates and follow-ups. No cost, no obligation, and no guaranteed recovery claims.</p>
           {submitted ? (
             <div className="bg-white rounded-xl p-8 border border-slate-200 text-center">
               <div className="w-16 h-16 rounded-full bg-success-100 flex items-center justify-center mx-auto mb-4">
                 <Check className="w-8 h-8 text-success-600" />
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-2">Thank you!</h3>
-              <p className="text-sm text-slate-600 mb-6">We've received your request and will be in touch within 24 hours to schedule your free audit.</p>
+              <p className="text-sm text-slate-600 mb-6">Your request was received. We will contact you about scheduling your free checkup.</p>
               <button onClick={() => navigate('/dashboard')} className="btn-primary">View the Demo Dashboard</button>
             </div>
           ) : (
@@ -179,23 +179,23 @@ export function LandingPage() {
 
       <section id="pricing" className="py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center mb-8">Simple, Transparent Pricing</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 text-center mb-8">Founding Shop Pricing</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl p-8 border border-slate-200">
-              <h3 className="font-bold text-slate-900 mb-1">Monthly Plan</h3>
-              <p className="text-3xl font-bold text-brand-600 mb-4">$499<span className="text-base font-normal text-slate-500">/month</span></p>
+              <h3 className="font-bold text-slate-900 mb-1">Founding Shop Monthly</h3>
+              <p className="text-3xl font-bold text-brand-600 mb-4">$199<span className="text-base font-normal text-slate-500">/month</span></p>
               <ul className="space-y-2 text-sm text-slate-600">
-                {['Revenue recovery tracking', 'Follow-up system', 'Monthly operations review', 'Unlimited support requests', 'Marketing assistance'].map((f, i) => (
+                {['Revenue opportunity tracking', 'Follow-up priority list', 'Monthly results review', 'Supervised onboarding and support', 'Owner-approved customer outreach'].map((f, i) => (
                   <li key={i} className="flex items-center gap-2"><Check className="w-4 h-4 text-success-600" /> {f}</li>
                 ))}
               </ul>
             </div>
             <div className="bg-slate-900 rounded-xl p-8 text-white">
-              <h3 className="font-bold mb-1">Annual Plan</h3>
-              <p className="text-3xl font-bold text-brand-400 mb-4">$4,990<span className="text-base font-normal text-slate-400">/year</span></p>
-              <p className="text-sm text-slate-400 mb-4">Save $998 — two months free!</p>
+              <h3 className="font-bold mb-1">Free Revenue Checkup</h3>
+              <p className="text-3xl font-bold text-brand-400 mb-4">Free</p>
+              <p className="text-sm text-slate-400 mb-4">A free 15-minute discovery call and sample-data demonstration. A longer pilot is available only by mutual agreement.</p>
               <ul className="space-y-2 text-sm text-slate-300">
-                {['Everything in Monthly', 'Quarterly business reviews', 'Priority support', '2 months free'].map((f, i) => (
+                {['15-minute discovery call', 'Demonstration using sample data', 'No customer-data access required for the checkup', 'No guaranteed recovery claims'].map((f, i) => (
                   <li key={i} className="flex items-center gap-2"><Check className="w-4 h-4 text-success-400" /> {f}</li>
                 ))}
               </ul>

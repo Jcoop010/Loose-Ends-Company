@@ -17,6 +17,29 @@ jobs:
           cache: npm
       # Catch syntax errors across every app module before installing dependencies.
       - run: find v3.1 -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      # Fail early if the dashboard references a missing local script or stylesheet.
+      - name: Verify local frontend assets
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const html = fs.readFileSync('index.html', 'utf8');
+          const refs = [];
+          for (const match of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>|<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi)) {
+            const ref = match[1] || match[2];
+            if (/^(?:https?:)?\/\//i.test(ref) || /^(?:data:|#)/i.test(ref)) continue;
+            const pathname = decodeURIComponent(ref.split(/[?#]/, 1)[0]).replace(/^\//, '');
+            if (pathname) refs.push(pathname);
+          }
+          const missing = [...new Set(refs)].filter((ref) => !fs.existsSync(path.resolve(ref)));
+          if (missing.length) {
+            console.error('Missing local frontend assets:', missing.join(', '));
+            process.exit(1);
+          }
+          console.log(`Verified ${new Set(refs).size} local frontend assets.`);
+          NODE
+      - name: Check backend security invariants
+        run: node scripts/security-regression-check.mjs
       # The committed lockfile predates the Supabase runtime dependency.
       # npm install resolves the manifest/lockfile drift; typecheck/build then
       # validate the actual production dependency graph.
