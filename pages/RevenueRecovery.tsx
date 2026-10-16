@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
+import { useRouter } from '../router'
 import { PIPELINE_STAGES } from '../data'
 import type { Opportunity, OpportunityType } from '../types'
 import { formatCurrency, formatDate, timeAgo } from '../utils'
@@ -13,12 +14,15 @@ const OPPORTUNITY_FILTERS: Array<'All' | OpportunityType> = [
 
 export function RevenueRecovery() {
   const { data, updateOpportunity, addRevenueEvent, runRevenueScan } = useStore()
+  const { search: locationSearch, navigate } = useRouter()
   const [typeFilter, setTypeFilter] = useState<string>('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [collectModal, setCollectModal] = useState<Opportunity | null>(null)
   const [collectAmount, setCollectAmount] = useState('')
   const [scanMessage, setScanMessage] = useState('')
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get('opportunity'))
+
+  useEffect(() => { setSelectedId(new URLSearchParams(locationSearch).get('opportunity')) }, [locationSearch])
 
   useEffect(() => {
     if (!selectedId) return
@@ -129,7 +133,7 @@ export function RevenueRecovery() {
         </div>
       </div>
 
-      {selectedId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>Opportunity selected from the dashboard</span><button className="font-semibold underline" onClick={() => { setSelectedId(null); window.history.replaceState({}, "", window.location.pathname) }}>Show full queue</button></div>}
+      {selectedId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>Opportunity selected from the dashboard</span><button className="font-semibold underline" onClick={() => navigate(window.location.pathname)}>Show full queue</button></div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map(opp => (
           <div id={`opportunity-${opp.id}`} key={opp.id} className={`card p-4 hover:shadow-md transition-shadow ${selectedId === opp.id ? "ring-2 ring-emerald-500" : ""}`}>
