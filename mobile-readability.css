@@ -1,0 +1,43 @@
+/* Mobile/tablet dashboard readability patch. Layout only; no data or behavior changes. */
+@media (max-width:1100px) {
+  html,body{max-width:100%;overflow-x:hidden}
+  .app-shell{width:100%;min-width:0}
+  .sidebar{display:none!important}
+  .main{margin-left:0!important;width:100%!important;min-width:0!important;padding-bottom:calc(88px + env(safe-area-inset-bottom))}
+  .topbar{height:auto!important;min-height:62px;padding:10px 16px!important;gap:12px;flex-wrap:wrap}
+  .mobile-brand{display:block!important;font-size:16px;font-weight:850;letter-spacing:.04em}
+  .topbar .search{display:none!important}
+  .top-actions{margin-left:auto;gap:8px}
+  .shop-btn{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #content{width:100%;min-width:0;overflow-wrap:anywhere}
+  #content > *,#content section,#content article{max-width:100%;min-width:0}
+  .page{padding:18px 14px 36px!important;max-width:100%}
+  .grid4,.insights{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .two-col,.analytics,.recovery-grid,.template-columns{grid-template-columns:minmax(0,1fr)!important}
+  .page-head,.section-head{flex-wrap:wrap}
+  .title{font-size:clamp(23px,4vw,30px)}
+  .subtitle,.section-sub{font-size:12px;line-height:1.55}
+  .card,.kpi{min-width:0}
+  .kpi{padding:16px}
+  .kpi-value{font-size:clamp(22px,4vw,30px)}
+  .toolbar{flex-wrap:wrap}
+  button,input,select,textarea{max-width:100%}
+  .le-mobile-nav{display:grid!important}
+  .le-mobile-tab{min-height:54px}
+  .le-module-form{grid-template-columns:minmax(0,1fr)!important}
+  .le-module-form .wide{grid-column:auto}
+}
+@media(max-width:600px){
+  .topbar{padding:10px 12px!important}
+  .top-actions .icon-btn{min-width:40px;min-height:40px}
+  .shop-btn{display:none!important}
+  .page{padding:14px 11px 30px!important}
+  .grid4,.insights{gap:9px!important}
+  .kpi{padding:12px}
+  .kpi-top,.kpi-note{font-size:10px}
+  .kpi-value{font-size:22px}
+  .drawer{width:100%!important}
+}
+/* Clearer contrast in the white revenue overview and lighter metric tiles. */
+#content [style*="background: white"],#content [style*="background:#fff"],#content [style*="background: #fff"]{color:#142334}
+#content [style*="background: white"] p,#content [style*="background:#fff"] p{color:#43566b}
