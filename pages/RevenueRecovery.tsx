@@ -58,12 +58,14 @@ export function RevenueRecovery() {
   const collectedTotal = data.opportunities.filter(o => o.status === 'Collected').reduce((sum, o) => sum + (o.collectedAmount || 0), 0)
 
   const advanceStage = (opp: Opportunity) => {
-    const idx = PIPELINE_STAGES.indexOf(opp.status)
+    const current = data.opportunities.find(o => o.id === opp.id)
+    if (!current || current.status === 'Collected') return
+    const idx = PIPELINE_STAGES.indexOf(current.status)
     if (idx < PIPELINE_STAGES.length - 1) {
       const next = PIPELINE_STAGES[idx + 1]
       if (next === 'Collected') {
-        setCollectModal(opp)
-        setCollectAmount(String(opp.potentialValue))
+        setCollectModal(current)
+        setCollectAmount(String(current.potentialValue))
       } else {
         updateOpportunity(opp.id, { status: next })
       }
