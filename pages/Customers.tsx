@@ -399,6 +399,9 @@ export function Customers() {
                   <tr
                     key={customer.id}
                     onClick={() => setSelectedId(customer.id)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(customer.id) } }}
+                    tabIndex={0}
+                    aria-label={`Open customer ${customer.name}`}
                     className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
                   >
                     <td className="px-4 py-3">
