@@ -23,7 +23,7 @@ export function RouterProvider({ children }: { children: ReactNode }) {
 
   const navigate = (path: string) => {
     const normalized = normalize(path)
-    if (normalized !== window.location.pathname) window.history.pushState({}, '', normalized)
+    if (path !== window.location.pathname + window.location.search + window.location.hash) window.history.pushState({}, '', path)
     setRoute(normalized)
     window.scrollTo(0, 0)
   }
