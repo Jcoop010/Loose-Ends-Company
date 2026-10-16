@@ -1,0 +1,30 @@
+name: Refresh Vite lockfile
+on:
+  push:
+    branches: [security/vite-modernization-20261016]
+    paths: [.github/workflows/refresh-vite-lockfile.yml]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/vite-modernization-20261016
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Resolve updated Vite dependencies
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-fund
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Commit lockfile
+        run: |
+          git add package-lock.json
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'chore: lock updated Vite dependency graph'
+          git push origin HEAD:security/vite-modernization-20261016
