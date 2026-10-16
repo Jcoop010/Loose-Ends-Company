@@ -27,6 +27,46 @@
     body.le-focused-overview .le-scan{margin-top:12px!important}\n    body.le-focused-overview #le-launch-panel .le-launch-sub{line-height:1.5}\n    body.le-focused-overview #le-launch-panel .le-launch-step{min-width:0}
     body.le-focused-overview #content .page{display:flex;flex-direction:column;gap:12px}
     body.le-focused-overview #content .page > *{flex-shrink:0;min-width:0}
+
+    /* Desktop-first command center: preserve all functional modules while
+       giving the actionable queue a strong visual hierarchy. */
+    @media(min-width:1101px){
+      body.le-focused-overview #content .page{gap:18px!important}
+      body.le-focused-overview #le-launch-panel{
+        padding:16px 22px!important;border-radius:14px!important;
+        background:linear-gradient(110deg,#10252c,#0e2631)!important;
+        box-shadow:none!important
+      }
+      body.le-focused-overview #le-launch-panel .le-launch-head{align-items:center!important}
+      body.le-focused-overview #le-launch-panel .le-launch-title{font-size:17px!important;line-height:1.25!important}
+      body.le-focused-overview #le-launch-panel .le-launch-sub{font-size:12px!important;max-width:780px!important}
+      body.le-focused-overview #le-launch-panel .le-launch-steps{display:none!important}
+      body.le-focused-overview #le-launch-panel .le-launch-actions{margin-top:12px!important}
+      body.le-focused-overview #le-launch-panel .le-launch-actions button{
+        padding:9px 13px!important;font-size:12px!important;min-height:36px
+      }
+      body.le-focused-overview .le-scan{
+        border-radius:14px!important;box-shadow:none!important;
+        padding:20px 24px!important
+      }
+      body.le-focused-overview .le-scan .le-scan-title{font-size:20px!important}
+      body.le-focused-overview .v4-page{display:flex;flex-direction:column;gap:16px}
+      body.le-focused-overview .v4-page .v4-kpis{
+        display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important
+      }
+      body.le-focused-overview .v4-page .v4-kpis > :nth-child(5){display:none!important}
+      body.le-focused-overview .v4-page .v4-grid-main{
+        display:grid!important;grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr)!important;gap:16px!important
+      }
+      body.le-focused-overview .v4-page .v4-card{
+        border-radius:14px!important;box-shadow:none!important;min-width:0
+      }
+      body.le-focused-overview .v4-page .v4-section-title{font-size:16px!important}
+    }
+    @media(min-width:1101px) and (max-width:1370px){
+      body.le-focused-overview .v4-page .v4-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+      body.le-focused-overview .v4-page .v4-grid-main{grid-template-columns:minmax(0,1fr)!important}
+    }
     @media(max-width:700px){
       body.le-focused-overview #le-engine-panel .le-engine-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
       body.le-focused-overview #le-engine-panel .le-engine-head{flex-wrap:wrap;gap:10px}
