@@ -41,3 +41,27 @@
 /* Clearer contrast in the white revenue overview and lighter metric tiles. */
 #content [style*="background: white"],#content [style*="background:#fff"],#content [style*="background: #fff"]{color:#142334}
 #content [style*="background: white"] p,#content [style*="background:#fff"] p{color:#43566b}
+
+/* High-contrast revenue engine across dedicated recovery views. */
+.le-engine{background:#112232!important;color:#f4f8fb!important;border:1px solid #2c4558!important;box-shadow:0 12px 32px rgba(0,0,0,.2)}
+.le-engine h2,.le-engine .le-engine-stat strong,.le-engine .le-engine-row strong,.le-engine .le-engine-rank,.le-engine .le-engine-money{color:#f4f8fb!important}
+.le-engine .le-engine-kicker,.le-engine .le-engine-sub,.le-engine .le-engine-stat span,.le-engine .le-engine-row small{color:#b4c5d4!important}
+.le-engine .le-engine-stat{background:#1a3142!important;border:1px solid #2b4758}
+.le-engine .le-engine-row,.le-engine .le-engine-list{color:#edf5fa}
+.le-engine .le-engine-row{border-color:#30495a!important}
+.le-engine .le-engine-primary{background:#253d50!important;color:#fff!important}
+.le-engine .le-engine-accent{background:#55d7b2!important;color:#07251d!important}
+.le-engine .le-engine-empty{background:#192d3e!important;color:#c9d8e4!important}
+@media(max-width:1100px){
+  .le-launch-wrap,.le-scan,.le-engine{padding:16px!important;border-radius:16px!important}
+  .le-launch-title,.le-scan-title{font-size:clamp(18px,3vw,24px)!important;line-height:1.2!important}
+  .le-launch-sub,.le-scan-sub{font-size:12px!important;line-height:1.55!important}
+  .le-launch-actions button,.le-scan button{min-height:44px}
+}
+@media(max-width:700px){
+  .le-launch-head{display:flex;flex-wrap:wrap;gap:10px}
+  .le-launch-steps{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .le-launch-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
+  .le-launch-actions button{white-space:normal;line-height:1.3;padding:10px!important}
+  .le-engine-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
