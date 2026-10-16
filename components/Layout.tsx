@@ -11,7 +11,6 @@ const navItems = [
   { label: 'Revenue Recovery', path: '/dashboard/revenue-recovery', icon: <Unlink className="w-5 h-5" /> },
   { label: 'Tasks', path: '/dashboard/tasks', icon: <CheckSquare className="w-5 h-5" /> },
   { label: 'Intelligence', path: '/dashboard/intelligence', icon: <Brain className="w-5 h-5" /> },
-  { label: 'Lead Inbox', path: '/dashboard/leads', icon: <Search className="w-5 h-5" /> },
   { label: 'Settings', path: '/dashboard/settings', icon: <Settings className="w-5 h-5" /> },
 ]
 
