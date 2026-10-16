@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm'
 const src = readFileSync(new URL('../api/create-subscription-checkout.js', import.meta.url), 'utf8')
 assert.match(src, /price_1URCPvIS04s94hSMFJ9azsC8/)
 assert.match(src, /client_reference_id: workspaceId/)
-assert.match(src, /subscription_data\\]\[metadata\\]\[workspace_id/)
+assert.ok(src.includes('subscription_data[metadata][workspace_id]'))
 assert.match(src, /getUser\\(\\)/)
 assert.match(src, /\\['owner', 'admin'\\]/)
 assert.match(src, /Billing is not configured/)
