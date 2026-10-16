@@ -44,6 +44,7 @@ jobs:
           if-no-files-found: warn
       - run: node tests/dependency-audit.test.mjs
       - run: npm run test:scanner
+      - run: node tests/workflow-security.test.mjs
       - run: npm run test:runtime
       - run: npm run test:recovery
       - run: npm run typecheck
