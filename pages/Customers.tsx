@@ -286,7 +286,7 @@ function CustomerDetail({ customer, onBack }: { customer: Customer; onBack: () =
 
 export function Customers() {
   const { data, addCustomer } = useStore()
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
