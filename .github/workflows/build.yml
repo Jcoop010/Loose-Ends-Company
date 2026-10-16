@@ -42,6 +42,7 @@ jobs:
           name: dependency-audit
           path: dependency-audit.json
           if-no-files-found: warn
+      - run: npm run test:scanner
       - run: npm run test:runtime
       - run: npm run test:recovery
       - run: npm run typecheck
