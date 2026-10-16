@@ -311,13 +311,13 @@ export function Customers() {
 
   const submitCustomer = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.name.trim() || !form.phone.trim()) return
+    if (!form.name.trim() || !form.phone.trim() || !/^\d+(?:\.\d{1,2})?$/.test(form.lifetimeValue.trim()) || !Number.isFinite(Number(form.lifetimeValue))) return
     const now = new Date().toISOString()
     const id = addCustomer({
       name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(), status: form.status,
       lastService: form.lastService ? new Date(form.lastService).toISOString() : now,
       lastServiceDescription: form.lastServiceDescription.trim() || 'New customer',
-      lifetimeValue: Math.max(0, Number(form.lifetimeValue) || 0),
+      lifetimeValue: Number(form.lifetimeValue),
       notes: form.notes.trim() ? [form.notes.trim()] : [],
     })
     setForm({ name: '', phone: '', email: '', status: 'Active', lastService: '', lastServiceDescription: '', lifetimeValue: '0', notes: '' })
@@ -369,7 +369,7 @@ export function Customers() {
               <div><label className="label">Email</label><input type="email" value={form.email} onChange={e => setForm({...form,email:e.target.value})} className="input" placeholder="alex@example.com" /></div>
               <div><label className="label">Status</label><select value={form.status} onChange={e => setForm({...form,status:e.target.value as Customer['status']})} className="input">{CUSTOMER_STATUSES.filter(x => x !== 'All').map(x => <option key={x}>{x}</option>)}</select></div>
               <div><label className="label">Last Service Date</label><input type="date" value={form.lastService} onChange={e => setForm({...form,lastService:e.target.value})} className="input" /></div>
-              <div><label className="label">Lifetime Value</label><input type="number" min="0" step="0.01" value={form.lifetimeValue} onChange={e => setForm({...form,lifetimeValue:e.target.value})} className="input" /></div>
+              <div><label className="label">Lifetime Value</label><input type="number" min="0" step="0.01" required value={form.lifetimeValue} onChange={e => setForm({...form,lifetimeValue:e.target.value})} className="input" /></div>
               <div className="sm:col-span-2"><label className="label">Last Service</label><input value={form.lastServiceDescription} onChange={e => setForm({...form,lastServiceDescription:e.target.value})} className="input" placeholder="Oil change and inspection" /></div>
               <div className="sm:col-span-2"><label className="label">Notes</label><textarea rows={3} value={form.notes} onChange={e => setForm({...form,notes:e.target.value})} className="input" placeholder="Preferences, context, follow-up details..." /></div>
             </div>
