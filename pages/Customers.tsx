@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { useRouter } from '../router'
 import { CUSTOMER_STATUSES } from '../data'
@@ -288,8 +288,9 @@ function CustomerDetail({ customer, onBack }: { customer: Customer; onBack: () =
 export function Customers() {
   const { data, addCustomer } = useStore()
   const { search: locationSearch } = useRouter()
+  const customerSearchRef = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
-  useEffect(() => { setSearch(new URLSearchParams(locationSearch).get('search') || ''); setSelectedId(null); setStatusFilter('All') }, [locationSearch])
+  useEffect(() => { setSearch(new URLSearchParams(locationSearch).get('search') || ''); setSelectedId(null); setStatusFilter('All'); if (new URLSearchParams(locationSearch).get('focus') === 'search') customerSearchRef.current?.focus() }, [locationSearch])
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
@@ -337,6 +338,8 @@ export function Customers() {
           <input
             type="text"
             placeholder="Search by name, phone, or email..."
+            ref={customerSearchRef}
+            aria-label="Search customers by name, phone, or email"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="input pl-10"
