@@ -23,7 +23,7 @@
     var tz=document.getElementById('le-on-tz').value||'America/New_York';
     var wr=await S.from('workspaces').update({name:name,updated_at:new Date().toISOString()}).eq('id',w.id);
     if(wr.error){toast(wr.error.message);return false}
-    var sr=await S.from('workspace_settings').upsert({workspace_id:w.id,business_type:type,timezone:tz,onboarding_completed:false},{onConflict:'workspace_id'});
+    var existing=await settings(w);var payload={workspace_id:w.id,business_type:type,timezone:tz};if(!existing)payload.onboarding_completed=false;var sr=await S.from('workspace_settings').upsert(payload,{onConflict:'workspace_id'});
     if(sr.error){toast(sr.error.message);return false}
     toast('Business profile saved');return true;
   }
