@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const src = readFileSync(new URL('../supabase/functions/recovery-delivery-preflight/index.ts', import.meta.url), 'utf8')
+assert.match(src, /getUser\(token\)/, 'JWT must resolve to a verified user')
+assert.match(src, /\["owner","admin"\]/, 'Only owner or admin may enqueue')
+assert.match(src, /approval\.data\.action!=="recovery_draft_approved"/)
+assert.match(src, /opportunity\.data\.customer_id!==meta\.customer_id/)
+assert.match(src, /consent\.data\[0\]\.decision!=="granted"/)
+assert.match(src, /consent\.data\[0\]\.id!==meta\.consent_event_id/, 'Latest consent event must match approval')
+assert.match(src, /consent\.data\[0\]\.evidence_reference!==meta\.consent_reference/)
+assert.match(src, /body\.action==="enqueue_draft"/)
+assert.match(src, /idempotency_key:"approved:"\+a\.id/)
+assert.match(src, /saved\.error\.code==="23505"/, 'Concurrent duplicate inserts must be resolved')
+assert.match(src, /status:"draft"/)
+assert.doesNotMatch(src, /delivery_enabled:true|status:"sending"|status:"sent"/, 'Sending must remain disabled')
+assert.doesNotMatch(src, /twilio\.com|sendgrid\.com|resend\.com|\.sendSms\(|\.sendEmail\(/i)
+console.log('Autopilot preflight fail-closed source invariants passed')
