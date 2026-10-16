@@ -50,8 +50,12 @@ async function executeActions(db: any, workspaceId: string, workflow: any, run: 
   const customerId = record.customer_id || (entity === "customers" ? record.id : null);
   const opportunityId = record.opportunity_id || (entity === "opportunities" ? record.id : null);
   const outputs: any[] = [];
+  // An empty action list is a configuration failure, not a successful automation.
+  if (!Array.isArray(workflow.actions) || workflow.actions.length === 0) {
+    throw new Error("Workflow has no actions to execute");
+  }
 
-  for (const action of workflow.actions || []) {
+  for (const action of workflow.actions) {
     if (action.type === "create_task") {
       const { data, error } = await db.from("tasks").insert({
         workspace_id: workspaceId,
