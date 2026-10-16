@@ -7,7 +7,7 @@
   var TYPES=['Appointment','Follow-up','Delivery','Call','Internal','Install'];
   function qs(s,el){return (el||document).querySelector(s);}
   function money(n){return '$'+Math.round(Number(n||0)).toLocaleString();}
-  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'}[c];});}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function uid(){return 'id-'+Date.now()+'-'+Math.floor(Math.random()*9999);}
   function total(o){var s=(o.items||[]).reduce(function(a,i){return a+(Number(i.qty)||0)*(Number(i.price)||0);},0);return s*(1+(Number(o.tax)||0));}
   function load(){
@@ -181,6 +181,7 @@
     document.head.appendChild(s);
   }
   function boot(){styles();hook();setTimeout(hook,400);setTimeout(hook,1500);}
-  window.LESalesCRM={go:go,renderSales:renderSales,renderCal:renderCal,setData:function(next){if(next&&Array.isArray(next.orders))db.orders=next.orders;if(next&&Array.isArray(next.events))db.events=next.events;persist(db);}};
+  window.LESalesCRM={getData:function(){return db;},go:go,renderSales:renderSales,renderCal:renderCal,setData:function(next){if(next&&Array.isArray(next.orders))db.orders=next.orders;if(next&&Array.isArray(next.events))db.events=next.events;persist(db);}};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
+
