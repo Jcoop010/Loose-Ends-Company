@@ -80,10 +80,10 @@ export function Dashboard() {
           <div>
             {queue.map((opp, index) => (
               <div key={opp.id} className={`flex flex-wrap sm:grid sm:grid-cols-[minmax(110px,150px)_minmax(0,1fr)_auto_auto] xl:grid-cols-[minmax(125px,180px)_minmax(0,1fr)_auto_auto_auto] gap-3 items-center px-6 py-4 ${index !== queue.length - 1 ? 'border-b border-slate-100' : ''}`}>
-                <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${opp.type === 'Declined Work' ? 'bg-red-500/20 text-red-300' : opp.type === 'Maintenance Due' ? 'bg-blue-500/20 text-blue-300' : opp.type === 'Missed Call' ? 'bg-slate-700 text-slate-300' : 'bg-indigo-500/20 text-indigo-300'}`}>{actionLabel(opp.type)}</span>
+                <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${opp.type === 'Declined Work' ? 'bg-rose-50 text-rose-700' : opp.type === 'Maintenance Due' ? 'bg-sky-50 text-sky-700' : opp.type === 'Missed Call' ? 'bg-slate-100 text-slate-700' : 'bg-indigo-50 text-indigo-700'}`}>{actionLabel(opp.type)}</span>
                 <div className="min-w-0"><p className="font-semibold text-slate-900 truncate">{opp.customerName}</p><p className="text-xs text-slate-500 truncate">{opp.phone}{opp.vehicle ? ` · ${opp.vehicle.year} ${opp.vehicle.make} ${opp.vehicle.model}` : ''}</p></div>
                 <span className="font-semibold text-slate-900 whitespace-nowrap">{formatCurrency(opp.potentialValue)}</span>
-                <span className={`hidden sm:inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${opp.potentialValue >= 1000 ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>{opp.potentialValue >= 1000 ? 'High' : 'Medium'}</span>
+                <span className={`hidden sm:inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${opp.potentialValue >= 1000 ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{opp.potentialValue >= 1000 ? 'High' : 'Medium'}</span>
                 <button onClick={() => navigate(`/dashboard/revenue-recovery?opportunity=${encodeURIComponent(opp.id)}`)} className="premium-row-action rounded-lg font-semibold text-xs px-4 py-2.5 whitespace-nowrap transition-colors ml-auto sm:ml-0">Take action</button>
               </div>
             ))}
@@ -118,7 +118,7 @@ function MetricCard({ icon, label, value, sub, }: { icon: React.ReactNode; label
 }
 
 function ActionRow({ icon, title, subtitle, count, onClick }: { icon: React.ReactNode; title: string; subtitle: string; count: number; onClick: () => void }) {
-  return <button onClick={onClick} className="w-full flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-emerald-50 hover:border-emerald-200 px-4 py-3.5 text-left transition-colors"><div className="w-10 h-10 rounded-xl bg-brand-500/10 text-brand-400 flex items-center justify-center flex-shrink-0">{icon}</div><div className="min-w-0 flex-1"><p className="font-semibold text-slate-900 text-sm">{title}</p><p className="text-xs text-slate-500 truncate mt-0.5">{subtitle}</p></div><span className="text-sm text-slate-400">{count}</span></button>
+  return <button onClick={onClick} className="w-full flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-emerald-50 hover:border-emerald-200 px-4 py-3.5 text-left transition-colors"><div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0">{icon}</div><div className="min-w-0 flex-1"><p className="font-semibold text-slate-900 text-sm">{title}</p><p className="text-xs text-slate-500 truncate mt-0.5">{subtitle}</p></div><span className="text-sm text-slate-400">{count}</span></button>
 }
 
 function SmallStat({ label, value }: { label: string; value: string }) {
