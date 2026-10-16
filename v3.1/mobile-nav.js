@@ -7,7 +7,7 @@
     style.id='leMobileNavStyle';
     style.textContent=''
       +'.le-mobile-nav,.le-more-menu,.le-more-backdrop{display:none}'
-      +'@media(max-width:700px){'
+      +'@media(max-width:1100px){'
       +'.le-mobile-nav{position:fixed;left:0;right:0;bottom:0;z-index:900;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:6px 6px calc(6px + env(safe-area-inset-bottom));background:rgba(7,17,31,.97);border-top:1px solid #26394c;box-shadow:0 -12px 30px rgba(0,0,0,.28);backdrop-filter:blur(16px)}'
       +'.le-mobile-tab{position:relative;border:0;background:transparent;color:#9aadc0;min-width:0;min-height:54px;border-radius:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:650 10px/1.1 system-ui,sans-serif;cursor:pointer;-webkit-tap-highlight-color:transparent}'
       +'.le-mobile-tab .le-tab-icon{font-size:20px;line-height:20px}'
