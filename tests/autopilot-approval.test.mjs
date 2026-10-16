@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const code=readFileSync(new URL('../v3.1/revenue-engine.js',import.meta.url),'utf8')
+assert.match(code,/DRAFT · HUMAN REVIEW REQUIRED/)
+assert.match(code,/le-autopilot-consent/)
+assert.match(code,/le-autopilot-approval/)
+assert.match(code,/!consent.checked\|\|!approval.checked/)
+assert.match(code,/No message was sent/)
+assert.match(code,/await window.LE.recover\(id\)/)
+assert.doesNotMatch(code,/fetch\(['"]https?:\/\/[^'"]+\/messages/, 'Draft approval must not trigger outbound delivery')
+console.log('Autopilot consent and approval safeguards verified')
