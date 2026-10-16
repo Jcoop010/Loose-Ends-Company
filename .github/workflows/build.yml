@@ -24,7 +24,7 @@ jobs:
       - name: Audit dependency vulnerabilities
         run: |
           npm audit --json > dependency-audit.json || true
-          node -e "const a=require('./dependency-audit.json'); console.log('Dependency audit:', JSON.stringify(a.metadata?.vulnerabilities || {}))"
+          node -e "const a=require('./dependency-audit.json'); const v=a.metadata?.vulnerabilities || {}; console.log('Dependency audit:', JSON.stringify(v)); if ((v.critical || 0) > 0) { console.error('Critical dependency vulnerabilities detected'); process.exit(1) }"
       - name: Upload dependency audit report
         if: always()
         uses: actions/upload-artifact@v4
