@@ -67,7 +67,7 @@ export function RevenueRecovery() {
         setCollectModal(current)
         setCollectAmount(String(current.potentialValue))
       } else {
-        updateOpportunity(opp.id, { status: next })
+        updateOpportunity(current.id, { status: next })
       }
     }
   }
