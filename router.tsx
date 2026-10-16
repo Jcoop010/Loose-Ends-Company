@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 
 interface RouterContextValue {
   route: string
+  search: string
   navigate: (path: string) => void
 }
 
@@ -14,9 +15,10 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   }
 
   const [route, setRoute] = useState(() => normalize(window.location.pathname || '/'))
+  const [search, setSearch] = useState(() => window.location.search)
 
   useEffect(() => {
-    const handler = () => setRoute(normalize(window.location.pathname))
+    const handler = () => { setRoute(normalize(window.location.pathname)); setSearch(window.location.search) }
     window.addEventListener('popstate', handler)
     return () => window.removeEventListener('popstate', handler)
   }, [])
@@ -25,10 +27,11 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     const normalized = normalize(path)
     if (path !== window.location.pathname + window.location.search + window.location.hash) window.history.pushState({}, '', path)
     setRoute(normalized)
+    setSearch(window.location.search)
     window.scrollTo(0, 0)
   }
 
-  return <RouterContext.Provider value={{ route, navigate }}>{children}</RouterContext.Provider>
+  return <RouterContext.Provider value={{ route, search, navigate }}>{children}</RouterContext.Provider>
 }
 
 export function useRouter(): RouterContextValue {

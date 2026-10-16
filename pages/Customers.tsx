@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
+import { useRouter } from '../router'
 import { CUSTOMER_STATUSES } from '../data'
 import type { Customer } from '../types'
 import { formatCurrency, formatDate, monthsSince, timeAgo } from '../utils'
@@ -286,7 +287,9 @@ function CustomerDetail({ customer, onBack }: { customer: Customer; onBack: () =
 
 export function Customers() {
   const { data, addCustomer } = useStore()
+  const { search: locationSearch } = useRouter()
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
+  useEffect(() => { setSearch(new URLSearchParams(locationSearch).get('search') || '') }, [locationSearch])
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
