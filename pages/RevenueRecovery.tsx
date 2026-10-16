@@ -42,6 +42,8 @@ export function RevenueRecovery() {
     [data.opportunities, typeFilter, statusFilter, selectedId],
   )
 
+  const selectedMissing = !!selectedId && !data.opportunities.some(o => o.id === selectedId)
+
   const pipelineValues = useMemo(() => {
     const vals: Record<string, number> = {}
     PIPELINE_STAGES.forEach(s => { vals[s] = 0 })
@@ -133,7 +135,7 @@ export function RevenueRecovery() {
         </div>
       </div>
 
-      {selectedId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>Opportunity selected from the dashboard</span><button className="font-semibold underline" onClick={() => navigate(window.location.pathname)}>Show full queue</button></div>}
+      {selectedId && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>{selectedMissing ? "This opportunity is no longer available in this workspace." : "Opportunity selected from the dashboard"}</span><button className="font-semibold underline" onClick={() => navigate(window.location.pathname)}>Show full queue</button></div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map(opp => (
           <div id={`opportunity-${opp.id}`} key={opp.id} className={`card p-4 hover:shadow-md transition-shadow ${selectedId === opp.id ? "ring-2 ring-emerald-500" : ""}`}>
