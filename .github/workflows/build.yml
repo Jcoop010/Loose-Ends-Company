@@ -46,6 +46,7 @@ jobs:
       - run: npm run test:scanner
       - run: node tests/background-workflow.test.mjs
       - run: node tests/workflow-security.test.mjs
+      - run: node tests/launch-readiness.test.mjs
       - run: npm run test:runtime
       - run: npm run test:recovery
       - run: npm run typecheck
