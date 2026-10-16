@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import { PIPELINE_STAGES } from '../data'
 import type { Opportunity, OpportunityType } from '../types'
@@ -21,11 +21,18 @@ export function RevenueRecovery() {
   const [collectError, setCollectError] = useState('')
   const [scanMessage, setScanMessage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [highlightId, setHighlightId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('opportunity'))
+
+  useEffect(() => {
+    if (!highlightId) return
+    const target = document.getElementById(`recovery-opportunity-${highlightId}`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [highlightId, data.opportunities])
 
   const filtered = useMemo(
     () => data.opportunities
-      .filter(o => !(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter))
-      .filter(o => !searchQuery.trim() || [o.customerName, o.type, o.status, o.notes || ''].some(value => value.toLowerCase().includes(searchQuery.trim().toLowerCase())))
+      .filter(o => o.id === highlightId || (!(typeFilter !== 'All' && o.type !== typeFilter) && !(statusFilter !== 'All' && o.status !== statusFilter)))
+      .filter(o => o.id === highlightId || !searchQuery.trim() || [o.customerName, o.type, o.status, o.notes || ''].some(value => value.toLowerCase().includes(searchQuery.trim().toLowerCase())))
       .sort((a, b) => {
         if (a.status === 'Collected' && b.status !== 'Collected') return 1
         if (b.status === 'Collected' && a.status !== 'Collected') return -1
@@ -33,7 +40,7 @@ export function RevenueRecovery() {
         const bScore = b.potentialValue * (b.confidence ?? 0.5)
         return bScore - aScore
       }),
-    [data.opportunities, typeFilter, statusFilter, searchQuery],
+    [data.opportunities, typeFilter, statusFilter, searchQuery, highlightId],
   )
 
   const pipelineValues = useMemo(() => {
@@ -132,9 +139,10 @@ export function RevenueRecovery() {
         </div>
       </div>
 
+      {highlightId && <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>Showing the opportunity selected from your dashboard.</span><button className="font-semibold underline" onClick={() => { setHighlightId(null); window.history.replaceState({}, "", window.location.pathname) }}>Show full queue</button></div>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {filtered.map(opp => (
-          <div key={opp.id} className="card p-4 hover:shadow-md transition-shadow">
+          <div id={`recovery-opportunity-${opp.id}`} key={opp.id} className={`card p-4 hover:shadow-md transition-shadow ${highlightId === opp.id ? "ring-2 ring-emerald-500 border-emerald-400" : ""}`}>
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div>
                 <div className="flex items-center gap-2 flex-wrap"><h3 className="font-bold text-slate-900">{opp.customerName}</h3><OpportunityTypeBadge type={opp.type} /></div>
