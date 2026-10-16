@@ -23,11 +23,11 @@ jobs:
       - name: Audit dependency vulnerabilities
         run: |
           npm audit --json > dependency-audit.json || true
-          node -e "const a=require('./dependency-audit.json'); const v=a.metadata?.vulnerabilities || {}; console.log('Dependency audit:', JSON.stringify(v)); if ((v.critical || 0) > 0) { console.error('Critical dependency vulnerabilities detected'); process.exit(1) }"
+          node scripts/check-dependency-audit.mjs dependency-audit.json full
       - name: Audit production runtime dependencies
         run: |
           npm audit --omit=dev --json > production-dependency-audit.json || true
-          node -e "const a=require('./production-dependency-audit.json'); const v=a.metadata?.vulnerabilities || {}; console.log('Production dependency audit:', JSON.stringify(v)); if ((v.high || 0) > 0 || (v.critical || 0) > 0) { console.error('High or critical runtime dependency vulnerabilities detected'); process.exit(1) }"
+          node scripts/check-dependency-audit.mjs production-dependency-audit.json runtime
       - name: Upload production dependency audit
         if: always()
         uses: actions/upload-artifact@v4
@@ -42,6 +42,7 @@ jobs:
           name: dependency-audit
           path: dependency-audit.json
           if-no-files-found: warn
+      - run: node tests/dependency-audit.test.mjs
       - run: npm run test:scanner
       - run: npm run test:runtime
       - run: npm run test:recovery
