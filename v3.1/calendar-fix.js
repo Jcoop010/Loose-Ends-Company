@@ -9,10 +9,12 @@
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function uid(){return 'cal-'+Date.now()+'-'+Math.floor(Math.random()*99999);}
   function load(){
+    if(window.LESalesCRM&&window.LESalesCRM.getData)return window.LESalesCRM.getData();
+    if(location.pathname!=='/demo'&&location.pathname.indexOf('/demo/')!==0)return {orders:[],events:[]};
     try{var d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&Array.isArray(d.orders)&&Array.isArray(d.events))return d;}catch(e){}
     return {orders:[],events:[]};
   }
-  function save(d){try{localStorage.setItem(KEY,JSON.stringify(d));}catch(e){}}
+  function save(d){if(window.LESalesCRM&&window.LESalesCRM.setData){window.LESalesCRM.setData(d);return;}if(location.pathname==='/demo'||location.pathname.indexOf('/demo/')===0){try{localStorage.setItem(KEY,JSON.stringify(d));}catch(e){}}}
   function key(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
   function fromKey(k){var p=k.split('-');return new Date(Number(p[0]),Number(p[1])-1,Number(p[2]));}
   function toast(m){var t=document.getElementById('toast');if(!t)return;t.textContent=m;t.className='toast show';setTimeout(function(){t.className='toast';},1800);}
@@ -61,3 +63,4 @@
   document.addEventListener('pointerup',activate,true);
   window.LECalendarFix={open:render};
 })();
+

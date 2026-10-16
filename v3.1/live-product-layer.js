@@ -23,10 +23,11 @@ function render(){patchChrome();var v=(window.state&&window.state.view)||'overvi
 function reset(){
   generation++;workspace=null;data={customers:[],opps:[],followUps:[],recovery:[],metrics:{}};
   window.__LELiveData=null;
+  if(document.querySelectorAll)document.querySelectorAll('.le-engine-modal').forEach(function(el){el.remove();});
   var shop=document.querySelector('.shop-btn');if(shop)shop.textContent='Business';
   var avatar=document.querySelector('.avatar');if(avatar)avatar.textContent='LE';
   var note=document.querySelector('.demo-note');if(note)note.textContent='Sign in to access your workspace';
-  ['le-live-control','le-engine-panel','le-engine-modal','le-audit-live','le-csv-modal'].forEach(function(id){var el=document.getElementById(id);if(el)el.remove();});
+  ['le-os-layer','le-live-control','le-engine-panel','le-engine-modal','le-audit-live','le-csv-modal'].forEach(function(id){var el=document.getElementById(id);if(el)el.remove();});
 }
 function safeLoad(){return load().catch(function(){reset();toast('Workspace could not be refreshed. Please try again.');});}
 function boot(){safeLoad();if(timer)clearInterval(timer);timer=setInterval(safeLoad,30000);}

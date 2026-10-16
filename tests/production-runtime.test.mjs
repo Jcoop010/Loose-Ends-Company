@@ -134,4 +134,30 @@ await tick()
 assert.ok(salesSnapshots.every(s => s.orders.length === 0), 'late sales hydration must not reveal the previous account')
 storage.setItem('loose_ends_sales_crm_v1', JSON.stringify({ orders: [{ customer: 'Private fixture' }], events: [] }))
 assert.equal(nativeWrites.length, 0, 'production sales save signals must not cache customer records')
+
+// Calendar reads/writes the same in-memory CRM data after removing the browser cache.
+const calendarData = { orders: [], events: [{ id: 'calendar-fixture' }] }
+let calendarSaved
+const calendarWindow = { LESalesCRM: { getData: () => calendarData, setData: value => { calendarSaved = value } } }
+runInNewContext(read('v3.1/calendar-fix.js').split('  function key(d)')[0] + 'window.fixture={load:load,save:save};})();', { window: calendarWindow, location: { pathname: '/dashboard' } })
+assert.equal(calendarWindow.fixture.load().events[0].id, 'calendar-fixture')
+calendarWindow.fixture.save(calendarData)
+assert.equal(calendarSaved, calendarData)
+
+const workflowListeners = [], workflowPending = []
+const workflowWindow = { LESupabase: {
+  auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), getSession: async () => ({ data: {} }), onAuthStateChange: fn => workflowListeners.push(fn) },
+  from() { return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this },
+    maybeSingle: async () => ({ data: { workspace_id: 'workflow-fixture' } }),
+    then(resolve, reject) { return new Promise(r => workflowPending.push(() => r({ data: [{ id: 'private-workflow', name: 'Private fixture' }] }))).then(resolve, reject) }
+  } }
+} }
+const workflowSource = read('v3.1/workflow-engine.js').replace('  window.LEWorkflows=', '  window.fixtureState=function(){return state;};window.LEWorkflows=')
+runInNewContext(workflowSource, { window: workflowWindow, location: { pathname: '/dashboard' }, localStorage: { removeItem() {}, getItem() { throw new Error('Production must not load shared workflow cache') } }, document: { getElementById: () => null, querySelector: () => null, readyState: 'loading', addEventListener() {} }, setTimeout() {}, console })
+const workflowLoad = workflowWindow.LEWorkflows.load()
+await tick()
+workflowListeners.forEach(fn => fn('SIGNED_OUT'))
+workflowPending.splice(0).forEach(resolve => resolve())
+await workflowLoad
+assert.equal(workflowWindow.fixtureState().workflows.length, 0, 'late workflow load must not reveal another account configuration')
 console.log('Production runtime session, stale-response, network failure, cache, and recovery-path tests passed')
