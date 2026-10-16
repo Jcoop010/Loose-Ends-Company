@@ -113,9 +113,8 @@ export function scanRevenue(data: AppData, existing: Opportunity[] = data.opport
       opportunities.push(opportunityForCustomer(customer, 'Inactive Customer', Math.max(250, customer.lifetimeValue * 0.12), 'Customer is explicitly inactive and has prior lifetime value', nowIso))
     }
 
-    if (customer.status === 'Follow-Up Due' && !activeOpen(customer.id, 'Old Estimate') && !activeOpen(customer.id, 'Declined Work') && !activeOpen(customer.id, 'Missed Call')) {
-      opportunities.push(opportunityForCustomer(customer, 'Old Estimate', Math.max(200, customer.lifetimeValue * 0.08), 'Customer is explicitly flagged for follow-up', nowIso))
-    }
+    // A generic follow-up flag does not establish that an estimate exists.
+    // Never invent an Old Estimate recovery opportunity from this status alone.
   }
 
   // Sales orders provide explicit billing/payment state, so these are high-confidence leaks.
