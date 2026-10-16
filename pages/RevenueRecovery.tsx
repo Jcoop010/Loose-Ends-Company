@@ -71,14 +71,15 @@ export function RevenueRecovery() {
   }
 
   const confirmCollect = () => {
-    if (collectModal && collectModal.status !== 'Collected' && collectAmount.trim()) {
-      const amount = parseFloat(collectAmount)
-      if (Number.isFinite(amount) && amount > 0 && /^\d+(?:\.\d{1,2})?$/.test(collectAmount.trim())) {
-        const now = new Date().toISOString()
-        updateOpportunity(collectModal.id, { status: 'Collected', collectedAmount: amount, nextAction: 'Complete — revenue recovered' })
-        addRevenueEvent({ opportunityId: collectModal.id, customerId: collectModal.customerId, customerName: collectModal.customerName, amount, date: now, description: `Confirmed collection for ${collectModal.type}`, type: 'Recovered' })
-      }
-    }
+    if (!collectModal || collectModal.status === 'Collected') return
+    const normalizedAmount = collectAmount.trim()
+    const amount = Number(normalizedAmount)
+    if (!/^\d+(?:\.\d{1,2})?$/.test(normalizedAmount) || !Number.isFinite(amount) || amount <= 0) return
+    const current = data.opportunities.find(o => o.id === collectModal.id)
+    if (!current || current.status === 'Collected') return
+    const now = new Date().toISOString()
+    updateOpportunity(current.id, { status: 'Collected', collectedAmount: amount, nextAction: 'Complete — revenue recovered' })
+    addRevenueEvent({ opportunityId: current.id, customerId: current.customerId, customerName: current.customerName, amount, date: now, description: `Confirmed collection for ${current.type}`, type: 'Recovered' })
     setCollectModal(null)
     setCollectAmount('')
   }
