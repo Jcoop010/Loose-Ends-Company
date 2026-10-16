@@ -50,25 +50,25 @@ export function Dashboard() {
 
   return (
     <div className="space-y-5 animate-fadeIn">
-      <div className="flex items-end justify-between gap-4 mb-2">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-2">
         <div className="min-w-0">
           <p className="text-xs font-semibold tracking-[0.14em] text-brand-400 uppercase">Revenue Recovery</p>
-          <h1 className="mt-1 text-4xl sm:text-5xl font-serif tracking-tight text-white">Dashboard</h1>
+          <h1 className="mt-1 text-3xl sm:text-5xl font-serif tracking-tight text-white">Dashboard</h1>
           <p className="mt-1 text-sm text-slate-400">Your business at a glance. See what's at risk, what's been recovered, and what to do next.</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button onClick={runScan} className="inline-flex items-center gap-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs px-4 py-2.5 transition-colors"><ScanSearch className="w-4 h-4" /> Find revenue</button>
-          <div className="hidden sm:block rounded-xl border border-slate-700 bg-[#0d1d31] px-4 py-2.5 text-xs text-slate-400">Sep 7, 2026 · Last 30 days</div>
+          <div className="hidden sm:block rounded-xl border border-slate-700 bg-[#0d1d31] px-4 py-2.5 text-xs text-slate-400">Live workspace totals</div>
         </div>
       </div>
 
       {scanMessage && <div className="rounded-2xl border border-brand-500/30 bg-brand-500/10 px-5 py-3 text-sm text-brand-200">{scanMessage} {cloudReady ? 'Saved to your workspace.' : 'Saved on this device.'}</div>}
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <MetricCard icon={<DollarSign className="w-5 h-5" />} label="Recoverable revenue" value={formatCurrency(metrics.recoverable)} sub="Estimated revenue from open opportunities" trend="12% vs. last 30 days" />
-        <MetricCard icon={<Check className="w-5 h-5" />} label="Revenue recovered" value={formatCurrency(metrics.recovered)} sub="Actual revenue brought back" trend="28% vs. last 30 days" positive />
-        <MetricCard icon={<Wrench className="w-5 h-5" />} label="Active loose ends" value={metrics.active} sub="Open opportunities across all categories" trend="6% vs. last 30 days" />
-        <MetricCard icon={<Target className="w-5 h-5" />} label="Recovery rate" value={`${metrics.recoveryRate}%`} sub="Recovered vs. total opportunity value" trend="11% vs. last 30 days" positive />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <MetricCard icon={<DollarSign className="w-5 h-5" />} label="Recoverable revenue" value={formatCurrency(metrics.recoverable)} sub="Estimated revenue from open opportunities" />
+        <MetricCard icon={<Check className="w-5 h-5" />} label="Revenue recovered" value={formatCurrency(metrics.recovered)} sub="Actual revenue brought back" />
+        <MetricCard icon={<Wrench className="w-5 h-5" />} label="Active loose ends" value={metrics.active} sub="Open opportunities across all categories" />
+        <MetricCard icon={<Target className="w-5 h-5" />} label="Recovery rate" value={`${metrics.recoveryRate}%`} sub="Recovered vs. total opportunity value" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.8fr)] gap-4">
@@ -79,12 +79,12 @@ export function Dashboard() {
           </div>
           <div>
             {queue.map((opp, index) => (
-              <div key={opp.id} className={`grid grid-cols-[minmax(125px,180px)_minmax(0,1fr)_auto_auto_auto] gap-3 items-center px-6 py-4 ${index !== queue.length - 1 ? 'border-b border-slate-800' : ''}`}>
+              <div key={opp.id} className={`flex flex-wrap sm:grid sm:grid-cols-[minmax(110px,150px)_minmax(0,1fr)_auto_auto] xl:grid-cols-[minmax(125px,180px)_minmax(0,1fr)_auto_auto_auto] gap-3 items-center px-6 py-4 ${index !== queue.length - 1 ? 'border-b border-slate-800' : ''}`}>
                 <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${opp.type === 'Declined Work' ? 'bg-red-500/20 text-red-300' : opp.type === 'Maintenance Due' ? 'bg-blue-500/20 text-blue-300' : opp.type === 'Missed Call' ? 'bg-slate-700 text-slate-300' : 'bg-indigo-500/20 text-indigo-300'}`}>{actionLabel(opp.type)}</span>
                 <div className="min-w-0"><p className="font-semibold text-slate-100 truncate">{opp.customerName}</p><p className="text-xs text-slate-500 truncate">{opp.phone}{opp.vehicle ? ` · ${opp.vehicle.year} ${opp.vehicle.make} ${opp.vehicle.model}` : ''}</p></div>
                 <span className="font-semibold text-slate-200 whitespace-nowrap">{formatCurrency(opp.potentialValue)}</span>
                 <span className={`hidden sm:inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${opp.potentialValue >= 1000 ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'}`}>{opp.potentialValue >= 1000 ? 'High' : 'Medium'}</span>
-                <button onClick={() => navigate(`/dashboard/revenue-recovery?opportunity=${encodeURIComponent(opp.id)}`)} className="rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs px-4 py-2.5 whitespace-nowrap transition-colors">Take action</button>
+                <button onClick={() => navigate(`/dashboard/revenue-recovery?opportunity=${encodeURIComponent(opp.id)}`)} className="rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs px-4 py-2.5 whitespace-nowrap transition-colors ml-auto sm:ml-0">Take action</button>
               </div>
             ))}
             {queue.length === 0 && <div className="px-6 py-12 text-center text-sm text-slate-500">No open opportunities. You're caught up.</div>}
@@ -113,8 +113,8 @@ export function Dashboard() {
   )
 }
 
-function MetricCard({ icon, label, value, sub, trend, positive }: { icon: React.ReactNode; label: string; value: string | number; sub: string; trend: string; positive?: boolean }) {
-  return <div className="rounded-3xl border border-slate-800 bg-[#0d1d31] p-5 min-h-[190px] shadow-[0_10px_30px_rgba(0,0,0,0.12)]"><div className="w-10 h-10 rounded-full bg-brand-500/10 text-brand-400 flex items-center justify-center mb-4">{icon}</div><p className="text-xs text-slate-500">{label}</p><p className="text-3xl font-semibold tracking-tight text-white mt-1">{value}</p><p className="text-xs text-slate-500 mt-1.5 max-w-[220px] leading-5">{sub}</p><p className={`text-xs font-medium mt-4 ${positive ? 'text-brand-400' : 'text-brand-400'}`}>↗ {trend}</p></div>
+function MetricCard({ icon, label, value, sub, }: { icon: React.ReactNode; label: string; value: string | number; sub: string }) {
+  return <div className="rounded-3xl border border-slate-800 bg-[#0d1d31] p-5 min-h-[190px] shadow-[0_10px_30px_rgba(0,0,0,0.12)]"><div className="w-10 h-10 rounded-full bg-brand-500/10 text-brand-400 flex items-center justify-center mb-4">{icon}</div><p className="text-xs text-slate-500">{label}</p><p className="text-3xl font-semibold tracking-tight text-white mt-1">{value}</p><p className="text-xs text-slate-500 mt-1.5 max-w-[220px] leading-5">{sub}</p></div>
 }
 
 function ActionRow({ icon, title, subtitle, count, onClick }: { icon: React.ReactNode; title: string; subtitle: string; count: number; onClick: () => void }) {
