@@ -13,18 +13,18 @@
     var engine=document.getElementById('le-engine-panel');
     var scan=document.querySelector('.le-scan');
     if(launch&&launch.parentElement===page&&page.firstElementChild!==launch)page.insertBefore(launch,page.firstElementChild);
-    if(engine&&engine.parentElement===page&&launch&&launch.nextElementSibling!==engine)page.insertBefore(engine,launch.nextElementSibling);
-    if(scan&&scan.parentElement===page&&engine&&engine.nextElementSibling!==scan)page.insertBefore(scan,engine.nextElementSibling);
+    
+    if(scan&&scan.parentElement===page&&launch&&launch.nextElementSibling!==scan)page.insertBefore(scan,launch.nextElementSibling);
   }
   var style=document.createElement('style');style.id='le-overview-focus-css';
   style.textContent=`
     body.le-focused-overview #le-os-layer,
-    body.le-focused-overview #leLaunchControl {display:none!important}
+    body.le-focused-overview #leLaunchControl,\n    body.le-focused-overview #le-engine-panel {display:none!important}
     body.le-focused-overview #le-launch-panel{margin-top:0!important}
     body.le-focused-overview #le-engine-panel{margin-top:12px!important}
     body.le-focused-overview #le-engine-panel .le-engine-head h2{font-size:clamp(19px,2.8vw,27px);line-height:1.15}
     body.le-focused-overview #le-engine-panel .le-engine-stat{min-width:0}
-    body.le-focused-overview .le-scan{margin-top:12px!important}
+    body.le-focused-overview .le-scan{margin-top:12px!important}\n    body.le-focused-overview #le-launch-panel .le-launch-sub{line-height:1.5}\n    body.le-focused-overview #le-launch-panel .le-launch-step{min-width:0}
     body.le-focused-overview #content .page{display:flex;flex-direction:column;gap:12px}
     body.le-focused-overview #content .page > *{flex-shrink:0;min-width:0}
     @media(max-width:700px){
