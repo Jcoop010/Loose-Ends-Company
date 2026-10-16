@@ -21,6 +21,8 @@
     (st.customers || []).forEach(function (c) { customers[c.id] = c; });
     function customer(id) { return nameOf(customers[id]); }
     function add(s) {
+      if(signals.some(function(existing){return existing.key===s.key;}))return;
+      s.amount=Number.isFinite(s.amount)&&s.amount>0?s.amount:0;
       // Do not keep asking the owner to create a task that already exists.
       // This makes recovery actions idempotent across refreshes and repeat scans.
       if (s.task && s.task.title) {
@@ -40,7 +42,7 @@
     docs.forEach(function (d) {
       var type = String(d.document_type || '').toLowerCase(), status = String(d.status || 'draft').toLowerCase();
       var due = d.due_at ? new Date(d.due_at).getTime() : 0, amount = Number(d.total || 0);
-      if (type === 'invoice' && status !== 'paid' && status !== 'cancelled' && due && due < now) {
+      if (type === 'invoice' && ['sent','open','overdue','unpaid','partial','partially_paid'].indexOf(status)>=0 && due && due < now) {
         add({key:'invoice:'+d.id,opportunityId:d.opportunity_id||null,confidence:confidence('OVERDUE INVOICE'),kind:'OVERDUE INVOICE',title:(d.document_number || 'Invoice') + ' is overdue',detail:customer(d.customer_id) + ' · ' + Math.max(1,Math.floor((now-due)/86400000)) + ' days past due. Confirm the balance, then send a payment reminder.',amount:amount,priority:100 + Math.min(30,Math.floor((now-due)/86400000)),action:'Create follow-up task',task:{title:'Follow up on overdue invoice ' + (d.document_number || ('record ' + String(d.id || '').slice(0,8))),customer_id:d.customer_id || null,opportunity_id:d.opportunity_id || null}});
       }
       if (type === 'quote' && status === 'sent' && dayDiff(d.created_at) >= 5) {
@@ -49,7 +51,7 @@
       }
     });
     opps.forEach(function (o) {
-      if (String(o.status || 'open').toLowerCase() === 'recovered' || String(o.status || 'open').toLowerCase() === 'closed') return;
+      if (['recovered','closed','dismissed','cancelled','completed'].indexOf(String(o.status || 'open').toLowerCase())>=0) return;
       var age = dayDiff(o.created_at);
       if (age < 7) return;
       var hasActive = followUps.some(function (f) { return f.opportunity_id === o.id && ['pending','scheduled','open'].indexOf(String(f.status||'').toLowerCase()) >= 0 && (!f.scheduled_at || new Date(f.scheduled_at).getTime() >= now); });
@@ -117,5 +119,6 @@
       wrapped.__leScanWrapped=true;window.LE.refresh=wrapped;
     }
   }
+  window.LERevenueLeakScanner={scan:scan};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();

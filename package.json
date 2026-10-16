@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:recovery": "node tests/revenue-recovery.test.mjs",
-    "test:runtime": "node tests/production-runtime.test.mjs"
+    "test:runtime": "node tests/production-runtime.test.mjs",
+    "test:scanner": "node tests/leak-scanner.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
