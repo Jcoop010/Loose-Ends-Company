@@ -51,6 +51,7 @@ jobs:
       - run: node tests/autopilot-approval.test.mjs
       - run: node tests/recovery-delivery-preflight.test.mjs
       - run: node tests/verified-collections-ui.test.mjs
+      - run: node tests/guided-sales-demo.test.mjs
       - run: node tests/secure-checkout.test.mjs
       - run: npm run test:runtime
       - run: npm run test:recovery
