@@ -14,12 +14,15 @@
     for(var i=0;i<checks.length;i++){var ok=false;try{ok=!!(await checks[i].ok());}catch(e){}rows.push({id:checks[i].id,label:checks[i].label,ok:ok});}
     return rows;
   }
+  function isWalkInDemo(){return location.pathname==='/demo'||new URLSearchParams(location.search).get('demo')==='1'}
   async function render(){
+    if(isWalkInDemo()){var old=document.getElementById('launchReadiness');if(old)old.remove();return;}
     var root=document.getElementById('launchReadiness');if(!root)return;
     var rows=await status(),good=rows.filter(function(x){return x.ok;}).length;
     root.innerHTML='<div class="section-head"><div><div class="section-title">Launch readiness</div><div class="section-sub">Truthful operational checks. Provider integrations are not marked live without configuration evidence.</div></div><span class="wf-pill">'+good+'/'+rows.length+'</span></div>'+rows.map(function(x){return '<div class="wf-row"><div><strong>'+x.label+'</strong></div><span class="wf-status '+(x.ok?'':'off')+'">'+(x.ok?'Ready':'Needs setup')+'</span></div>';}).join('');
   }
   function mount(){
+    if(isWalkInDemo()){var old=document.getElementById('launchReadiness');if(old)old.remove();return;}
     if(document.getElementById('launchReadiness'))return;
     var page=document.querySelector('#content .page');if(!page)return;
     var section=document.createElement('section');section.id='launchReadiness';section.className='card section-card';page.appendChild(section);render();
