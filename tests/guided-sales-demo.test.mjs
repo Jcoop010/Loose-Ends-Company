@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const src=readFileSync(new URL('../v3.1/demo-mode.js',import.meta.url),'utf8')
+const html=readFileSync(new URL('../index.html',import.meta.url),'utf8')
+assert.match(src,/5-MINUTE SALES WALKTHROUGH/)
+assert.match(src,/demo-guide-start/)
+assert.match(src,/demo-guide-reset/)
+assert.match(src,/Fictional demo data/)
+assert.match(src,/not payment-verified/)
+assert.match(src,/no payment verified/)
+assert.match(src,/No messages or payments are sent/)
+assert.match(src,/revenue-checkup\.html/)
+assert.match(html,/demo-mode\.js\?v=20261020-guided-sales-1/)
+assert.doesNotMatch(src,/kpi\('Recovered revenue'/)
+console.log('Guided sales demo invariants passed')
