@@ -2,7 +2,7 @@
 (function(){
   'use strict';
   if(location.pathname!=='/demo'&&location.search.indexOf('demo=1')<0)return;
-  var KEY='loose_ends_walkin_demo_v1';
+  var KEY='loose_ends_walkin_demo_v2';
   var db;
   function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]})}
   function money(n){return '$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0})}
