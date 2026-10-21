@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (![SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY].every(Boolean))
     return respond(res, 503, 'Billing is not configured')
   const auth = req.headers.authorization || ''
-  if (!/^Bearer\\s+\\S+$/.test(auth)) return respond(res, 401, 'Sign in required')
+  if (!/^Bearer\s+\S+$/.test(auth)) return respond(res, 401, 'Sign in required')
   const workspaceId = req.body?.workspace_id
   if (typeof workspaceId !== 'string' || !uuid.test(workspaceId)) return respond(res, 400, 'Valid workspace required')
   try {
