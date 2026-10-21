@@ -102,7 +102,7 @@ async function importRun(){
    if(call.error||!call.data||!call.data.receipt)throw new Error('Batch '+(i/100+1)+' failed. Import ID: '+id);
    if(progress)progress.textContent='Processed '+Math.min(rows.length,i+100)+' / '+rows.length+' contacts';
   }
-  var complete=await S.functions.invoke('customer-bulk-import',{body:{action:'finish',workspace_id:workspace.id,job_id:id}});
+  var complete=await S.functions.invoke('customer-bulk-import',{body:{action:'finish',workspace_id:workspace.id,job_id:id,expected_batches:Math.ceil(rows.length/100),expected_rows:rows.length}});
   if(complete.error||!complete.data||!complete.data.job)throw new Error('Import completed but confirmation unavailable. Import ID: '+id);
   try{localStorage.removeItem(checkpoint)}catch(e){}
   if(modal)modal.remove();
