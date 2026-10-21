@@ -14,7 +14,7 @@
   async function getWorkspace(){
     if(!S||!S.auth)return null;
     var u=(await S.auth.getUser()).data.user;if(!u)return null;
-    var q=await S.from('workspace_members').select('workspace_id,role,workspaces(*)').eq('user_id',u.id).limit(1).maybeSingle();
+    var q=await S.from('workspace_members').select('workspace_id,role,workspaces(id,name,slug,owner_user_id)').eq('user_id',u.id).limit(1).maybeSingle();
     return q.data&&q.data.workspaces||null;
   }
   async function count(table,filter){
@@ -82,7 +82,7 @@
   }
   function mount(){
     if(mounted)return;
-    var page=document.querySelector('#content .page');if(!page)return;
+    var page=document.querySelector('#content .page');if(!page||!window.LE||window.LE.getState().view!=='settings')return;
     style();var box=document.createElement('section');box.id='leLaunchControl';page.insertBefore(box,page.children[1]||null);mounted=true;refresh();
   }
   function openAutomation(){

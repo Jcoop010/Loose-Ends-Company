@@ -8,7 +8,7 @@ assert.match(launch,/page\.isConnected/)
 assert.match(launch,/document\.getElementById\('le-launch-panel'\)/)
 assert.match(sales,/location\.pathname!=='\/demo'/)
 assert.match(html,/sales-upgrade\.js\?v=20261021-demo-route-only-3/)
-assert.match(html,/launch-center\.js\?v=20261021-no-duplicate-2/)
+assert.match(html,/launch-center\.js\?v=20261021-settings-setup-3/)
 console.log('Live workspace launch panel and demo isolation guards passed')
 
 assert.match(sales,/function addRibbon\(\)\{\s*if\(location\.pathname!=='\/demo'&&location\.pathname\.indexOf\('\/demo\/'\)!==0\)return;/,'production must never inject the demo revenue ribbon');

@@ -6,7 +6,7 @@ var generation=0,workspace=null,timer=null,data={customers:[],opps:[],followUps:
 function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]})}
 function money(n){return '$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0})}
 function toast(m){var e=document.getElementById('toast');if(e){e.textContent=m;e.className='toast show';setTimeout(function(){e.className='toast'},2200)}}
-async function getWorkspace(){var u=(await S.auth.getUser()).data.user;if(!u)return null;var q=await S.from('workspace_members').select('workspace_id,role,workspaces(*)').eq('user_id',u.id).limit(1).maybeSingle();return q.data&&q.data.workspaces||null}
+async function getWorkspace(){var u=(await S.auth.getUser()).data.user;if(!u)return null;var q=await S.from('workspace_members').select('workspace_id,role,workspaces(id,name,slug,owner_user_id)').eq('user_id',u.id).limit(1).maybeSingle();return q.data&&q.data.workspaces||null}
 function score(o){var age=Math.max(0,(Date.now()-new Date(o.created_at||Date.now()).getTime())/86400000);var s=Number(o.priority||0)*.55+Math.min(30,Number(o.amount||0)/100)+Math.min(15,age*2);if(o.status==='scheduled')s+=8;if(o.status==='contacted')s+=4;return Math.round(Math.min(100,s))}
 async function fetchAll(table,select,order,ascending,request){
   var rows=[],start=0,size=500,maxRows=10000;
@@ -113,7 +113,7 @@ async function importRun(){
  }catch(error){if(progress)progress.textContent=String(error.message||'Import interrupted')+'. Existing batches remain recorded.';toast('Import paused; see details in dialog')}
  finally{if(button)button.disabled=false}
 }
-function render(){patchChrome();var v=(window.state&&window.state.view)||'overview';if(v==='overview'||v==='loose')control()}
+function render(){patchChrome();var v=(window.LE&&window.LE.getState?window.LE.getState().view:(window.state&&window.state.view))||'overview';if(v==='overview'||v==='loose')control()}
 function reset(){
   generation++;workspace=null;data={customers:[],opps:[],followUps:[],recovery:[],metrics:{}};
   window.__LELiveData=null;
