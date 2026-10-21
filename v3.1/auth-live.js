@@ -5,7 +5,7 @@
   if(!S) return;
   var KEY='loose_ends_v31_state', MAP='loose_ends_live_map';
   try{localStorage.removeItem(KEY);localStorage.removeItem(MAP);}catch(e){}
-  var sessionUser=null, workspace=null, live=false, generation=0;
+  var sessionUser=null, workspace=null, live=false, generation=0, bootPromise=null, bootAgain=false;
   function esc(s){return String(s||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c];});}
   function toast(m){var e=document.getElementById('toast');if(e){e.textContent=m;e.className='toast show';setTimeout(function(){e.className='toast';},2200)}}
   function setPill(){var p=document.getElementById('le-auth-pill');if(!p)return;p.innerHTML=live?'● LIVE · '+esc(workspace?workspace.name:'Workspace'):'Sign in';p.className='le-auth-pill '+(live?'live':'demo');}
@@ -13,7 +13,12 @@
   function pill(){var p=document.createElement('button');p.id='le-auth-pill';p.onclick=openAuth;p.setAttribute('aria-label','Account and live mode');(document.querySelector('.top-actions')||document.body).appendChild(p);setPill()}
   function openAuth(){var old=document.getElementById('le-auth-modal');if(old)old.remove();var d=document.createElement('div');d.id='le-auth-modal';d.className='le-auth-modal';d.innerHTML='<div class="le-auth-card"><button class="le-auth-close" onclick="document.getElementById(\'le-auth-modal\').remove()">×</button><div class="eyebrow">LOOSE ENDS</div><h2>'+(sessionUser?'Live workspace':'Your business workspace')+'</h2><p>'+(sessionUser?'Your account is connected. Live data is isolated to your workspace.':'Create an account to save real customers, opportunities, follow-ups, and business activity.')+'</p>'+(sessionUser?'<div class="le-auth-user"><div><strong>'+esc(sessionUser.email)+'</strong><small>Signed in</small></div><button class="le-auth-btn le-auth-secondary" onclick="LELive.signOut()">Sign out</button></div><div class="le-auth-lock">Secure browser session · database access protected by Supabase Auth + RLS.</div>':'<form id="le-auth-form"><label class="le-auth-field">Email</label><input class="le-auth-input" name="email" type="email" autocomplete="email" required placeholder="you@business.com"><label class="le-auth-field">Password</label><input class="le-auth-input" name="password" type="password" minlength="8" autocomplete="current-password" required placeholder="At least 8 characters"><div class="le-auth-actions"><button class="le-auth-btn le-auth-primary" type="submit">Sign in</button><button class="le-auth-btn le-auth-secondary" type="button" id="le-signup">Create account</button></div><div class="le-auth-note" id="le-auth-note">Use Sign in for an existing account, or Create account for a new workspace.</div></form>')+'</div>';document.body.appendChild(d);var f=document.getElementById('le-auth-form');if(f)f.addEventListener('submit',function(e){e.preventDefault();auth(false,f)});var su=document.getElementById('le-signup');if(su)su.addEventListener('click',function(){auth(true,document.getElementById('le-auth-form'))})}
   async function auth(signup,f){var note=document.getElementById('le-auth-note'),buttons=f.querySelectorAll('button'),email=f.email.value.trim(),password=f.password.value;buttons.forEach(function(b){b.disabled=true});if(note)note.textContent=signup?'Creating your account…':'Signing you in…';try{var r=signup?await S.auth.signUp({email:email,password:password,options:{emailRedirectTo:window.location.origin+'/dashboard'}}):await S.auth.signInWithPassword({email:email,password:password});if(r.error)throw r.error;if(signup&&!r.data.session){if(note)note.textContent='Account created. Check your email to confirm, then sign in.';return}await bootSession();if(!sessionUser||!workspace)throw new Error('You are signed in, but your business workspace could not be loaded. Please try again or contact support.');var m=document.getElementById('le-auth-modal');if(m)m.remove();if(location.pathname==='/'||location.pathname==='/index.html')location.assign('/dashboard');}catch(err){if(note)note.textContent=(err&&err.message)||'Sign-in failed. Check your connection and try again.';}finally{buttons.forEach(function(b){b.disabled=false})}}
-  async function bootSession(){
+  function bootSession(){
+    if(bootPromise)return bootPromise;
+    bootPromise=(async function(){do{bootAgain=false;await readSession();}while(bootAgain);})().finally(function(){bootPromise=null;});
+    return bootPromise;
+  }
+  async function readSession(){
     var request=++generation;
     live=false;workspace=null;sessionUser=null;setPill();
     var r=await S.auth.getUser();if(request!==generation)return;
@@ -43,6 +48,6 @@
     live=false;workspace=null;sessionUser=null;setPill();location.reload();
   }
   // Recovery writes are handled by v3.1/app.js after explicit owner confirmation.
-  window.LELive={openAuth:openAuth,signOut:signOut,loadLive:loadLive};styles();pill();S.auth.onAuthStateChange(function(){generation++;live=false;workspace=null;sessionUser=null;setPill();setTimeout(bootSession,0)});bootSession();
+  window.LELive={openAuth:openAuth,signOut:signOut,loadLive:loadLive};styles();pill();S.auth.onAuthStateChange(function(){generation++;bootAgain=true;live=false;workspace=null;sessionUser=null;setPill();setTimeout(bootSession,0)});bootSession();
 })();
 
