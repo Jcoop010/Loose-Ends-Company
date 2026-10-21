@@ -35,32 +35,8 @@ Deno.serve(async(req)=>{
   if(lookup.data.status!=="active")return reply(409,{error:"Import already closed"});
   const n=Number(input.batch_number),rows=input.rows;
   if(!Number.isInteger(n)||n<0||!Array.isArray(rows)||rows.length<1||rows.length>100)return reply(400,{error:"Batch must have 1-100 rows and valid number"});
-  const previous=await admin.from("customer_import_batches").select("*").eq("job_id",id).eq("batch_number",n).maybeSingle();
-  if(previous.data)return reply(200,{receipt:previous.data,replayed:true});
-  let created=0,matched=0,rejected=0;
-  for(const row of rows){
-   const email=String(row.email||"").trim().toLowerCase().slice(0,320);
-   const phone=String(row.phone||"").trim().slice(0,50);
-   if(!email&&!phone){rejected++;continue}
-   const q=admin.from("customers").select("id").eq("workspace_id",workspaceId);
-   const existing=await(email?q.ilike("email",email):q.eq("phone",phone)).limit(1).maybeSingle();
-   if(existing.error){rejected++;continue}
-   if(existing.data){matched++;continue}
-   const record={workspace_id:workspaceId,first_name:String(row.first_name||"").slice(0,100)||null,last_name:String(row.last_name||"").slice(0,100)||null,email:email||null,phone:phone||null};
-   const result=await admin.from("customers").insert(record).select("id").single();
-   if(result.error){
-    if(result.error.code==="23505"){matched++;continue}
-    rejected++;continue;
-   }
-   created++;
-  }
-  const receipt=await admin.from("customer_import_batches").insert({job_id:id,batch_number:n,row_count:rows.length,created_count:created,matched_count:matched,rejected_count:rejected}).select("*").single();
-  if(receipt.error)return reply(409,{error:"Batch receipt not saved; check status before retrying"});
-  const entries=await admin.from("customer_import_batches").select("row_count,created_count,matched_count,rejected_count").eq("job_id",id);
-  if(!entries.error){
-   const summary=entries.data.reduce((a,r)=>({processed:a.processed+r.row_count,created:a.created+r.created_count,matched:a.matched+r.matched_count,rejected:a.rejected+r.rejected_count}),{processed:0,created:0,matched:0,rejected:0});
-   await admin.from("customer_import_jobs").update({...summary,updated_at:new Date().toISOString()}).eq("id",id);
-  }
-  return reply(200,{receipt:receipt.data});
+  const transaction=await admin.rpc("process_customer_import_batch",{p_job_id:id,p_workspace_id:workspaceId,p_actor_id:auth.data.user.id,p_batch_number:n,p_rows:rows});
+  if(transaction.error)return reply(409,{error:"Batch rejected. Retry the same batch safely."});
+  return reply(200,transaction.data);
  }catch(_){return reply(500,{error:"Import request failed"})}
 });
