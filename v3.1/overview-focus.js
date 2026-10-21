@@ -76,8 +76,6 @@
       body.le-focused-overview #le-launch-panel .le-launch-actions{margin-top:10px!important}
       body.le-focused-overview #le-launch-panel .le-launch-actions button:nth-child(n+3){display:none!important}
       body.le-focused-overview #le-verified-collections{display:none!important}
-      body.le-focused-overview .le-scan{order:1}
-      body.le-focused-overview #le-launch-panel{order:0}
 
       body.le-focused-overview #le-engine-panel .le-engine-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
       body.le-focused-overview #le-engine-panel .le-engine-head{flex-wrap:wrap;gap:10px}
