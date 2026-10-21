@@ -67,12 +67,23 @@
       body.le-focused-overview .v4-page .v4-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}
       body.le-focused-overview .v4-page .v4-grid-main{grid-template-columns:minmax(0,1fr)!important}
     }
+    /* Keep the mobile home screen actionable without removing the dedicated feature views. */
     @media(max-width:700px){
+      body.le-focused-overview #le-launch-panel .le-launch-sub,
+      body.le-focused-overview #le-launch-panel .le-launch-steps{display:none!important}
+      body.le-focused-overview #le-launch-panel{padding:13px!important;margin-bottom:2px!important}
+      body.le-focused-overview #le-launch-panel .le-launch-title{font-size:16px!important}
+      body.le-focused-overview #le-launch-panel .le-launch-actions{margin-top:10px!important}
+      body.le-focused-overview #le-launch-panel .le-launch-actions button:nth-child(n+3){display:none!important}
+      body.le-focused-overview #le-verified-collections{display:none!important}
+      body.le-focused-overview .le-scan{order:1}
+      body.le-focused-overview #le-launch-panel{order:0}
+
       body.le-focused-overview #le-engine-panel .le-engine-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
       body.le-focused-overview #le-engine-panel .le-engine-head{flex-wrap:wrap;gap:10px}
       body.le-focused-overview #le-engine-panel .le-engine-actions{display:flex;flex-wrap:wrap;gap:8px;width:100%}
       body.le-focused-overview #le-engine-panel .le-engine-actions button{min-height:42px;flex:1}
-      body.le-focused-overview #le-launch-panel .le-launch-steps{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
+      body.le-focused-overview #le-launch-panel .le-launch-steps{display:none!important}
       body.le-focused-overview #le-launch-panel .le-launch-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
       body.le-focused-overview #le-launch-panel .le-launch-actions button{min-width:0;white-space:normal;min-height:44px}
       body.le-focused-overview .le-scan{padding:15px!important}
