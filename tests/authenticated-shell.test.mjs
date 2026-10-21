@@ -4,7 +4,7 @@ import {JSDOM} from 'jsdom';
 const dom=new JSDOM('<!doctype html><head></head><body><nav></nav><main id="content"><div class="page"><h1>Executive Command Center</h1></div></main><div id="toast"></div></body>',{url:'https://loose-ends-os.vercel.app/dashboard',runScripts:'outside-only'});
 const w=dom.window;const queries=[];
 w.LESupabase={auth:{getUser:async()=>({data:{user:{id:'fixture',email:'fixture@example.invalid'}}}),getSession:async()=>({data:{}}),onAuthStateChange(){}},from(table){const q={select(columns){queries.push({table,columns});q.columns=columns;return q},eq(){return q},limit(){return q},order(){return q},maybeSingle:async()=>q.columns.includes('*')?{error:{message:'permission denied for table workspaces'}}:{data:{workspace_id:'workspace',workspaces:{id:'workspace',name:'Fixture business',slug:'fixture'}}},then(a,b){return Promise.resolve({data:[]}).then(a,b)}};return q}};
-w.LE={getState:()=>({workspaceId:'workspace'}),refresh:async()=>{},setView(){}};
+const appState={workspaceId:'workspace',view:'overview'};w.LE={getState:()=>appState,refresh:async()=>{},setView(view){appState.view=view;w.document.getElementById('content').innerHTML='<div class="page"></div>'}};
 const read=p=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
 const tick=()=>new Promise(r=>setTimeout(r,30));
 try{
@@ -18,5 +18,14 @@ try{
  assert.equal(w.document.querySelectorAll('[data-workflow-page] #workflowCenter').length,1,'the dedicated workflow screen remains functional');
  w.document.getElementById('content').innerHTML='<div class="page"><h1>Inventory</h1></div>';
  await w.LEWorkflows.load();await tick();assert.equal(w.document.querySelectorAll('#workflowCenter').length,0,'late refresh must not append to another department');
+ w.eval(read('v3.1/launch-center.js'));await tick();
+ assert.equal(w.document.querySelectorAll('#le-launch-modal,#le-launch-panel').length,0,'setup must never interrupt startup');
+ w.LE.setView('settings');await tick();assert.equal(w.document.querySelectorAll('#le-launch-panel').length,1,'setup remains accessible from Settings');
+ assert.equal(w.document.querySelectorAll('#le-launch-modal').length,0,'opening Settings must not auto-open a modal');
+ const timers=[];w.setInterval=fn=>{timers.push(fn);return timers.length};w.__LELiveData={opps:[],recovery:[],metrics:{}};
+ appState.view='customers';w.document.getElementById('content').innerHTML='<div class="page"></div>';
+ w.eval(read('v3.1/revenue-engine.js'));w.eval(read('v3.1/revenue-os-layer.js'));timers.forEach(fn=>fn());
+ assert.equal(w.document.querySelectorAll('#le-engine-panel,#le-os-layer').length,0,'revenue panels must not append to CRM');
+ appState.view='recovery';timers.forEach(fn=>fn());assert.ok(w.document.getElementById('le-engine-panel'));assert.ok(w.document.getElementById('le-os-layer'),'revenue analysis remains available in its department');
  console.log('Authenticated shell regressions passed: restricted workspace columns and workflow screen isolation.');
 }finally{w.close()}
