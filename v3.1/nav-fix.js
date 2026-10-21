@@ -11,6 +11,8 @@
   }
   function show(view){
     if(!view || view==='more') return;
+    document.querySelectorAll('.le-more-menu,.le-more-backdrop').forEach(function(el){el.classList.remove('open');});
+    var more=document.querySelector('.le-mobile-tab[data-view="more"]');if(more)more.setAttribute('aria-expanded','false');
     try {
       if (typeof state !== 'undefined' && state) state.view = view;
       if (window.state) window.state.view = view;

@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+const src=readFileSync(new URL('../v3.1/operations-os.js',import.meta.url),'utf8');
+const window={LESupabase:{}};
+runInNewContext(src,{window,location:{pathname:'/dashboard'},document:{readyState:'loading',addEventListener(){}}});
+const parse=window.LEOperations.parseCSV;
+assert.equal(parse('name,sku,description\r\n"Part, A",A1,"line 1\nline 2"')[1][2],'line 1\nline 2');
+assert.equal(parse('\uFEFFname,sku\n"A ""quoted"" part",A1')[1][0],'A "quoted" part');
+assert.throws(()=>parse('name,sku\n"broken,A1'),/unclosed/);
+const demo={LESupabase:{}};
+runInNewContext(src,{window:demo,location:{pathname:'/demo'},document:{}});
+assert.equal(demo.LEOperations,undefined,'operations must not connect demo data to production commands');
+console.log('Operations CSV and demo-isolation runtime cases passed');

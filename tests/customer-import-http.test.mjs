@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import ts from 'typescript'
 const source=readFileSync(new URL('../supabase/functions/customer-bulk-import/index.ts',import.meta.url),'utf8')
   .replace(/^import .*?;\s*/,'')
   .replace(/\(status:number,body:unknown\)/,'(status,body)')
@@ -12,9 +13,9 @@ const service={
  from(table){
   if(table==='workspace_members')return chain({data:allowedRole?{role:allowedRole}:null,error:null})
   if(table==='customer_import_jobs'){
-   const q={select:()=>q,eq:()=>q,insert:(data)=>{jobs.set(id,{id,...data,status:'active',processed:0,created:0,matched:0,rejected:0});return chain({data:jobs.get(id),error:null})},
+   const filters={}; const q={select:()=>q,eq:(key,value)=>{filters[key]=value;return q},insert:(data)=>{jobs.set(id,{id,...data,status:'active',processed:0,created:0,matched:0,rejected:0});return chain({data:jobs.get(id),error:null})},
    update:(data)=>{const j=jobs.get(id);if(j)Object.assign(j,data);return chain({data:j,error:null})},
-   maybeSingle:async()=>({data:jobs.get(id)||null,error:null})};return q
+   maybeSingle:async()=>{const j=jobs.get(filters.id);return {data:j&&(!filters.workspace_id||j.workspace_id===filters.workspace_id)&&(!filters.created_by||j.created_by===filters.created_by)?j:null,error:null}}};return q
   }
   throw Error('Unexpected table '+table)
  },
@@ -29,7 +30,7 @@ const service={
 }
 const createClient=(_url,_key,options)=>options?.global?{auth:{getUser:async()=>({data:{user:{id:actor}},error:null})}}:service
 const context={createClient,Response,Date,JSON,Number,String,Array,Deno:{env:{get:()=> 'fake'},serve:fn=>{handler=fn}}}
-vm.runInNewContext(source,context)
+vm.runInNewContext(ts.transpile(source,{target:ts.ScriptTarget.ES2022}),context)
 const request=(body,token='test')=>handler(new Request('https://test.invalid',{method:'POST',headers:token?{authorization:'Bearer '+token}:{},body:JSON.stringify(body)}))
 const read=async response=>({status:response.status,body:await response.json()})
 assert.equal((await read(await request({action:'start',workspace_id:workspace},''))).status,401)

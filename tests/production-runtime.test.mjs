@@ -87,7 +87,7 @@ let productDelay = false
 const productWindow = { LESupabase: {
   auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), onAuthStateChange: fn => productListeners.push(fn) },
   from(table) {
-    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this },
+    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this }, range() { return this },
       maybeSingle: async () => ({ data: { workspaces: { id: 'workspace-fixture', name: 'Fixture' } } }),
       then(resolve, reject) {
         const value = { data: table === 'opportunities' ? [{ id: 'fixture', status: 'recovered', amount: 999, recovered_amount: 0 }] : [] }
@@ -120,7 +120,7 @@ const storage = new FixtureStorage()
 const salesSyncWindow = { LESalesCRM: { setData: data => salesSnapshots.push(data) }, LESupabase: {
   auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), onAuthStateChange: fn => salesListeners.push(fn) },
   from(table) {
-    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this },
+    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this }, range() { return this },
       maybeSingle: async () => ({ data: { workspace_id: 'workspace-fixture' } }),
       then(resolve, reject) { return new Promise(r => salesPending.push(() => r({ data: table === 'workspace_records' ? [{ record_key: 'fixture', data: { customer: 'Private sales fixture' } }] : [] }))).then(resolve, reject) }
     }
@@ -147,7 +147,7 @@ assert.equal(calendarSaved, calendarData)
 const workflowListeners = [], workflowPending = []
 const workflowWindow = { LESupabase: {
   auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), getSession: async () => ({ data: {} }), onAuthStateChange: fn => workflowListeners.push(fn) },
-  from() { return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this },
+  from() { return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this }, range() { return this },
     maybeSingle: async () => ({ data: { workspace_id: 'workflow-fixture' } }),
     then(resolve, reject) { return new Promise(r => workflowPending.push(() => r({ data: [{ id: 'private-workflow', name: 'Private fixture' }] }))).then(resolve, reject) }
   } }
