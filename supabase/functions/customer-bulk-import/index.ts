@@ -27,6 +27,14 @@ Deno.serve(async(req)=>{
   if(!lookup.data)return reply(404,{error:"Import not found"});
   if(action==="status")return reply(200,{job:lookup.data});
   if(action==="finish"){
+   const expected=Number(input.expected_batches),expectedRows=Number(input.expected_rows);
+   if(!Number.isInteger(expected)||expected<1||expected>50||!Number.isInteger(expectedRows)||expectedRows<1||expectedRows>5000)return reply(400,{error:"Expected batch and row counts required"});
+   const recorded=await admin.from("customer_import_batches").select("batch_number,row_count").eq("job_id",id);
+   if(recorded.error)return reply(503,{error:"Unable to verify completed batches"});
+   const receipts=recorded.data||[];
+   const numbers=new Set(receipts.map(x=>x.batch_number));
+   const total=receipts.reduce((sum,x)=>sum+Number(x.row_count||0),0);
+   if(receipts.length!==expected||numbers.size!==expected||total!==expectedRows||Array.from({length:expected},(_,i)=>i).some(i=>!numbers.has(i)))return reply(409,{error:"Import has incomplete batches; resume and retry before finishing"});
    if(lookup.data.status!=="active")return reply(200,{job:lookup.data});
    const done=await admin.from("customer_import_jobs").update({status:"completed",updated_at:new Date().toISOString()}).eq("id",id).eq("status","active").select("*").single();
    return done.error?reply(500,{error:"Could not finish import"}):reply(200,{job:done.data});
