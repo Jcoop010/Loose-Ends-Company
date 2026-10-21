@@ -58,6 +58,7 @@ jobs:
       - run: node tests/customer-csv-parser.test.mjs
       - run: node tests/sales-launch-journey.test.mjs
       - run: node tests/sales-onboarding-readiness.test.mjs
+      - run: node tests/live-dashboard-regression.test.mjs
       - run: node tests/customer-bulk-import-contract.test.mjs
       - run: node tests/customer-bulk-import-server.test.mjs
       - run: node tests/customer-import-http.test.mjs
