@@ -1,0 +1,1 @@
+Read-only acceptance harness. Unlinked from the product navigation. Requires the existing authenticated dashboard session. Inspect results before claiming mobile/browser acceptance. No credentials or customer records are exported. The viewport is a real same-origin iframe; it is not a mobile-device hardware or browser emulation.
