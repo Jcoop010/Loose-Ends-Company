@@ -58,7 +58,7 @@ async function importRun(){
  try{
   var start=await S.functions.invoke('customer-bulk-import',{body:{action:'start',workspace_id:workspace.id}});
   if(start.error||!start.data||!start.data.job)throw new Error('Import service unavailable');
-  var id=start.data.job.id;
+  var id=start.data.job.id;try{sessionStorage.setItem('le-import-active-'+workspace.id,id)}catch(e){}
   for(var i=0;i<rows.length;i+=100){
    var part=rows.slice(i,i+100).map(function(x){return {first_name:x.first_name||'',last_name:x.last_name||'',email:x.email||'',phone:x.phone||''}});
    var call=await S.functions.invoke('customer-bulk-import',{body:{action:'batch',workspace_id:workspace.id,job_id:id,batch_number:i/100,rows:part}});
