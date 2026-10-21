@@ -46,7 +46,39 @@ async function work(id){
 }
 function importCsv(){var old=document.getElementById('le-csv-modal');if(old)old.remove();var m=document.createElement('div');m.id='le-csv-modal';m.style.cssText='position:fixed;inset:0;background:rgba(4,8,15,.76);z-index:10090;display:flex;align-items:center;justify-content:center;padding:18px';m.innerHTML='<div style="width:min(620px,100%);background:#fff;color:#101828;border-radius:20px;padding:24px"><h2 style="margin:0 0 6px">Import customers & opportunities</h2><p style="color:#667085;font-size:13px">Paste CSV headers: first_name,last_name,phone,email,source,title,reason,amount,priority,status</p><textarea id="le-csv-text" style="width:100%;min-height:150px;box-sizing:border-box;padding:12px;border:1px solid #d0d5dd;border-radius:12px;font:12px monospace" placeholder="Jane,Doe,555-0100,jane@example.com,Declined work,Brake service,Declined at last visit,1450,90,open"></textarea><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button onclick="document.getElementById(\'le-csv-modal\').remove()">Cancel</button><button onclick="LELiveProduct.importRun()">Import</button></div></div>';document.body.appendChild(m)}
 function parseCsv(text){var lines=text.trim().split(/\r?\n/).filter(Boolean);if(lines.length<2)return[];var h=lines[0].split(',').map(function(x){return x.trim().toLowerCase()});return lines.slice(1).map(function(line){var cells=[],cur='',q=false;for(var i=0;i<line.length;i++){var ch=line[i];if(ch==='"')q=!q;else if(ch===','&&!q){cells.push(cur);cur=''}else cur+=ch}cells.push(cur);var o={};h.forEach(function(k,j){o[k]=(cells[j]||'').trim()});return o})}
-async function importRun(){var el=document.getElementById('le-csv-text'),rows=parseCsv(el?el.value:'');if(!rows.length){toast('Add at least one CSV data row');return}var count=0;for(var i=0;i<rows.length;i++){var x=rows[i];if(!x.email&&!x.phone&&!x.first_name&&!x.last_name)continue;var q=S.from('customers').select('id').eq('workspace_id',workspace.id);if(x.email)q=q.eq('email',x.email);else if(x.phone)q=q.eq('phone',x.phone);var found=(await q.limit(1).maybeSingle()).data,cid=found&&found.id;if(!cid){var ins=await S.from('customers').insert({workspace_id:workspace.id,first_name:x.first_name||null,last_name:x.last_name||null,phone:x.phone||null,email:x.email||null,notes:x.notes||null}).select('id').single();if(ins.error){console.warn(ins.error);continue}cid=ins.data.id}if(x.amount){var ins2=await S.from('opportunities').insert({workspace_id:workspace.id,customer_id:cid,source:x.source||'Imported',title:x.title||'Imported opportunity',reason:x.reason||'Imported revenue opportunity',amount:Number(x.amount)||0,priority:Number(x.priority)||0,status:['open','contacted','responded','scheduled','completed'].indexOf(x.status)>=0?x.status:'open'});if(ins2.error)console.warn(ins2.error)}count++}var m=document.getElementById('le-csv-modal');if(m)m.remove();toast(count+' row'+(count===1?'':'s')+' imported');load()}
+async function importRun(){
+ var el=document.getElementById('le-csv-text'),raw=el?el.value:'',rows=parseCsv(raw);
+ if(!workspace||!workspace.id){toast('Sign in to a workspace before importing');return}
+ if(!rows.length){toast('Add at least one CSV data row');return}
+ if(rows.length>5000){toast('Import limit is 5,000 rows per batch. Split your file and retry.');return}
+ var seen=new Set(),created=0,existing=0,failed=0,opps=0;
+ var btn=document.querySelector('#le-csv-modal button:last-child');if(btn)btn.disabled=true;
+ try{
+  for(var i=0;i<rows.length;i++){
+   if(!workspace||!workspace.id)throw new Error('Workspace changed during import');
+   var x=rows[i],email=String(x.email||'').trim().toLowerCase(),phone=String(x.phone||'').replace(/[^0-9+]/g,''),first=String(x.first_name||'').trim(),last=String(x.last_name||'').trim();
+   if(!email&&!phone){failed++;continue}
+   var key=email?'email:'+email:'phone:'+phone;
+   if(seen.has(key)){existing++;continue}seen.add(key);
+   var query=S.from('customers').select('id').eq('workspace_id',workspace.id);
+   query=email?query.ilike('email',email):query.eq('phone',phone);
+   var found=await query.limit(1).maybeSingle();if(found.error){failed++;continue}
+   var cid=found.data&&found.data.id;
+   if(!cid){
+    var inserted=await S.from('customers').insert({workspace_id:workspace.id,first_name:first||null,last_name:last||null,phone:phone||null,email:email||null}).select('id').single();
+    if(inserted.error){failed++;continue}cid=inserted.data.id;created++;
+   }else existing++;
+   var amount=Number(x.amount||0);
+   if(amount>0&&Number.isFinite(amount)&&amount<=100000000){
+    var added=await S.from('opportunities').insert({workspace_id:workspace.id,customer_id:cid,source:x.source||'Imported',title:x.title||'Imported opportunity',reason:x.reason||'Imported revenue opportunity',amount:amount,priority:Math.min(100,Math.max(0,Number(x.priority)||0)),status:'open'});
+    if(added.error)failed++;else opps++;
+   }
+  }
+ }finally{if(btn)btn.disabled=false}
+ var modal=document.getElementById('le-csv-modal');if(modal)modal.remove();
+ toast('Customers added: '+created+'; matched/skipped: '+existing+'; opportunities: '+opps+'; errors: '+failed);
+ load();
+}
 function render(){patchChrome();var v=(window.state&&window.state.view)||'overview';if(v==='overview'||v==='loose')control()}
 function reset(){
   generation++;workspace=null;data={customers:[],opps:[],followUps:[],recovery:[],metrics:{}};
