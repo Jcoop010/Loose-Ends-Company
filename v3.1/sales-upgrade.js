@@ -41,6 +41,7 @@
   }
   function closeAudit(){var m=qs('#leAuditModal');if(m)m.remove();}
   function addGuide(){
+    if(location.pathname!=='/demo'&&!new URLSearchParams(location.search).has('demo'))return;
     if(qs('#leDemoGuide'))return;
     var g=document.createElement('div');g.id='leDemoGuide';g.className='demo-guide';g.innerHTML='<button class="demo-guide-close" aria-label="Close">×</button><h4>5-minute demo path</h4><p>Show the owner the money first. Then show how the system turns it into action.</p><div class="demo-step"><i>1</i><span>Open the highest-value Loose End.</span></div><div class="demo-step"><i>2</i><span>Show the reason + suggested next action.</span></div><div class="demo-step"><i>3</i><span>Show the drafted customer message.</span></div><div class="demo-step"><i>4</i><span>Mark it recovered to demonstrate measurement.</span></div>';
     document.body.appendChild(g);g.querySelector('.demo-guide-close').onclick=function(){g.classList.add('hidden');sessionStorage.setItem('le_guide_hidden','1');};
