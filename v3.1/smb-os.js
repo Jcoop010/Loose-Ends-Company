@@ -32,7 +32,7 @@
   }
 
   function apply(){
-    document.title='Loose Ends — Small Business OS';
+    document.title='Loose Ends OS — Your Business. Running Smarter.';
     var tag=document.querySelector('.brand-tag'); if(tag) tag.textContent='Small business operating system';
     var btn=document.getElementById('businessSwitcher'); if(btn) btn.innerHTML=esc(state.name)+' <small>'+esc(state.owner)+'</small>⌄';
     var av=document.getElementById('businessAvatar'); if(av) av.textContent=initials(state.name);

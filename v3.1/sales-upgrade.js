@@ -51,7 +51,7 @@
   function updateBrand(){
     var note=qs('.demo-note');if(note)note.innerHTML='LIVE DEMO<br><span>Your Business · Revenue Recovery</span>';
     var call=qs('.sidebar-callout');if(call)call.innerHTML='<strong>Find the money.<br>Take the action.<br>Recover the revenue.</strong><div class="line"></div>';
-    var title=document.querySelector('title');if(title)title.textContent='Loose Ends — Revenue Recovery OS';
+    var title=document.querySelector('title');if(title)title.textContent='Loose Ends OS — Your Business. Running Smarter.';
   }
   function boot(){
     addStyles();addTopButton();addGuide();updateBrand();
