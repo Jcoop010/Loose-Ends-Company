@@ -11,7 +11,7 @@ for (const count of [-1, '0', NaN, Infinity]) {
 }
 const high = { ...clean, metadata: { vulnerabilities: { ...clean.metadata.vulnerabilities, high: 1, total: 1 } } }
 assert.throws(() => validateAudit(high, 'runtime'))
-assert.equal(validateAudit(high, 'full').high, 1)
+assert.throws(() => validateAudit(high, 'full'))
 const critical = { ...clean, metadata: { vulnerabilities: { ...clean.metadata.vulnerabilities, critical: 1, total: 1 } } }
 assert.throws(() => validateAudit(critical, 'runtime'))
 assert.throws(() => validateAudit(critical, 'full'))

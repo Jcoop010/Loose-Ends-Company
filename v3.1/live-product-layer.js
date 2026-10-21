@@ -23,7 +23,7 @@ async function fetchAll(table,select,order,ascending,request){
 }
 async function load(){var request=++generation;var current=await getWorkspace();if(request!==generation)return;if(!current){reset();return;}workspace=current;
   var activeView=window.LE&&window.LE.getState&&window.LE.getState().view;
-  if(['overview','inventory','jobs','purchasing','finance','team','operations'].indexOf(activeView)>=0){patchChrome();return;}
+  if(['overview','inventory','jobs','purchasing','finance','team','operations','dispatch','communications'].indexOf(activeView)>=0){patchChrome();return;}
   try{
     var r=await Promise.all([
       fetchAll('customers','*','created_at',false,request),
