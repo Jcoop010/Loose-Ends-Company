@@ -19,7 +19,7 @@
     var r=await S.auth.getUser();if(request!==generation)return;
     sessionUser=r.data&&r.data.user;
     if(!sessionUser){setPill();return;}
-    var q=await S.from('workspace_members').select('workspace_id,role,workspaces(*)').eq('user_id',sessionUser.id).limit(1).maybeSingle();
+    var q=await S.from('workspace_members').select('workspace_id,role,workspaces(id,name,slug)').eq('user_id',sessionUser.id).limit(1).maybeSingle();
     if(request!==generation)return;
     if(q.error){toast('Could not load workspace');return;}
     if(!q.data){
