@@ -55,6 +55,7 @@ jobs:
       - run: node tests/workspace-pagination.test.mjs
       - run: node tests/customer-server-search.test.mjs
       - run: node tests/customer-import-guard.test.mjs
+      - run: node tests/customer-bulk-import-contract.test.mjs
       - run: node tests/customer-bulk-import-server.test.mjs
       - run: node tests/customer-import-http.test.mjs
       - run: node tests/secure-checkout.test.mjs
