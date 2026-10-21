@@ -56,9 +56,21 @@ async function importRun(){
  var button=document.getElementById('le-csv-submit'),progress=document.getElementById('le-csv-progress');
  if(button)button.disabled=true;
  try{
-  var start=await S.functions.invoke('customer-bulk-import',{body:{action:'start',workspace_id:workspace.id}});
-  if(start.error||!start.data||!start.data.job)throw new Error('Import service unavailable');
-  var id=start.data.job.id;try{sessionStorage.setItem('le-import-active-'+workspace.id,id)}catch(e){}
+  var bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw));
+  var fingerprint=Array.from(new Uint8Array(bytes)).map(function(b){return b.toString(16).padStart(2,'0')}).join('');
+  var checkpoint='le-customer-import:'+workspace.id+':'+fingerprint;
+  var id=null;
+  try{id=localStorage.getItem(checkpoint)}catch(e){}
+  if(id){
+   var prior=await S.functions.invoke('customer-bulk-import',{body:{action:'status',workspace_id:workspace.id,job_id:id}});
+   if(prior.error||!prior.data||!prior.data.job||prior.data.job.status!=='active')id=null;
+  }
+  if(!id){
+   var start=await S.functions.invoke('customer-bulk-import',{body:{action:'start',workspace_id:workspace.id}});
+   if(start.error||!start.data||!start.data.job)throw new Error('Import service unavailable');
+   id=start.data.job.id;
+   try{localStorage.setItem(checkpoint,id)}catch(e){}
+  }
   for(var i=0;i<rows.length;i+=100){
    var part=rows.slice(i,i+100).map(function(x){return {first_name:x.first_name||'',last_name:x.last_name||'',email:x.email||'',phone:x.phone||''}});
    var call=await S.functions.invoke('customer-bulk-import',{body:{action:'batch',workspace_id:workspace.id,job_id:id,batch_number:i/100,rows:part}});
@@ -67,6 +79,7 @@ async function importRun(){
   }
   var complete=await S.functions.invoke('customer-bulk-import',{body:{action:'finish',workspace_id:workspace.id,job_id:id}});
   if(complete.error||!complete.data||!complete.data.job)throw new Error('Import completed but confirmation unavailable. Import ID: '+id);
+  try{localStorage.removeItem(checkpoint)}catch(e){}
   if(modal)modal.remove();
   toast('Imported '+complete.data.job.created+' contacts; matched '+complete.data.job.matched+'; rejected '+complete.data.job.rejected);
   load();
