@@ -64,6 +64,7 @@ jobs:
       - run: node tests/customer-bulk-import-server.test.mjs
       - run: node tests/customer-import-http.test.mjs
       - run: node tests/secure-checkout.test.mjs
+      - run: node tests/coordination-ui.test.mjs
       - run: node tests/operations-runtime.test.mjs
       - run: npm run test:runtime
       - run: npm run test:recovery

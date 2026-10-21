@@ -1,0 +1,22 @@
+-- Add covering indexes identified by the performance advisor. No records or existing indexes are removed.
+set local lock_timeout='3s';
+set local statement_timeout='20s';
+create index if not exists ops_appointments_job_lookup on public.appointments(workspace_id,ops_job_id);
+create index if not exists ops_consent_actor_lookup on public.customer_contact_consent_events(actor_user_id);
+create index if not exists ops_consent_customer_lookup on public.customer_contact_consent_events(customer_id);
+create index if not exists ops_import_creator_lookup on public.customer_import_jobs(created_by);
+create index if not exists ops_movements_job_lookup on public.inventory_movements(workspace_id,job_id);
+create index if not exists ops_materials_item_lookup on public.job_materials(workspace_id,item_id);
+create index if not exists ops_materials_job_lookup on public.job_materials(workspace_id,job_id);
+create index if not exists ops_draft_customer_lookup on public.ops_communication_drafts(customer_id);
+create index if not exists ops_expense_job_lookup on public.ops_expenses(workspace_id,job_id);
+create index if not exists ops_job_customer_lookup on public.ops_jobs(customer_id);
+create index if not exists ops_job_invoice_lookup on public.ops_jobs(invoice_id);
+create index if not exists ops_queue_item_lookup on public.ops_queue(workspace_id,item_id);
+create index if not exists ops_quote_document_lookup on public.ops_quote_revisions(document_id);
+create index if not exists ops_plan_customer_lookup on public.ops_service_plans(customer_id);
+create index if not exists ops_outbound_approval_lookup on public.recovery_outbound_jobs(approval_event_id);
+create index if not exists ops_outbound_actor_lookup on public.recovery_outbound_jobs(created_by);
+create index if not exists ops_outbound_customer_lookup on public.recovery_outbound_jobs(customer_id);
+create index if not exists ops_verified_customer_lookup on public.verified_recovery_payments(customer_id);
+create index if not exists ops_verified_opportunity_lookup on public.verified_recovery_payments(opportunity_id);

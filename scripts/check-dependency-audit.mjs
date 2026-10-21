@@ -11,7 +11,7 @@ export function validateAudit(report, mode) {
     if (!Number.isSafeInteger(counts[level]) || counts[level] < 0) throw new Error('Invalid audit count: ' + level)
   }
   if (counts.total !== counts.info + counts.low + counts.moderate + counts.high + counts.critical) throw new Error('Inconsistent audit totals')
-  if (counts.critical || (mode === 'runtime' && counts.high)) throw new Error('Dependency audit exceeds the ' + mode + ' security threshold')
+  if (counts.critical || counts.high) throw new Error('Dependency audit exceeds the ' + mode + ' security threshold')
   return counts
 }
 
