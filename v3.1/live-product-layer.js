@@ -66,7 +66,7 @@ async function importRun(){
    var cid=found.data&&found.data.id;
    if(!cid){
     var inserted=await S.from('customers').insert({workspace_id:workspace.id,first_name:first||null,last_name:last||null,phone:phone||null,email:email||null}).select('id').single();
-    if(inserted.error){failed++;continue}cid=inserted.data.id;created++;
+    if(inserted.error){if(inserted.error.code==='23505'&&email){var match=await S.from('customers').select('id').eq('workspace_id',workspace.id).ilike('email',email).limit(1).maybeSingle();if(!match.error&&match.data){cid=match.data.id;existing++}else{failed++;continue}}else{failed++;continue}}else{cid=inserted.data.id;created++}
    }else existing++;
    var amount=Number(x.amount||0);
    if(amount>0&&Number.isFinite(amount)&&amount<=100000000){
