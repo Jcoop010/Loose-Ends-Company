@@ -13,6 +13,7 @@
     var b=document.createElement('button');b.id='leAuditBtn';b.className='audit-btn';b.textContent='Run Revenue Audit';b.onclick=openAudit;actions.insertBefore(b,actions.firstChild);
   }
   function addRibbon(){
+    if(location.pathname!=='/demo'&&location.pathname.indexOf('/demo/')!==0)return;
     var page=qs('.page');if(!page||qs('.sales-ribbon'))return;
     var head=page.querySelector('.page-head');if(!head)return;
     var r=document.createElement('div');r.className='sales-ribbon';r.innerHTML='<span class="live-dot"></span><strong>LIVE REVENUE RECOVERY DEMO</strong><span>Built to find, prioritize, and recover revenue already connected to your customers.</span><span class="spacer"></span><button class="audit-btn" onclick="LESales.openAudit()">Calculate your opportunity</button>';
@@ -49,8 +50,9 @@
     var f=document.createElement('button');f.className='demo-guide-btn';f.textContent='Demo guide';f.style.position='fixed';f.style.right='18px';f.style.bottom='18px';f.style.zIndex='840';f.onclick=function(){g.classList.remove('hidden');};document.body.appendChild(f);
   }
   function updateBrand(){
-    var note=qs('.demo-note');if(note)note.innerHTML='LIVE DEMO<br><span>Your Business · Revenue Recovery</span>';
-    var call=qs('.sidebar-callout');if(call)call.innerHTML='<strong>Find the money.<br>Take the action.<br>Recover the revenue.</strong><div class="line"></div>';
+    var isDemo=location.pathname==='/demo'||location.pathname.indexOf('/demo/')===0;
+    var note=qs('.demo-note');if(note&&isDemo)note.innerHTML='DEMO WORKSPACE<br><span>Illustrative business records</span>';
+    var call=qs('.sidebar-callout');if(call&&!isDemo)call.innerHTML='<strong>Your Business.<br>Running Smarter.</strong><div class="line"></div>';
     var title=document.querySelector('title');if(title)title.textContent='Loose Ends OS — Your Business. Running Smarter.';
   }
   function boot(){
