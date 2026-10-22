@@ -21,4 +21,7 @@ context.fetch=async()=>({ok:false,status:503,text:async()=>''});
 await assert.rejects(()=>context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),/check is unavailable/);
 assert.match(auth,/if\(signup\)\{if\(!window\.LEPasswordSecurity\)/);
 assert.ok(!auth.includes('minlength="12"'),'Existing password sign-in must remain compatible');
+assert.match(auth,/field\.minLength=12/);
+assert.match(auth,/field\.autocomplete='new-password'/);
+assert.match(auth,/must not appear in known breaches/);
 console.log('Free password breach-check regression passed');
