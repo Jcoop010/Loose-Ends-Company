@@ -65,3 +65,34 @@ body #content button:not([hidden]):not(.sr-only){
   min-height:44px!important;
 }
 body #content button:not([hidden]):focus-visible{outline:3px solid #7be6c5;outline-offset:2px}
+
+
+/* Desktop Command Center 2026-10-22: deliberately high-density, visibly new workspace. */
+@media(min-width:1101px){
+ body.ops-active .main{background:radial-gradient(ellipse at 45% 0%,rgba(14,81,91,.20),transparent 55%),#07131f}
+ body.ops-active .main #content{max-width:none!important;width:100%;box-sizing:border-box;padding:24px 30px 44px}
+ body.ops-active #content>.ops-page{max-width:1760px!important;width:100%;margin:0 auto}
+ body.ops-active #content>.ops-page .page-head{padding:25px 30px!important;border:1px solid #285360!important;border-radius:20px!important;background:linear-gradient(110deg,#102a3b 0%,#0d3940 62%,#123729 100%)!important;box-shadow:0 20px 45px #020b1590;margin-bottom:25px!important;display:flex;align-items:center;justify-content:space-between}
+ body.ops-active #content>.ops-page .page-head h1{font-size:clamp(29px,2.5vw,40px)!important;font-weight:800;letter-spacing:-.04em}
+ body.ops-active .ops-health{grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:13px!important;margin:0 0 22px!important}
+ body.ops-active .ops-metric{position:relative;padding:22px 19px!important;min-height:126px;background:linear-gradient(145deg,#122b39,#0b202d)!important;border:1px solid #315264!important;border-radius:16px!important;box-shadow:0 8px 24px #0003}
+ body.ops-active .ops-metric:before{content:"";position:absolute;top:0;left:18px;right:18px;height:2px;background:linear-gradient(90deg,#59d5af,#ff8b49)}
+ body.ops-active .ops-metric span{font-size:12px!important;letter-spacing:.02em}
+ body.ops-active .ops-metric strong{font-size:clamp(25px,2.15vw,38px)!important;font-variant-numeric:tabular-nums;line-height:1.2}
+ body.ops-active .ops-columns{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important;gap:20px!important;align-items:stretch}
+ body.ops-active .ops-columns>.section-card{min-height:300px;padding:25px!important;background:linear-gradient(155deg,#112333,#0b1c2b)!important;border:1px solid #2b4658!important;border-radius:18px!important}
+ body.ops-active .ops-columns h2{font-size:19px!important;letter-spacing:-.02em}
+ body.ops-active .ops-columns .ops-row{padding:18px 0!important;gap:20px}
+ body.ops-active .ops-departments{display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px!important;align-items:stretch!important}
+ body.ops-active .ops-departments button{min-height:64px!important;white-space:normal!important;text-align:left;font-size:13px!important;line-height:1.3;border-radius:12px!important;padding:14px!important;background:linear-gradient(145deg,#233441,#172735)!important;border:1px solid #405365!important;color:#f0f5f8!important}
+ body.ops-active .ops-departments button:hover{border-color:#7bd9b9!important;background:#264350!important;transform:translateY(-2px)}
+ body.ops-active .ops-page .section-card{box-shadow:0 12px 32px #0002}
+}
+@media(min-width:1101px) and (max-width:1450px){
+ body.ops-active .ops-health{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+ body.ops-active .ops-departments{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+}
+@media(min-width:751px) and (max-width:1100px){
+ body.ops-active .ops-health{grid-template-columns:repeat(3,minmax(0,1fr))}
+ body.ops-active .ops-departments{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+}
