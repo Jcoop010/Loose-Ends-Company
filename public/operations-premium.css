@@ -35,3 +35,24 @@ body.ops-active .ops-page .ops-table{max-width:100%;overflow-x:auto}
 }
 @media(max-width:390px){body.ops-active .ops-health{grid-template-columns:1fr!important}}
 @media(prefers-reduced-motion:reduce){body.ops-active .ops-page button,body.ops-active .ops-row{transition:none!important}}
+
+
+/* Operational density, touch usability, and keyboard accessibility */
+body.ops-active .ops-page .ops-table-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid rgba(136,171,188,.2);border-radius:14px}
+body.ops-active .ops-page .ops-table{min-width:680px}
+body.ops-active .ops-page .ops-table th{font-size:11px;text-transform:uppercase;letter-spacing:.09em;white-space:nowrap;background:#132936}
+body.ops-active .ops-page .ops-table td{font-size:13px;vertical-align:middle}
+body.ops-active .ops-page .ops-table tbody tr:hover{background:rgba(96,218,177,.065)}
+body.ops-active .ops-modal-wrap{padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom));overscroll-behavior:contain}
+body.ops-active .ops-modal{box-sizing:border-box;width:min(100%,850px);max-height:min(88dvh,950px);overflow-y:auto;border-radius:19px;box-shadow:0 28px 90px rgba(0,0,0,.4)}
+body.ops-active .ops-modal :is(input,select,textarea){max-width:100%;box-sizing:border-box}
+body.ops-active .ops-modal :is(button,input,select,textarea):focus-visible{outline:3px solid #7be6c5;outline-offset:2px}
+body.ops-active .ops-page .ops-empty{border:1px dashed rgba(136,171,188,.25);border-radius:13px;background:rgba(99,183,161,.045)}
+@media(max-width:750px){
+ body.ops-active .ops-page .ops-table-wrap{margin-inline:-2px}
+ body.ops-active .ops-page .ops-form{display:grid;grid-template-columns:minmax(0,1fr)!important}
+ body.ops-active .ops-page .ops-form :is(input,select,textarea){font-size:16px}
+ body.ops-active .ops-page .ops-actions button{min-height:44px;white-space:normal}
+ body.ops-active .ops-modal-wrap{align-items:flex-end;padding-inline:0}
+ body.ops-active .ops-modal{width:100%;max-height:calc(100dvh - 18px);border-radius:20px 20px 0 0;padding:20px 16px max(20px,env(safe-area-inset-bottom))}
+}
