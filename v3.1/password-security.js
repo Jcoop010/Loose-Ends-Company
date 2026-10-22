@@ -10,7 +10,7 @@ async function check(password){
  let response;try{response=await fetch('https://api.pwnedpasswords.com/range/'+prefix,{headers:{'Add-Padding':'true'},cache:'no-store',signal:AbortSignal.timeout(8000)});}catch(e){throw Error('Password safety check is unavailable. Please retry before creating your account.');}
  if(!response.ok)throw Error('Password safety check is unavailable. Please retry before creating your account.');
  const data=await response.text();
- if(data.split(/\r?\n/).some(line=>line.split(':')[0].trim().toUpperCase()===suffix))throw Error('This password appears in known breaches. Choose a unique password.');
+ if(data.split(/\r?\n/).some(line=>{const parts=line.split(':');return parts[0]?.trim().toUpperCase()===suffix&&Number(parts[1])>0;}))throw Error('This password appears in known breaches. Choose a unique password.');
  return true;
 }
 window.LEPasswordSecurity={check:check};
