@@ -13,3 +13,8 @@ try{
  w.document.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await tick();assert.equal(w.document.querySelector('#ops-modal'),null);assert.equal(w.document.activeElement,opener);assert.ok(!w.document.querySelector('.app-shell').inert);
  console.log('Mobile navigation and modal accessibility regressions passed: late items, focus wrap, hidden controls, Escape, inert background and return focus.');
 }finally{w.close()}
+
+const qa=readFileSync(new URL('../public/qa/acceptance.js',import.meta.url),'utf8');
+const qaHtml=readFileSync(new URL('../public/qa/acceptance.html',import.meta.url),'utf8');
+for(const check of ['No duplicate element IDs','Images have alt attributes','Buttons have accessible names','loose-ends-acceptance.json'])assert.ok(qa.includes(check),check);
+assert.match(qaHtml,/id="export"/);
