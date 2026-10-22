@@ -18,7 +18,7 @@
       +'.le-more-title{padding:8px 10px;color:#8fa4ba;font:800 10px/1 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase}'
       +'.le-more-item{width:100%;border:0;background:transparent;color:#dce7f0;text-align:left;border-radius:10px;padding:13px 11px;font:650 13px system-ui,sans-serif;display:flex;gap:11px;align-items:center;min-height:44px}'
       +'.le-more-item:active,.le-more-item:hover,.le-more-item:focus-visible{background:#172b40;color:#ffad68;outline:none}'
-      +'.le-more-backdrop{position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.12);display:none}'
+      +'.le-more-backdrop{position:fixed;inset:0;z-index:899;background:rgba(0,0,0,.12);display:none}'
       +'.le-more-backdrop.open{display:block}'
       +'.main{padding-bottom:calc(82px + env(safe-area-inset-bottom))!important}'
       +'}';
@@ -48,12 +48,13 @@
       +'<button class="le-more-item" data-view="settings" role="menuitem">⚙ &nbsp; Settings</button>'
       +'<button class="le-more-item" data-demo="1" role="menuitem">ⓘ &nbsp; Demo guide</button>';
     document.body.appendChild(menu);
-    menu.querySelectorAll('[data-view]').forEach(function(b){b.addEventListener('click',function(){closeMore();navigate(b.dataset.view);setActive(b.dataset.view);});});
+    menu.addEventListener('click',function(e){var b=e.target.closest('[data-view]');if(!b||!menu.contains(b))return;closeMore();navigate(b.dataset.view);setActive(b.dataset.view);});
+    menu.addEventListener('keydown',function(e){if(e.key==='Escape'){closeMore();nav.querySelector('[data-view="more"]').focus();}});
     var demo=menu.querySelector('[data-demo]');demo.addEventListener('click',function(){closeMore();var g=document.getElementById('leDemoGuide');if(g)g.classList.remove('hidden');});
     function navigate(view){if(window.LE&&typeof window.LE.setView==='function')window.LE.setView(view);else if(typeof window.setView==='function')window.setView(view);}
     function setActive(view){
       var primary=['overview','loose','recovery','customers'].indexOf(view)>=0?view:'more';
-      nav.querySelectorAll('.le-mobile-tab').forEach(function(b){b.classList.toggle('active',b.dataset.view===primary);});
+      nav.querySelectorAll('.le-mobile-tab').forEach(function(b){b.classList.toggle('active',b.dataset.view===primary);if(b.dataset.view===primary)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
     }
     function toggleMore(){var open=!menu.classList.contains('open');menu.classList.toggle('open',open);backdrop.classList.toggle('open',open);nav.querySelector('[data-view="more"]').classList.toggle('active',open);nav.querySelector('[data-view="more"]').setAttribute('aria-expanded',String(open));}
     function closeMore(){menu.classList.remove('open');backdrop.classList.remove('open');nav.querySelector('[data-view="more"]').classList.remove('active');nav.querySelector('[data-view="more"]').setAttribute('aria-expanded','false');}

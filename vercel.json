@@ -1,1 +1,37 @@
-{"buildCommand":"npm run build","outputDirectory":"dist","rewrites":[{"source":"/dashboard","destination":"/index.html"},{"source":"/dashboard/:path*","destination":"/index.html"},{"source":"/demo","destination":"/index.html"},{"source":"/demo/:path*","destination":"/index.html"}]}
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/dashboard/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/demo",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/demo/:path*",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/qa/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; frame-ancestors 'self'; form-action 'none'; base-uri 'none'"
+        }
+      ]
+    }
+  ]
+}
