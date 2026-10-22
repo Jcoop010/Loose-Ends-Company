@@ -3,7 +3,7 @@
 'use strict';
 const frame=document.getElementById('app'),out=document.getElementById('results'),status=document.getElementById('status'),run=document.getElementById('run');
 const views=['overview','inventory','jobs','purchasing','finance','team','communications','operations','dispatch','customers','workflows'];
-const results=[];let running=false;
+const results=[];let running=false,completed=false;const exportButton=document.getElementById('export');exportButton.disabled=true;
 function visible(el){if(!el)return false;const s=el.ownerDocument.defaultView.getComputedStyle(el);return s.visibility!=='hidden'&&s.display!=='none'&&el.getClientRects().length>0;}
 async function until(fn,label){const deadline=Date.now()+20000;while(Date.now()<deadline){if(fn())return;await new Promise(r=>setTimeout(r,80));}throw Error('Timed out: '+label);}
 function resize(width){frame.width=String(width);document.getElementById('width').value=String(width);}
@@ -37,12 +37,12 @@ function audit(width,view){
  const auth=d.querySelector('#le-auth-pill'),business=d.querySelector('#businessSwitcher');
  if(visible(auth)&&visible(business)){const a=auth.getBoundingClientRect(),b=business.getBoundingClientRect();record(width,view,'Header controls do not overlap',!(a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top));}
 }
-document.getElementById('export').onclick=function(){const report={generatedAt:new Date().toISOString(),app:'Loose Ends OS',type:'Structural viewport acceptance - not device certification',passed:results.filter(x=>x.passed).length,failed:results.filter(x=>!x.passed).length,results};const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='loose-ends-acceptance.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+document.getElementById('export').onclick=function(){if(!completed||!results.length){status.textContent='Run the acceptance checks before exporting a report.';return;}const report={generatedAt:new Date().toISOString(),app:'Loose Ends OS',type:'Structural viewport acceptance - not device certification',passed:results.filter(x=>x.passed).length,failed:results.filter(x=>!x.passed).length,results};const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='loose-ends-acceptance.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 document.getElementById('resize').onclick=()=>resize(Number(document.getElementById('width').value));
-run.onclick=async function(){if(running)return;running=true;run.disabled=true;results.length=0;try{
+run.onclick=async function(){if(running)return;running=true;completed=false;exportButton.disabled=true;run.disabled=true;results.length=0;out.textContent='Checks running…';try{
  await until(()=>frame.contentDocument?.querySelector('#le-auth-pill.live'),'authenticated workspace');
  for(const width of [375,390,768,1366]){resize(width);status.textContent='Checking '+width+'px';await new Promise(r=>setTimeout(r,120));for(const view of views){try{await navigate(view,width);audit(width,view);}catch(e){record(width,view,'Navigation completes',false,{error:e.message});}}}
- status.textContent='Finished: '+results.filter(x=>!x.passed).length+' failed checks. Results contain structural evidence only.';
- }catch(e){status.textContent=e.message;}finally{running=false;run.disabled=false;}};
+ completed=true;exportButton.disabled=results.length===0;status.textContent='Finished: '+results.filter(x=>!x.passed).length+' failed checks. Results contain structural evidence only.';
+ }catch(e){status.textContent='Acceptance not completed: '+e.message;out.textContent=JSON.stringify({status:'blocked',reason:e.message,results},null,2);exportButton.disabled=true;}finally{running=false;run.disabled=false;}};
 window.addEventListener('message',()=>{}); // No messages or credentials are accepted from other origins.
 })();
