@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
+const source=readFileSync(new URL('../v3.1/password-security.js',import.meta.url),'utf8');
+const auth=readFileSync(new URL('../v3.1/auth-live.js',import.meta.url),'utf8');
+let calls=0;
+const context={window:{},crypto:webcrypto,TextEncoder,AbortSignal,fetch:async(url,opts)=>{calls++;assert.match(url,/^https:\/\/api\.pwnedpasswords\.com\/range\/[0-9A-F]{5}$/);assert.equal(opts.headers['Add-Padding'],'true');return {ok:true,text:async()=>''};}};
+vm.runInNewContext(source,context);
+await assert.rejects(()=>context.window.LEPasswordSecurity.check('short'),/at least 12/);
+assert.equal(calls,0);
+assert.equal(await context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),true);
+assert.equal(calls,1);
+context.fetch=async()=>({ok:true,text:async()=>{const p='SufficientlyUniquePassword-2026!',d=new Uint8Array(await webcrypto.subtle.digest('SHA-1',new TextEncoder().encode(p))),hex=Array.from(d,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();return hex.slice(5)+':99';}});
+await assert.rejects(()=>context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),/known breaches/);
+assert.match(auth,/if\(signup\)\{if\(!window\.LEPasswordSecurity\)/);
+assert.ok(!auth.includes('minlength="12"'),'Existing password sign-in must remain compatible');
+console.log('Free password breach-check regression passed');
