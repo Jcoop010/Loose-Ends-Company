@@ -56,3 +56,12 @@ body.ops-active .ops-page .ops-empty{border:1px dashed rgba(136,171,188,.25);bor
  body.ops-active .ops-modal-wrap{align-items:flex-end;padding-inline:0}
  body.ops-active .ops-modal{width:100%;max-height:calc(100dvh - 18px);border-radius:20px 20px 0 0;padding:20px 16px max(20px,env(safe-area-inset-bottom))}
 }
+
+
+/* Browser acceptance 2026-10-22: minimum 44px actionable controls across all departments.
+   Covers customer-profile links, workflow recipes and 768px/desktop operations. */
+body #content button:not([hidden]):not(.sr-only){
+  box-sizing:border-box;
+  min-height:44px!important;
+}
+body #content button:not([hidden]):focus-visible{outline:3px solid #7be6c5;outline-offset:2px}
