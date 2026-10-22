@@ -42,6 +42,7 @@ jobs:
           name: dependency-audit
           path: dependency-audit.json
           if-no-files-found: warn
+      - run: node tests/password-security.test.mjs
       - run: node tests/dependency-audit.test.mjs
       - run: npm run test:scanner
       - run: node tests/background-workflow.test.mjs
