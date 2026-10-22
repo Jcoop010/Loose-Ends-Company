@@ -68,6 +68,8 @@ jobs:
       - run: node tests/authenticated-shell.test.mjs
       - run: node tests/coordination-ui.test.mjs
       - run: node tests/operations-runtime.test.mjs
+      - run: node tests/operations-form-encoding.test.mjs
+      - run: node tests/operations-premium-ui.test.mjs
       - run: npm run test:runtime
       - run: npm run test:recovery
       - run: npm run typecheck

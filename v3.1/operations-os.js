@@ -14,7 +14,7 @@
   function go(v) { window.LE.setView(v); }
   function button(text, action, id) { return '<button type="button" class="action" data-ops-action="'+esc(action)+'" data-id="'+esc(id||'')+'">'+esc(text)+'</button>'; }
   function field(label,name,type,value,extra) { return '<label>'+esc(label)+'<input name="'+name+'" type="'+(type||'text')+'" value="'+esc(value||'')+'" '+(extra||'')+'></label>'; }
-  function form(id,body,submit) { return '<form class="ops-form" id="'+id+'">'+body+'<button class="primary" type="submit">'+submit+'</button></form>'; }
+  function form(id,body,submit) { return '<form class="ops-form" id="'+esc(id)+'">'+body+'<button class="primary" type="submit">'+esc(submit)+'</button></form>'; }
   function section(title,body,sub) { return '<section class="card section-card"><h2>'+title+'</h2>'+(sub?'<p class="subtitle">'+sub+'</p>':'')+body+'</section>'; }
   function empty(text) { return '<p class="ops-empty">'+esc(text)+'</p>'; }
   function row(title,sub,actions) { return '<div class="ops-row"><div><strong>'+esc(title)+'</strong><small>'+esc(sub)+'</small></div><div class="ops-actions">'+(actions||'')+'</div></div>'; }
