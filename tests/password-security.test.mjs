@@ -13,6 +13,8 @@ assert.equal(await context.window.LEPasswordSecurity.check('SufficientlyUniquePa
 assert.equal(calls,1);
 context.fetch=async()=>({ok:true,text:async()=>{const p='SufficientlyUniquePassword-2026!',d=new Uint8Array(await webcrypto.subtle.digest('SHA-1',new TextEncoder().encode(p))),hex=Array.from(d,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();return hex.slice(5)+':99';}});
 await assert.rejects(()=>context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),/known breaches/);
+context.fetch=async()=>({ok:true,text:async()=>{const d=new Uint8Array(await webcrypto.subtle.digest('SHA-1',new TextEncoder().encode('SufficientlyUniquePassword-2026!'))),hex=Array.from(d,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();return hex.slice(5)+':0';}});
+assert.equal(await context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),true,'padding with zero breaches is not a match');
 assert.match(auth,/if\(signup\)\{if\(!window\.LEPasswordSecurity\)/);
 assert.ok(!auth.includes('minlength="12"'),'Existing password sign-in must remain compatible');
 console.log('Free password breach-check regression passed');
