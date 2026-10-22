@@ -25,12 +25,19 @@ function audit(width,view){
  const controls=[...d.querySelectorAll('#content input:not([type=hidden]),#content select,#content textarea')].filter(visible);
  const unnamed=controls.filter(el=>!el.getAttribute('aria-label')&&!el.getAttribute('aria-labelledby')&&!(el.labels?.length)&&!el.getAttribute('title'));
  record(width,view,'Form controls have labels',unnamed.length===0,{unnamed:unnamed.map(el=>el.id||el.name||el.tagName)});
+ const ids=[...d.querySelectorAll('[id]')].map(el=>el.id).filter(Boolean),duplicates=ids.filter((id,i)=>ids.indexOf(id)!==i);
+ record(width,view,'No duplicate element IDs',duplicates.length===0,{duplicates:[...new Set(duplicates)].slice(0,15)});
+ const images=[...d.querySelectorAll('#content img')].filter(visible),missingAlt=images.filter(el=>!el.hasAttribute('alt'));
+ record(width,view,'Images have alt attributes',missingAlt.length===0,{missing:missingAlt.map(el=>el.src).slice(0,10)});
+ const emptyButtons=[...d.querySelectorAll('#content button')].filter(visible).filter(el=>!el.textContent.trim()&&!el.getAttribute('aria-label')&&!el.getAttribute('aria-labelledby')&&!el.getAttribute('title'));
+ record(width,view,'Buttons have accessible names',emptyButtons.length===0,{unnamed:emptyButtons.map(el=>el.id||el.className).slice(0,15)});
  const buttons=[...d.querySelectorAll('#content button')].filter(visible),small=buttons.filter(el=>el.getBoundingClientRect().height<43);
  record(width,view,'Touch target height',small.length===0,{small:small.map(el=>el.textContent.trim()).slice(0,15)});
  if(width<=1100){const nav=d.querySelector('#leMobileNav');record(width,view,'Mobile navigation visible',visible(nav));record(width,view,'More menu closes after navigation',!d.querySelector('.le-more-menu.open'));}
  const auth=d.querySelector('#le-auth-pill'),business=d.querySelector('#businessSwitcher');
  if(visible(auth)&&visible(business)){const a=auth.getBoundingClientRect(),b=business.getBoundingClientRect();record(width,view,'Header controls do not overlap',!(a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top));}
 }
+document.getElementById('export').onclick=function(){const report={generatedAt:new Date().toISOString(),app:'Loose Ends OS',type:'Structural viewport acceptance - not device certification',passed:results.filter(x=>x.passed).length,failed:results.filter(x=>!x.passed).length,results};const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='loose-ends-acceptance.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 document.getElementById('resize').onclick=()=>resize(Number(document.getElementById('width').value));
 run.onclick=async function(){if(running)return;running=true;run.disabled=true;results.length=0;try{
  await until(()=>frame.contentDocument?.querySelector('#le-auth-pill.live'),'authenticated workspace');
