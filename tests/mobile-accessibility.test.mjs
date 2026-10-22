@@ -18,3 +18,6 @@ const qa=readFileSync(new URL('../public/qa/acceptance.js',import.meta.url),'utf
 const qaHtml=readFileSync(new URL('../public/qa/acceptance.html',import.meta.url),'utf8');
 for(const check of ['No duplicate element IDs','Images have alt attributes','Buttons have accessible names','loose-ends-acceptance.json'])assert.ok(qa.includes(check),check);
 assert.match(qaHtml,/id="export"/);
+assert.match(qaHtml,/id="controls"/);
+assert.match(qaHtml,/@media\(max-width:650px\)/);
+assert.match(qaHtml,/button:disabled/);
