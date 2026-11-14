@@ -1,45 +1,45 @@
--- DRAFT 2026-11-15 — rolled-back acceptance test for the entitlement helper.
--- NOT EXECUTED. Requires a disposable database loaded with the schema + migrations.
--- Run: psql <disposable> -v ON_ERROR_STOP=1 -f tests/entitlement-gate.sql
--- Expected: all assertions raise NOTICE 'ok', final ROLLBACK leaves no residue.
-
+-- DRAFT, NOT EXECUTED. Run ONLY on a disposable database after the draft migration.
+-- Supply an existing disposable workspace, its member and a nonmember UUID:
+-- psql <disposable> -v test_workspace=UUID -v test_user=UUID -v outsider_user=UUID -f tests/entitlement-gate.sql
+-- All changes roll back. No production identifiers belong in this file.
 \set ON_ERROR_STOP on
 begin;
-
--- disposable fixture (names are synthetic; no production ids)
-with w as (
-  insert into public.workspaces(name) values ('Entitlement Gate Test Fixture') returning id
-)
-insert into public.workspace_subscriptions(workspace_id, plan_key, status, current_period_start, current_period_end, provider, updated_at)
-select id, 'trial', 'trialing', now() - interval '1 day', now() + interval '13 days', 'stripe', now()
-from w
-;
+select set_config('test.workspace', :'test_workspace', true);
+select set_config('test.member', :'test_user', true);
+select set_config('test.outsider', :'outsider_user', true);
+select set_config('request.jwt.claim.sub', :'test_user', true);
 
 do $$
 declare
-  v_ws uuid := (select id from public.workspaces where name='Entitlement Gate Test Fixture');
+  v_ws uuid := current_setting('test.workspace')::uuid;
+  v_member uuid := current_setting('test.member')::uuid;
+  v_outsider uuid := current_setting('test.outsider')::uuid;
+  v_status text;
 begin
-  assert public.is_workspace_entitled(v_ws) is true, 'trialing workspace should be entitled';
-  raise notice 'ok: trialing workspace entitled';
-
-  update public.workspace_subscriptions
-     set status='active', current_period_start=now()-interval '20 days', current_period_end=now()+interval '10 days'
-   where workspace_id=v_ws;
-  assert public.is_workspace_entitled(v_ws) is true, 'active workspace should be entitled';
-  raise notice 'ok: active workspace entitled';
-
-  update public.workspace_subscriptions set current_period_end=now()-interval '1 day' where workspace_id=v_ws;
-  assert public.is_workspace_entitled(v_ws) is false, 'expired active must not be entitled';
-  raise notice 'ok: expired active denied';
-
-  update public.workspace_subscriptions set status='past_due', current_period_end=now()+interval '10 days' where workspace_id=v_ws;
-  assert public.is_workspace_entitled(v_ws, false) is false, 'past_due denied without grace flag';
-  assert public.is_workspace_entitled(v_ws, true)  is true,  'past_due allowed with grace flag';
-  raise notice 'ok: past_due default-deny / grace-flag-allow';
-
+  assert exists(select 1 from public.workspace_members where workspace_id=v_ws and user_id=v_member), 'fixture requires member';
+  assert not exists(select 1 from public.workspace_members where workspace_id=v_ws and user_id=v_outsider), 'outsider must not belong to workspace';
+  assert exists(select 1 from public.workspace_subscriptions where workspace_id=v_ws), 'fixture requires subscription';
+  foreach v_status in array array['trialing','active','past_due'] loop
+    update public.workspace_subscriptions set status=v_status, current_period_end=now()+interval '10 days' where workspace_id=v_ws;
+    assert public.is_workspace_entitled(v_ws, true) is true, 'member with future period should pass';
+    if v_status='past_due' then
+      assert public.is_workspace_entitled(v_ws, false) is false, 'grace requires opt-in';
+    end if;
+    update public.workspace_subscriptions set current_period_end=now() where workspace_id=v_ws;
+    assert public.is_workspace_entitled(v_ws, true) is false, 'boundary must deny';
+    update public.workspace_subscriptions set current_period_end=null where workspace_id=v_ws;
+    assert public.is_workspace_entitled(v_ws, true) is false, 'missing expiry must deny';
+    update public.workspace_subscriptions set current_period_end='infinity'::timestamptz where workspace_id=v_ws;
+    assert public.is_workspace_entitled(v_ws, true) is false, 'nonfinite expiry must deny';
+  end loop;
+  update public.workspace_subscriptions set status='active', current_period_end=now()+interval '10 days' where workspace_id=v_ws;
+  perform set_config('request.jwt.claim.sub', v_outsider::text, true);
+  assert public.is_workspace_entitled(v_ws) is false, 'cross-workspace caller must be denied';
+  perform set_config('request.jwt.claim.sub', '', true);
+  assert public.is_workspace_entitled(v_ws) is false, 'unauthenticated caller must be denied';
+  perform set_config('request.jwt.claim.sub', v_member::text, true);
   update public.workspace_subscriptions set status='canceled' where workspace_id=v_ws;
-  assert public.is_workspace_entitled(v_ws, true) is false, 'canceled must never be entitled';
-  raise notice 'ok: canceled denied';
+  assert public.is_workspace_entitled(v_ws, true) is false, 'canceled must deny';
+  raise notice 'entitlement + membership assertions passed';
 end $$;
-
 rollback;
