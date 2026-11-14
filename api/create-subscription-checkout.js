@@ -3,7 +3,9 @@
 import { createClient } from '@supabase/supabase-js'
 
 const PRICE = 'price_1URCPvIS04s94hSMFJ9azsC8'
-const ORIGIN = 'https://loose-ends-os.vercel.app'
+// Default preserved for compatibility. Override via the APP_ORIGIN env var once the
+// live production domain is confirmed (see docs/STRIPE-TEST-MODE-ACCEPTANCE.md).
+const ORIGIN = process.env.APP_ORIGIN || 'https://loose-ends-os.vercel.app'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const respond = (res, code, message) => res.status(code).json({ error: message })
 
