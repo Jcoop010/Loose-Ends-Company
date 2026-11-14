@@ -1,7 +1,7 @@
 # Loose Ends Co. — Terms of Service
 
-> **Status: DRAFT 2026-11-15 — for owner and legal review. NOT legal advice. NOT published. Governing law, refund terms, liability caps, and entity details must be confirmed before adoption.**
-> **[OWNER-DECISION REQUIRED]**: governing state · liability cap basis · refund policy (see REFUNDS-CANCELLATION.md) · support contact · arbitration vs. courts
+> **Status: DRAFT 2026-11-15 — proposed Option A (14-day good-faith refund). For owner and legal review. NOT legal advice. NOT published. Entity details, governing law, venue and liability basis remain owner decisions before adoption.**
+> **[OWNER-DECISION REQUIRED]**: entity name / state · mailing address · governing state & venue · support contact · arbitration vs. courts · liability cap basis
 
 ## 1. The service
 Loose Ends Co. ("Loose Ends", "we", "us") provides a business-operations and revenue-recovery software workspace for small service businesses. The software flags, from the records you keep, items that may deserve attention (unsold estimates, past-due invoices, dormant customers, overdue tasks) and helps you organize and track your follow-through.
@@ -14,8 +14,8 @@ You must be able to enter into binding contracts. One workspace per business. Yo
 ## 3. Subscription and billing
 Loose Ends is sold as a single monthly subscription, currently **$199 USD per month**, billed through Stripe, renewing automatically until cancelled. No setup fee. Prices may change with at least 30 days' advance notice; changes apply from your next renewal. Fees are exclusive of applicable taxes. Authorization to charge is via your Stripe payment method, never stored by us.
 
-## 4. Cancellation
-You may cancel anytime in the workspace (Billing → Manage Billing → Stripe portal → cancel). Access continues through the end of the paid period. See REFUNDS-CANCELLATION.md.
+## 4. Cancellation and refunds
+You may cancel anytime in the workspace (Billing → Manage Billing → Stripe portal → cancel). Access continues through the end of the paid period. **First payment may be refunded in full within 14 calendar days of the first charge, once per customer, no questions asked**, via [SUPPORT CONTACT]; thereafter no refunds and no proration. See REFUNDS-CANCELLATION.md.
 
 ## 5. Your responsibilities with your customer data
 You are solely responsible for obtaining any consents and complying with messaging and privacy laws that apply to contacting your customers. We will never send messages to your customers on your behalf without your explicit action, and you accept sole responsibility for what is sent in your name.

@@ -1,24 +1,25 @@
-# Legal Drafts — Review Status
+# Legal Drafts — Review Status (updated 2026-11-15: Option A adopted in draft)
 
-**Created 2026-11-15 by agent. These are DRAFTS for owner and, ideally, legal counsel review. They are not legal advice, not adopted policy, and not for publication as approved legal documents until the owner explicitly approves them and any counsel review is complete.**
+**Created 2026-11-15 by agent; refund policy finalized to the proposed 14-day good-faith policy (Option A) for owner and counsel review. These remain DRAFTS — not legal advice, not adopted policy, not published. Publication requires explicit owner approval and (recommended) legal counsel review.**
 
 ## Files
 | File | Contents | Blocking review items |
 |---|---|---|
 | `PRIVACY.md` | Data we collect, use, retention, processors, rights | legal entity name & state · mailing address · support contact · security contact · governing-law references |
-| `TERMS.md` | Service description, billing ($199/mo), cancellation, acceptable use, liability | governing state & venue · liability cap · arbitration vs. courts · entity name |
-| `REFUNDS-CANCELLATION.md` | Cancel anytime via Stripe portal; **two refund options — Option A (14-day good-faith refund) / Option B (no refunds); owner must choose** | Option A or B · support contact |
+| `TERMS.md` | Service description, billing ($199/mo), cancellation + Option A refunds, acceptable use, liability | governing state & venue · liability cap · arbitration vs. courts · entity name |
+| `REFUNDS-CANCELLATION.md` | Cancel anytime via Stripe portal; **Option A adopted: full refund within first 14 calendar days, once per customer, no questions asked; no refunds/proration thereafter** | confirm/adjust 14-day window + one-refund limit · support contact |
 | `SUPPORT.md` | Support routing, scope, data requests, vulnerability disclosure | support contact · security contact · SLA decision · status-page decision |
 
-## Owner checklist before any of these may be published
-1. Choose Option A or Option B in REFUNDS-CANCELLATION.md and confirm the 14-day window if A.
-2. Supply: legal entity name, state of formation, mailing address, support email/contact, security contact.
-3. Decide governing state/venue (West Virginia assumed as draft — confirm).
-4. Have counsel (or an explicit owner decision accepting the risk) review all four documents.
-5. Approve creating PUBLIC `/legal/...` pages in the app shell + footer links in `index.html` / `public/revenue-checkup.html` (drafts currently live in `docs/legal/` only and are NOT deployed).
-6. Approve effective date and change-notification method.
+## Publication gates (all must clear; none assumed)
+1. Owner confirms the 14-day window and one-refund-per-customer limit (or amends).
+2. Owner supplies: legal entity name, state of formation, mailing address, support contact, security contact.
+3. Owner confirms governing state/venue (West Virginia assumed as draft — confirm).
+4. Counsel review of all four documents (recommended) OR an explicit written owner risk-acceptance.
+5. Owner approves creating PUBLIC `/legal/...` pages in the app shell + footer links (`index.html`, `public/revenue-checkup.html`) — drafts live in `docs/legal/` only and are NOT deployed.
+6. Owner approves effective date and change-notification method.
 
 ## Open questions for counsel
 - Whether WV auto-renewal ("negative option") statutes require specific renewal-notice language for $199/mo subscriptions.
 - TCPA/CAN-SPAM exposure of in-app "owner-approved outreach" drafts (user sends from own channels vs. any in-app send).
 - Whether Stripe Checkout plus our workspace entitlement records constitute a compliant auto-renewal disclosure flow.
+- Whether one-refund-per-customer is enforceable as written (identity matching provider_customer_id).
