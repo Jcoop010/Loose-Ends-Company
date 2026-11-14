@@ -18,7 +18,7 @@ For founding members:
 
 What we won't promise: guaranteed revenue, guaranteed collections, or automated messaging to your customers. You approve everything that goes out.
 
-If you run a service business and want this on your side of the desk: [LINK TO https://loose-ends-v3-1.vercel.app/revenue-checkup.html OR /dashboard — owner decides]
+If you run a service business and want this on your side of the desk: [LINK TO https://loose-ends-os.vercel.app/revenue-checkup.html OR /dashboard — owner decides]
 
 ## Reviewer checklist before publication
 - [ ] Price and promise accuracy ($199/mo, cancel anytime, no guarantees) — matches live Stripe price exactly
