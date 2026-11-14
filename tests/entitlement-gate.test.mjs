@@ -82,8 +82,19 @@ describe('entitlement gate evaluate()', () => {
     assert.equal(d.reason, 'unknown_status')
   })
 
-  it('missing period end on active -> allowed; webhook reconciliation is authoritative', () => {
-    const d = gate.evaluate({ status: 'active' }, { now })
-    assert.equal(d.entitled, true)
+  it('missing, invalid or non-finite period end always denies access', () => {
+    for (const status of ['active', 'trialing', 'past_due']) {
+      for (const end of [undefined, null, '', 'invalid', 'infinity', '-infinity']) {
+        const d = gate.evaluate({ status, current_period_end: end }, { now, allowPastDue: true })
+        assert.equal(d.entitled, false, `${status}: ${end}`)
+        assert.equal(d.reason, 'invalid_period')
+      }
+    }
+  })
+  it('period boundary and invalid comparison clock deny access', () => {
+    assert.equal(gate.evaluate({ status: 'active', current_period_end: future }, { now: NaN }).entitled, false)
+    for (const status of ['active', 'trialing', 'past_due']) {
+      assert.equal(gate.evaluate({ status, current_period_end: new Date(now).toISOString() }, { now, allowPastDue: true }).entitled, false)
+    }
   })
 })

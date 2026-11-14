@@ -23,12 +23,18 @@
       return { entitled: false, status: null, reason: 'no_subscription', billingCta: true };
     }
     if (ENTITLED.indexOf(status) !== -1) {
+      if (!isFinite(periodEnd) || !isFinite(now)) {
+        return { entitled: false, status: status, reason: 'invalid_period', billingCta: true };
+      }
       if (isFinite(periodEnd) && periodEnd <= now) {
         return { entitled: false, status: status, reason: 'period_ended', billingCta: true };
       }
       return { entitled: true, status: status, reason: 'ok', billingCta: false };
     }
     if (GRACE.indexOf(status) !== -1) {
+      if (!isFinite(periodEnd) || !isFinite(now)) {
+        return { entitled: false, status: status, reason: 'invalid_period', billingCta: true };
+      }
       if (isFinite(periodEnd) && periodEnd <= now) {
         return { entitled: false, status: status, reason: 'period_ended', billingCta: true };
       }

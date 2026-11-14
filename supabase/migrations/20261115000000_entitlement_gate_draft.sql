@@ -22,12 +22,17 @@ as $$
     select 1
     from public.workspace_subscriptions s
     where s.workspace_id = p_workspace_id
+      and auth.uid() is not null
+      and exists (
+        select 1 from public.workspace_members m
+        where m.workspace_id = s.workspace_id and m.user_id = (select auth.uid())
+      )
       and (
         (s.status in ('trialing','active')
-         and (s.current_period_end is null or s.current_period_end > now()))
+         and (s.current_period_end is not null and isfinite(s.current_period_end) and s.current_period_end > now()))
         or (p_include_grace
             and s.status = 'past_due'
-            and (s.current_period_end is null or s.current_period_end > now()))
+            and (s.current_period_end is not null and isfinite(s.current_period_end) and s.current_period_end > now()))
       )
   );
 $$;
