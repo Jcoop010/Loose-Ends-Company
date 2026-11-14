@@ -57,6 +57,25 @@ describe('entitlement gate evaluate()', () => {
     assert.equal(grace.reason, 'past_due_grace')
   })
 
+  it('past_due with expired period denied even with grace flag', () => {
+    const d = gate.evaluate({ status: 'past_due', current_period_end: past }, { now, allowPastDue: true })
+    assert.equal(d.entitled, false)
+  })
+
+  it('trialing with expired period -> denied (14-day trial elapsed without payment)', () => {
+    const d = gate.evaluate({ status: 'trialing', current_period_end: past }, { now })
+    assert.equal(d.entitled, false)
+    assert.equal(d.reason, 'period_ended')
+  })
+
+  it('entitlement result always carries a boolean billingCta for the paywall', () => {
+    for (const row of [null, { status: 'active', current_period_end: future }, { status: 'canceled' }]) {
+      const d = gate.evaluate(row, { now })
+      assert.equal(typeof d.billingCta, 'boolean')
+      assert.equal(typeof d.entitled, 'boolean')
+    }
+  })
+
   it('unknown status -> denied (fail-closed)', () => {
     const d = gate.evaluate({ status: 'made_up_state', current_period_end: future }, { now })
     assert.equal(d.entitled, false)

@@ -29,6 +29,9 @@
       return { entitled: true, status: status, reason: 'ok', billingCta: false };
     }
     if (GRACE.indexOf(status) !== -1) {
+      if (isFinite(periodEnd) && periodEnd <= now) {
+        return { entitled: false, status: status, reason: 'period_ended', billingCta: true };
+      }
       return allowGrace
         ? { entitled: true, status: status, reason: 'past_due_grace', billingCta: true }
         : { entitled: false, status: status, reason: 'past_due', billingCta: true };
