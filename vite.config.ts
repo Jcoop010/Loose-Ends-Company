@@ -14,7 +14,7 @@ export default defineConfig({
       generateBundle() {
         const legacyDir = resolve(rootDir, 'v3.1')
         for (const file of readdirSync(legacyDir)) {
-          if (!file.endsWith('.js')) continue
+          if (!file.endsWith('.js') && !file.endsWith('.css')) continue
           this.emitFile({
             type: 'asset',
             fileName: 'v3.1/' + file,

@@ -14,7 +14,7 @@ import { Marketing } from './pages/Marketing'
 import { BusinessRequests } from './pages/Requests'
 import { AskAssistant } from './pages/Ask'
 import { SettingsPage } from './pages/Settings'
-import { ErrorBoundary } from './ErrorBoundary'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/AuthGate'
 
 function DashboardRoutes() {
