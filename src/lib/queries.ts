@@ -15,11 +15,19 @@ import type {
   Opportunity,
   OpsCommunicationDraft,
   OpsJob,
+  OpsPolicy,
   PublicLeadInput,
   RecoveryStage,
   Task,
   TaskStatus,
   VerifiedRecoveryPayment,
+  Workflow,
+  WorkflowAction,
+  WorkflowCondition,
+  WorkflowMode,
+  WorkflowTriggerType,
+  Workspace,
+  WorkspaceSettings,
 } from '../types/domain'
 import { assertSupabaseConfigured, supabase } from './supabase'
 
@@ -718,4 +726,142 @@ export async function updateDocumentStatus(params: {
     .single()
   if (error) throw error
   return data as DocumentRecord
+}
+
+export async function fetchOpsPolicy(workspaceId: string): Promise<OpsPolicy | null> {
+  assertSupabaseConfigured()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const { data, error } = await supabase
+    .from('ops_policies')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  if (error) throw error
+  return (data as OpsPolicy | null) ?? null
+}
+
+export async function createWorkflowRecipe(params: {
+  workspaceId: string
+  name: string
+  description?: string | null
+  mode: WorkflowMode
+  triggerType: WorkflowTriggerType
+  entityType: string
+  conditions?: WorkflowCondition[]
+  actions: WorkflowAction[]
+  enabled?: boolean
+}): Promise<Workflow> {
+  assertSupabaseConfigured()
+  const { workspaceId, mode, triggerType, actions } = params
+  const cleanName = params.name.trim()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (!cleanName) {
+    throw new Error('Workflow name is required.')
+  }
+  if (actions.length === 0) {
+    throw new Error('At least one workflow action is required.')
+  }
+
+  const { data, error } = await supabase
+    .from('workflows')
+    .insert({
+      workspace_id: workspaceId,
+      name: cleanName,
+      description: params.description?.trim() || null,
+      enabled: params.enabled ?? true,
+      mode,
+      trigger_type: triggerType,
+      trigger_config: { entity_type: params.entityType },
+      conditions: params.conditions ?? [],
+      actions,
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as Workflow
+}
+
+export async function toggleWorkflowEnabled(params: {
+  workspaceId: string
+  workflowId: string
+  enabled: boolean
+}): Promise<Workflow> {
+  assertSupabaseConfigured()
+  const { workspaceId, workflowId, enabled } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(workflowId)) {
+    throw new Error('Valid workspace and workflow UUIDs are required.')
+  }
+  const { data, error } = await supabase
+    .from('workflows')
+    .update({
+      enabled,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', workflowId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as Workflow
+}
+
+export async function upsertWorkspaceSettings(params: {
+  workspaceId: string
+  businessType: string
+  timezone: string
+  onboardingCompleted: boolean
+}): Promise<WorkspaceSettings> {
+  assertSupabaseConfigured()
+  const { workspaceId, onboardingCompleted } = params
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const nowIso = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('workspace_settings')
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        business_type: params.businessType.trim() || 'Service Business',
+        timezone: params.timezone.trim() || 'America/New_York',
+        onboarding_completed: onboardingCompleted,
+        onboarding_completed_at: onboardingCompleted ? nowIso : null,
+        updated_at: nowIso,
+      },
+      { onConflict: 'workspace_id' },
+    )
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as WorkspaceSettings
+}
+
+export async function updateWorkspaceName(params: {
+  workspaceId: string
+  name: string
+}): Promise<Workspace> {
+  assertSupabaseConfigured()
+  const { workspaceId } = params
+  const cleanName = params.name.trim()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (cleanName.length < 2) {
+    throw new Error('Workspace name must be at least 2 characters.')
+  }
+  const { data, error } = await supabase
+    .from('workspaces')
+    .update({
+      name: cleanName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', workspaceId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as Workspace
 }

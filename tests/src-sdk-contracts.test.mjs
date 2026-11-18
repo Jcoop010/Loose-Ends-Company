@@ -451,6 +451,87 @@ assert.match(teamPanelSource, /'employee_save'/)
 assert.match(teamPanelSource, /'availability_save'/)
 assert.match(teamPanelSource, /'availability_remove'/)
 
+// 9. Phase 3C Workspaces 4 & 5 (Inventory & POs + Autopilot & Billing) & src/main.tsx contracts
+const phase3CModules = [
+  'src/main.tsx',
+  'src/features/workspaces/inventory-pos/StockTable.tsx',
+  'src/features/workspaces/inventory-pos/InventoryCsvImport.tsx',
+  'src/features/workspaces/inventory-pos/PurchaseOrdersPanel.tsx',
+  'src/features/workspaces/inventory-pos/InventoryPosPage.tsx',
+  'src/features/workspaces/autopilot-billing/OperationsPolicyForm.tsx',
+  'src/features/workspaces/autopilot-billing/EventQueuesAuditPanel.tsx',
+  'src/features/workspaces/autopilot-billing/WorkflowBuilderPanel.tsx',
+  'src/features/workspaces/autopilot-billing/WorkspaceSetupHealth.tsx',
+  'src/features/workspaces/autopilot-billing/BillingSubscriptionCard.tsx',
+  'src/features/workspaces/autopilot-billing/AutopilotBillingPage.tsx',
+]
+
+for (const mod of phase3CModules) {
+  readRepoFile(mod)
+}
+
+assert.match(appRootSource, /InventoryPosPage/)
+assert.match(appRootSource, /AutopilotBillingPage/)
+
+const mainEntrySource = readRepoFile('src/main.tsx')
+assert.match(mainEntrySource, /import\s+'\.\/index\.css'/)
+assert.match(mainEntrySource, /React\.StrictMode/)
+assert.match(mainEntrySource, /<AppRoot\s*\/>/)
+
+const stockTableSource = readRepoFile('src/features/workspaces/inventory-pos/StockTable.tsx')
+for (const cmd of ['inventory_save', 'stock_move', 'reserve_material', 'inventory_archive', 'purchase_draft']) {
+  assert.match(stockTableSource, new RegExp(`'${cmd}'`), `StockTable must wire '${cmd}'`)
+}
+
+const skuCsvImportSource = readRepoFile(
+  'src/features/workspaces/inventory-pos/InventoryCsvImport.tsx',
+)
+assert.match(skuCsvImportSource, /parseInventoryCsv\(/)
+assert.match(skuCsvImportSource, /sha256Hex\(/)
+assert.match(
+  skuCsvImportSource,
+  /'inventory-csv:'\s*\+\s*fileHash\s*\+\s*':'\s*\+\s*rowIndex/,
+  'InventoryCsvImport must construct deterministic inventory-csv:<hash>:<rowIndex> idempotency keys',
+)
+
+const poPanelSource = readRepoFile('src/features/workspaces/inventory-pos/PurchaseOrdersPanel.tsx')
+assert.match(poPanelSource, /'purchase_draft'/)
+assert.match(poPanelSource, /'purchase_transition'/)
+
+const policyFormSource = readRepoFile(
+  'src/features/workspaces/autopilot-billing/OperationsPolicyForm.tsx',
+)
+assert.match(policyFormSource, /isAdminOrOwner/)
+assert.match(policyFormSource, /'policy_save'/)
+assert.match(policyFormSource, /'coordination_policy'/)
+
+const eventQueuesSource = readRepoFile(
+  'src/features/workspaces/autopilot-billing/EventQueuesAuditPanel.tsx',
+)
+assert.match(eventQueuesSource, /'queue_retry'/)
+assert.match(eventQueuesSource, /'business_retry'/)
+
+const workflowPanelSource = readRepoFile(
+  'src/features/workspaces/autopilot-billing/WorkflowBuilderPanel.tsx',
+)
+assert.match(workflowPanelSource, /isAdminOrOwner/)
+assert.match(workflowPanelSource, /invokeWorkflowRunner\(/)
+
+const setupHealthSource = readRepoFile(
+  'src/features/workspaces/autopilot-billing/WorkspaceSetupHealth.tsx',
+)
+assert.match(setupHealthSource, /probeWorkspaceTableHealth\(/)
+assert.match(setupHealthSource, /syncQuickBooks\(/)
+
+const billingCardSource = readRepoFile(
+  'src/features/workspaces/autopilot-billing/BillingSubscriptionCard.tsx',
+)
+assert.match(billingCardSource, /isAdminOrOwner/)
+assert.match(billingCardSource, /createSubscriptionCheckout\(/)
+assert.match(billingCardSource, /createBillingPortalSession\(/)
+assert.match(billingCardSource, /'revenue_recovery'/)
+assert.match(billingCardSource, /!isAlreadyActive/)
+
 console.log(
-  `PASS: src/ SDK, state, Phase 3A & Phase 3B contracts verified across ${srcFiles.length} TypeScript modules.`,
+  `PASS: src/ SDK, state & all 5 workspaces (Phases 2–3C) verified across ${srcFiles.length} TypeScript modules.`,
 )
