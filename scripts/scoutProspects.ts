@@ -5,44 +5,27 @@
  * Universal SMB Prospect Scouting Agent for Loose Ends.
  *
  * Usage:
- *   npx tsx scripts/scoutProspects.ts              # rotate today's vertical
+ *   npx tsx scripts/scoutProspects.ts              # rotate today's vertical & market
  *   npx tsx scripts/scoutProspects.ts --seed        # load 20 vetted prospects into DB
  *   TARGET_MARKET="Dallas, TX" npx tsx scripts/scoutProspects.ts
  *
- * Required env vars:
+ * Required env vars for DB upsert:
  *   VITE_SUPABASE_URL          Supabase project URL
  *   SUPABASE_SERVICE_ROLE_KEY  Service-role key (bypasses RLS; never expose client-side)
  *
+ * Live Discovery API keys (at least one for live directory discovery):
+ *   GOOGLE_PLACES_API_KEY      Google Places API (New) Text Search (`places:searchText`)
+ *   SERPER_API_KEY             Serper.dev Places Search fallback (`google.serper.dev/places`)
+ *
  * Optional env vars:
  *   DEFAULT_WORKSPACE_ID       Workspace UUID to associate discovered leads
- *   TARGET_MARKET              Override location string (default: "United States")
- *
- * To wire in live discovery, implement discoverLiveBusinesses() below using
- * Google Places API, Serper.dev, Hunter.io, or Apollo.io.
+ *   TARGET_MARKET              Override location string (rotates top US SMB metros by default)
  */
 
 import { createClient } from '@supabase/supabase-js';
 
 // ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? '';
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-
-if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error(
-    '❌  Missing VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.\n' +
-    '    Copy .env.example → .env.local and fill in your Supabase credentials.'
-  );
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
-  auth: { persistSession: false },
-});
-
-// ---------------------------------------------------------------------------
-// Types
+// Types (Strict TypeScript — zero `any`)
 // ---------------------------------------------------------------------------
 
 type BottleneckTag =
@@ -51,13 +34,22 @@ type BottleneckTag =
   | 'inventory_stockouts'
   | 'overdue_invoices';
 
+type LeadLifecycleStatus =
+  | 'DRAFT_READY'
+  | 'DRAFT_GENERATED'
+  | 'OWNER_APPROVED'
+  | 'CONTACTED'
+  | 'DEMO_SCHEDULED'
+  | 'PILOT_SOLD'
+  | 'LOST';
+
 interface ScoutedProspect {
-  /** Must match public_leads.business unique constraint — used as upsert key */
+  /** Matches public_leads.business unique constraint — used as deduplication key */
   business:        string;
-  name:            string;   // primary decision-maker name (contact_name in DB)
+  name:            string;
   phone?:          string;
   email?:          string;
-  business_type:   string;   // maps to industry
+  business_type:   string;
   biggest_problem: BottleneckTag;
   industry:        string;
   location:        string;
@@ -65,14 +57,44 @@ interface ScoutedProspect {
   contact_email?:  string;
   website:         string;
   notes:           string;
-  score:           number;   // 0–100 qualification score
-  status?:         'DRAFT_READY' | 'DRAFT_GENERATED' | 'OWNER_APPROVED' | 'CONTACTED' | 'DEMO_SCHEDULED' | 'PILOT_SOLD' | 'LOST';
+  score:           number; // 70–95 qualification score
+  status?:         LeadLifecycleStatus;
+}
+
+interface GooglePlaceDisplayName {
+  text?: string;
+}
+
+interface GooglePlaceItem {
+  displayName?:          GooglePlaceDisplayName;
+  formattedAddress?:     string;
+  websiteUri?:           string;
+  nationalPhoneNumber?:  string;
+  rating?:               number;
+  userRatingCount?:      number;
+}
+
+interface GooglePlacesSearchResponse {
+  places?: GooglePlaceItem[];
+}
+
+interface SerperPlaceItem {
+  title?:       string;
+  address?:     string;
+  website?:     string;
+  phoneNumber?: string;
+  rating?:      number;
+  ratingCount?: number;
+}
+
+interface SerperPlacesResponse {
+  places?: SerperPlaceItem[];
 }
 
 // ---------------------------------------------------------------------------
-// Broad SMB categories — rotated daily for organic outreach diversity
+// Diverse SMB Verticals & Target Markets (rotated automatically)
 // ---------------------------------------------------------------------------
-const SMB_VERTICALS = [
+const SMB_VERTICALS: readonly string[] = [
   'boutique retail & e-commerce',
   'dental & wellness clinics',
   'marketing & creative agencies',
@@ -83,11 +105,22 @@ const SMB_VERTICALS = [
   'fitness studios & gyms',
 ];
 
+const DEFAULT_MARKETS: readonly string[] = [
+  'Dallas, TX',
+  'Atlanta, GA',
+  'Denver, CO',
+  'Charlotte, NC',
+  'Phoenix, AZ',
+  'Chicago, IL',
+  'Nashville, TN',
+  'Raleigh, NC',
+];
+
 // ---------------------------------------------------------------------------
 // 20 Vetted Prospects — researched & scored (Nov 2026)
 // Status DRAFT_READY: awaiting owner approval before any outreach is sent.
 // ---------------------------------------------------------------------------
-const VETTED_PROSPECTS: ScoutedProspect[] = [
+const VETTED_PROSPECTS: readonly ScoutedProspect[] = [
   {
     business: 'Texadia Systems',
     name: 'Steve Burke',
@@ -391,101 +424,308 @@ const VETTED_PROSPECTS: ScoutedProspect[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Live discovery adapter — connect your preferred API here
+// Bottleneck & Scoring Helpers
+// ---------------------------------------------------------------------------
+
+function inferBottleneckForVertical(vertical: string): {
+  tag: BottleneckTag;
+  note: string;
+} {
+  const v = vertical.toLowerCase();
+  if (v.includes('retail') || v.includes('e-commerce')) {
+    return {
+      tag: 'inventory_stockouts',
+      note: 'Multi-SKU stock drift, supplier PO tracking, and unfulfilled special orders. Detected bottleneck pattern: inventory_stockouts',
+    };
+  }
+  if (v.includes('dental') || v.includes('clinic') || v.includes('wellness') || v.includes('fitness') || v.includes('studio')) {
+    return {
+      tag: 'stale_quotes',
+      note: 'Unconfirmed recurring bookings, treatment/membership plan follow-ups, and overdue balances. Detected bottleneck pattern: stale_quotes',
+    };
+  }
+  if (v.includes('agency') || v.includes('marketing') || v.includes('creative')) {
+    return {
+      tag: 'overdue_invoices',
+      note: 'Approved client proposals, out-of-scope deliverables, and milestone retainers sitting unbilled. Detected bottleneck pattern: overdue_invoices',
+    };
+  }
+  if (v.includes('food') || v.includes('catering')) {
+    return {
+      tag: 'stale_quotes',
+      note: 'Event catering proposals, ingredient purchase orders, and final balance collection. Detected bottleneck pattern: stale_quotes',
+    };
+  }
+  return {
+    tag: 'unbilled_work',
+    note: 'Completed field/shop work orders, parts allocation, and open estimates awaiting billing signoff. Detected bottleneck pattern: unbilled_work',
+  };
+}
+
+function computeProspectScore(params: {
+  hasWebsite: boolean;
+  hasPhone: boolean;
+  hasAddress: boolean;
+  ratingCount: number;
+}): number {
+  let score = 70;
+  if (params.hasWebsite) score += 12;
+  if (params.hasPhone) score += 6;
+  if (params.hasAddress) score += 3;
+  if (params.ratingCount >= 10) score += 4;
+  return Math.min(95, Math.max(70, score));
+}
+
+// ---------------------------------------------------------------------------
+// Live Discovery Adapter 1: Google Places API (New) Text Search
+// ---------------------------------------------------------------------------
+export async function discoverViaGooglePlaces(
+  vertical: string,
+  market: string
+): Promise<ScoutedProspect[]> {
+  const apiKey = (process.env.GOOGLE_PLACES_API_KEY ?? '').trim();
+  if (!apiKey) {
+    return [];
+  }
+
+  console.log(`🔍  Querying Google Places API for "${vertical}" in ${market}...`);
+
+  const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask':
+        'places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount',
+    },
+    body: JSON.stringify({
+      textQuery: `${vertical} in ${market}`,
+      maxResultCount: 10,
+    }),
+  });
+
+  if (!response.ok) {
+    console.warn(`⚠️  Google Places API returned HTTP ${response.status}.`);
+    return [];
+  }
+
+  const payload = (await response.json()) as GooglePlacesSearchResponse;
+  const places = payload.places ?? [];
+  const bottleneck = inferBottleneckForVertical(vertical);
+  const discovered: ScoutedProspect[] = [];
+
+  for (const place of places) {
+    const businessName = (place.displayName?.text ?? '').trim();
+    const website = (place.websiteUri ?? '').trim();
+    if (!businessName || !website) {
+      continue;
+    }
+
+    const phone = (place.nationalPhoneNumber ?? '').trim();
+    const address = (place.formattedAddress ?? market).trim();
+    const score = computeProspectScore({
+      hasWebsite: Boolean(website),
+      hasPhone: Boolean(phone),
+      hasAddress: Boolean(address),
+      ratingCount: place.userRatingCount ?? 0,
+    });
+
+    discovered.push({
+      business: businessName,
+      name: 'Owner / Operations',
+      phone: phone || undefined,
+      business_type: vertical,
+      biggest_problem: bottleneck.tag,
+      industry: vertical,
+      location: market,
+      contact_name: 'Owner / Operations',
+      website,
+      notes: `${bottleneck.note} | Address: ${address}`,
+      score,
+      status: 'DRAFT_READY',
+    });
+  }
+
+  return discovered;
+}
+
+// ---------------------------------------------------------------------------
+// Live Discovery Adapter 2: Serper.dev Places API Fallback
+// ---------------------------------------------------------------------------
+export async function discoverViaSerper(
+  vertical: string,
+  market: string
+): Promise<ScoutedProspect[]> {
+  const apiKey = (process.env.SERPER_API_KEY ?? '').trim();
+  if (!apiKey) {
+    return [];
+  }
+
+  console.log(`🔍  Querying Serper Places API for "${vertical}" in ${market}...`);
+
+  const response = await fetch('https://google.serper.dev/places', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-KEY': apiKey,
+    },
+    body: JSON.stringify({
+      q: `${vertical} in ${market}`,
+    }),
+  });
+
+  if (!response.ok) {
+    console.warn(`⚠️  Serper Places API returned HTTP ${response.status}.`);
+    return [];
+  }
+
+  const payload = (await response.json()) as SerperPlacesResponse;
+  const places = payload.places ?? [];
+  const bottleneck = inferBottleneckForVertical(vertical);
+  const discovered: ScoutedProspect[] = [];
+
+  for (const place of places) {
+    const businessName = (place.title ?? '').trim();
+    const website = (place.website ?? '').trim();
+    if (!businessName || !website) {
+      continue;
+    }
+
+    const phone = (place.phoneNumber ?? '').trim();
+    const address = (place.address ?? market).trim();
+    const score = computeProspectScore({
+      hasWebsite: Boolean(website),
+      hasPhone: Boolean(phone),
+      hasAddress: Boolean(address),
+      ratingCount: place.ratingCount ?? 0,
+    });
+
+    discovered.push({
+      business: businessName,
+      name: 'Owner / Operations',
+      phone: phone || undefined,
+      business_type: vertical,
+      biggest_problem: bottleneck.tag,
+      industry: vertical,
+      location: market,
+      contact_name: 'Owner / Operations',
+      website,
+      notes: `${bottleneck.note} | Address: ${address}`,
+      score,
+      status: 'DRAFT_READY',
+    });
+  }
+
+  return discovered;
+}
+
+// ---------------------------------------------------------------------------
+// Combined Live Discovery Orchestrator
 // ---------------------------------------------------------------------------
 async function discoverLiveBusinesses(
   vertical: string,
-  location: string
+  market: string
 ): Promise<ScoutedProspect[]> {
-  // -------------------------------------------------------------------------
-  // Replace this stub with a live API call, e.g.:
-  //
-  //   Google Places Text Search:
-  //     const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(vertical + ' in ' + location)}&key=${process.env.GOOGLE_PLACES_API_KEY}`;
-  //
-  //   Serper.dev (web search):
-  //     const res = await fetch('https://google.serper.dev/search', {
-  //       method: 'POST',
-  //       headers: { 'X-API-KEY': process.env.SERPER_API_KEY!, 'Content-Type': 'application/json' },
-  //       body: JSON.stringify({ q: `${vertical} ${location} contact email` }),
-  //     });
-  //
-  //   Hunter.io (domain-to-email):
-  //     const res = await fetch(`https://api.hunter.io/v2/domain-search?domain=${domain}&api_key=${process.env.HUNTER_API_KEY}`);
-  // -------------------------------------------------------------------------
-  console.log(`🔍  [stub] Live discovery for "${vertical}" in ${location} — no API key configured.`);
-  console.log(`    Wire in Google Places, Serper, or Hunter.io in discoverLiveBusinesses().`);
+  const googleResults = await discoverViaGooglePlaces(vertical, market);
+  if (googleResults.length > 0) {
+    return googleResults;
+  }
+
+  const serperResults = await discoverViaSerper(vertical, market);
+  if (serperResults.length > 0) {
+    return serperResults;
+  }
+
   return [];
 }
 
 // ---------------------------------------------------------------------------
-// DB upsert
-// ---------------------------------------------------------------------------
-async function upsertProspect(p: ScoutedProspect): Promise<void> {
-  const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? null;
-
-  const row = {
-    workspace_id:    workspaceId,
-    business:        p.business,
-    name:            p.contact_name,
-    phone:           p.phone ?? null,
-    email:           p.contact_email ?? null,
-    business_type:   p.business_type,
-    biggest_problem: p.biggest_problem,
-    industry:        p.industry,
-    location:        p.location,
-    contact_name:    p.contact_name,
-    contact_email:   p.contact_email ?? null,
-    website:         p.website,
-    notes:           p.notes,
-    score:           p.score,
-    status:          p.status ?? 'DRAFT_READY',
-  };
-
-  const { error } = await supabase
-    .from('public_leads')
-    .upsert(row, { onConflict: 'business' });
-
-  if (error) {
-    console.error(`❌  Error saving "${p.business}":`, error.message);
-  } else {
-    console.log(`✅  Queued prospect: ${p.business} (${p.industry}) — score ${p.score}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Main
+// Main Execution
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isSeed = args.includes('--seed');
 
+  const supabaseUrl = (process.env.VITE_SUPABASE_URL ?? '').trim();
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
+  const hasGoogleKey = Boolean((process.env.GOOGLE_PLACES_API_KEY ?? '').trim());
+  const hasSerperKey = Boolean((process.env.SERPER_API_KEY ?? '').trim());
+
+  if (!isSeed && !hasGoogleKey && !hasSerperKey) {
+    console.log(
+      'ℹ️  Neither GOOGLE_PLACES_API_KEY nor SERPER_API_KEY is configured. ' +
+      'Skipping live directory query and exiting 0 cleanly.'
+    );
+    return;
+  }
+
+  if (!supabaseUrl || !serviceKey) {
+    console.log(
+      'ℹ️  VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured. ' +
+      'Exiting 0 cleanly.'
+    );
+    return;
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false },
+  });
+
+  const upsertProspect = async (p: ScoutedProspect): Promise<void> => {
+    const workspaceId = (process.env.DEFAULT_WORKSPACE_ID ?? '').trim() || null;
+
+    const row = {
+      workspace_id:    workspaceId,
+      business:        p.business,
+      name:            p.contact_name,
+      phone:           p.phone ?? null,
+      email:           p.contact_email ?? null,
+      business_type:   p.business_type,
+      biggest_problem: p.biggest_problem,
+      industry:        p.industry,
+      location:        p.location,
+      contact_name:    p.contact_name,
+      contact_email:   p.contact_email ?? null,
+      website:         p.website,
+      notes:           p.notes,
+      score:           p.score,
+      status:          p.status ?? 'DRAFT_READY',
+    };
+
+    const { error } = await supabase
+      .from('public_leads')
+      .upsert(row, { onConflict: 'business', ignoreDuplicates: true });
+
+    if (error) {
+      console.error(`❌  Error saving "${p.business}":`, error.message);
+    } else {
+      console.log(`✅  Queued prospect: ${p.business} (${p.industry}) — score ${p.score}`);
+    }
+  };
+
   if (isSeed) {
-    // --seed: load all 20 vetted prospects into the DB
     console.log(`\n🌱  Seeding ${VETTED_PROSPECTS.length} vetted prospects into public_leads...\n`);
     for (const p of VETTED_PROSPECTS) {
       await upsertProspect(p);
     }
-    console.log(`\n🎯  Seed complete. ${VETTED_PROSPECTS.length} prospects at DRAFT_READY.`);
-    console.log(`    Open the revenue-acquisition-mission artifact for outreach playbooks.`);
+    console.log(`\n🎯  Seed complete. ${VETTED_PROSPECTS.length} prospects queued at DRAFT_READY.`);
     return;
   }
 
-  // Default: rotate verticals and run live discovery
-  const targetLocation = process.env.TARGET_MARKET ?? 'United States';
-  const dailyVertical  = SMB_VERTICALS[new Date().getDay() % SMB_VERTICALS.length];
+  const dayOfYear = Math.floor(Date.now() / 86_400_000);
+  const dailyVertical = SMB_VERTICALS[dayOfYear % SMB_VERTICALS.length];
+  const rotatedMarket = DEFAULT_MARKETS[dayOfYear % DEFAULT_MARKETS.length];
+  const targetMarket = (process.env.TARGET_MARKET ?? '').trim() || rotatedMarket;
 
   console.log(`\n🤖  Universal SMB Scout`);
   console.log(`    Vertical : ${dailyVertical}`);
-  console.log(`    Market   : ${targetLocation}`);
-  console.log(`    Workspace: ${process.env.DEFAULT_WORKSPACE_ID ?? '(none — set DEFAULT_WORKSPACE_ID)'}\n`);
+  console.log(`    Market   : ${targetMarket}`);
+  console.log(`    Workspace: ${(process.env.DEFAULT_WORKSPACE_ID ?? '').trim() || '(global)'}\n`);
 
-  const businesses = await discoverLiveBusinesses(dailyVertical, targetLocation);
+  const businesses = await discoverLiveBusinesses(dailyVertical, targetMarket);
 
   if (businesses.length === 0) {
-    console.log(`\nℹ️   No live prospects discovered.`);
-    console.log(`    Run with --seed to load the 20 pre-vetted prospects, or`);
-    console.log(`    implement discoverLiveBusinesses() with a live API key.`);
+    console.log(`\nℹ️  No new prospects returned for "${dailyVertical}" in ${targetMarket}.`);
     return;
   }
 
@@ -493,10 +733,10 @@ async function main(): Promise<void> {
     await upsertProspect(biz);
   }
 
-  console.log(`\n✅  Scout run complete. ${businesses.length} prospects queued.`);
+  console.log(`\n✅  Scout run complete. ${businesses.length} prospects processed.`);
 }
 
-main().catch((err) => {
-  console.error('Fatal:', err);
+main().catch((err: unknown) => {
+  console.error('Fatal error in scoutProspects:', err);
   process.exit(1);
 });

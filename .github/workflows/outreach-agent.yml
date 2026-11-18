@@ -24,11 +24,13 @@ jobs:
           npm ci
           npm install -g tsx
 
-      - name: Run Universal SMB Scout
+      - name: Run Universal SMB Prospect Scout
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DEFAULT_WORKSPACE_ID: ${{ secrets.DEFAULT_WORKSPACE_ID }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
           TARGET_MARKET: ${{ vars.TARGET_MARKET || 'United States' }}
         run: npm run scout
 
@@ -37,5 +39,5 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DEFAULT_WORKSPACE_ID: ${{ secrets.DEFAULT_WORKSPACE_ID }}
-          PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || 'https://loose-ends-co.vercel.app' }}
+          PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || 'https://loose-ends-os.vercel.app' }}
         run: npm run outreach:draft
