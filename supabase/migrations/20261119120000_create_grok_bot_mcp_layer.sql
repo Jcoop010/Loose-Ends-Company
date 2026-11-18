@@ -1,11 +1,12 @@
 -- ============================================================================
 -- Migration: 20261119120000_create_grok_bot_mcp_layer.sql
--- Purpose  : Universal 5-Workspace Grok Bot & Cursor MCP Layer:
+-- Purpose  : Universal 5-Workspace & Zero-Keyboard Grok Bot + Cursor MCP Layer:
 --            1. public.workspace_mcp_tokens (SHA-256 hashed MCP bearer tokens)
 --            2. public.bot_manuals (7+ role versioned SOP manuals & autonomy mode)
---            3. public.staged_ops_actions (5-workspace staged proposals)
---            4. public.staged_ledger_entries (staged invoice/receipt/discrepancy ledger)
---            5. public.bot_runs (immutable audit trail across MCP & Edge Function runs)
+--            3. public.staged_ops_actions (5-workspace zero-keyboard staged proposals)
+--            4. public.ops_readiness_audits (0-100 / A-D Operations Readiness Scorecards)
+--            5. public.staged_ledger_entries (staged invoice/receipt/discrepancy ledger)
+--            6. public.bot_runs (immutable audit trail + state_hash silent-diff tracking)
 --            Plus seed default read-only SOP manuals for all 7 roles on
 --            workspace 1dfa4852-9415-446a-b8c2-6d2263f65998.
 -- ============================================================================
@@ -49,7 +50,7 @@ create policy "workspace members can revoke mcp tokens"
   using (public.is_workspace_member(workspace_id))
   with check (public.is_workspace_member(workspace_id));
 
--- 2. public.bot_manuals (supports all 7 universal roles + cash_applications)
+-- 2. public.bot_manuals
 create table if not exists public.bot_manuals (
   id                    uuid primary key default gen_random_uuid(),
   workspace_id          uuid not null references public.workspaces(id) on delete cascade,
@@ -102,31 +103,13 @@ create policy "workspace members can update bot manuals"
   using (public.is_workspace_member(workspace_id))
   with check (public.is_workspace_member(workspace_id));
 
--- 3. public.staged_ops_actions (5-workspace staged actions awaiting owner approval)
+-- 3. public.staged_ops_actions (5-workspace zero-keyboard staged proposals)
 create table if not exists public.staged_ops_actions (
   id               uuid primary key default gen_random_uuid(),
   workspace_id     uuid not null references public.workspaces(id) on delete cascade,
-  bot_role         text not null check (bot_role in (
-    'chief_of_staff',
-    'scout',
-    'dispatcher',
-    'buyer',
-    'billing',
-    'collections',
-    'qa',
-    'cash_applications',
-    'outreach'
-  )),
+  bot_role         text not null,
   workspace_domain text not null check (workspace_domain in ('pipeline', 'jobs', 'inventory', 'comms', 'billing')),
-  action_type      text not null check (action_type in (
-    'quote_draft',
-    'job_checklist_flag',
-    'purchase_order_draft',
-    'expense_receipt',
-    'invoice_draft',
-    'payment_match',
-    'discrepancy_flag'
-  )),
+  action_type      text not null,
   customer_id      uuid references public.customers(id) on delete set null,
   title            text not null,
   summary          text not null default '',
@@ -138,6 +121,38 @@ create table if not exists public.staged_ops_actions (
   reviewed_at      timestamptz,
   created_at       timestamptz not null default now()
 );
+
+alter table public.staged_ops_actions
+  drop constraint if exists staged_ops_actions_bot_role_check,
+  add constraint staged_ops_actions_bot_role_check
+    check (bot_role in (
+      'chief_of_staff',
+      'scout',
+      'dispatcher',
+      'buyer',
+      'billing',
+      'collections',
+      'qa',
+      'cash_applications',
+      'outreach'
+    )),
+  drop constraint if exists staged_ops_actions_action_type_check,
+  add constraint staged_ops_actions_action_type_check
+    check (action_type in (
+      'quote_draft',
+      'job_checklist_flag',
+      'sms_voicemail_command',
+      'open_loop_recovery',
+      'vendor_bill_audit',
+      'photo_inventory_import',
+      'purchase_order_draft',
+      'collection_call_request',
+      'ops_readiness_scorecard',
+      'expense_receipt',
+      'invoice_draft',
+      'payment_match',
+      'discrepancy_flag'
+    ));
 
 create index if not exists staged_ops_actions_workspace_status_idx
   on public.staged_ops_actions (workspace_id, status, created_at desc);
@@ -165,7 +180,40 @@ create policy "workspace members can update staged ops actions"
   using (public.is_workspace_member(workspace_id))
   with check (public.is_workspace_member(workspace_id));
 
--- 4. public.staged_ledger_entries
+-- 4. public.ops_readiness_audits (A-D Operations Readiness Scorecards)
+create table if not exists public.ops_readiness_audits (
+  id            uuid primary key default gen_random_uuid(),
+  workspace_id  uuid not null references public.workspaces(id) on delete cascade,
+  lead_id       uuid references public.public_leads(id) on delete set null,
+  business_name text not null,
+  website_url   text,
+  score_0_100   integer not null check (score_0_100 between 0 and 100),
+  grade         text not null check (grade in ('A', 'B', 'C', 'D')),
+  findings      jsonb not null default '[]'::jsonb,
+  report_html   text not null default '',
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists ops_readiness_audits_workspace_created_idx
+  on public.ops_readiness_audits (workspace_id, created_at desc);
+
+alter table public.ops_readiness_audits enable row level security;
+
+grant select, insert, update on table public.ops_readiness_audits to authenticated;
+
+drop policy if exists "workspace members can read ops readiness audits" on public.ops_readiness_audits;
+create policy "workspace members can read ops readiness audits"
+  on public.ops_readiness_audits for select
+  to authenticated
+  using (public.is_workspace_member(workspace_id));
+
+drop policy if exists "workspace members can insert ops readiness audits" on public.ops_readiness_audits;
+create policy "workspace members can insert ops readiness audits"
+  on public.ops_readiness_audits for insert
+  to authenticated
+  with check (public.is_workspace_member(workspace_id));
+
+-- 5. public.staged_ledger_entries
 create table if not exists public.staged_ledger_entries (
   id                uuid primary key default gen_random_uuid(),
   workspace_id      uuid not null references public.workspaces(id) on delete cascade,
@@ -225,7 +273,7 @@ create policy "workspace members can update staged ledger entries"
   using (public.is_workspace_member(workspace_id))
   with check (public.is_workspace_member(workspace_id));
 
--- 5. public.bot_runs (supports both MCP surface/tool_name and Grok router runs)
+-- 6. public.bot_runs (includes state_hash for silent-when-unchanged routines)
 create table if not exists public.bot_runs (
   id            uuid primary key default gen_random_uuid(),
   workspace_id  uuid not null references public.workspaces(id) on delete cascade,
@@ -234,6 +282,7 @@ create table if not exists public.bot_runs (
   mode          text not null default 'propose' check (mode in ('observe', 'propose', 'auto_with_escalation')),
   surface       text not null default 'mcp',
   tool_name     text not null default '',
+  state_hash    text,
   status        text not null default 'completed' check (status in ('running', 'completed', 'fallback_deterministic', 'failed')),
   input_summary text not null default '',
   output_json   jsonb not null default '{}'::jsonb,
@@ -241,8 +290,9 @@ create table if not exists public.bot_runs (
 );
 
 alter table public.bot_runs
-  add column if not exists surface   text not null default 'mcp',
-  add column if not exists tool_name text not null default '',
+  add column if not exists surface    text not null default 'mcp',
+  add column if not exists tool_name  text not null default '',
+  add column if not exists state_hash text,
   drop constraint if exists bot_runs_bot_role_check,
   add constraint bot_runs_bot_role_check
     check (bot_role in (
@@ -276,7 +326,7 @@ create policy "workspace members can insert bot runs"
   to authenticated
   with check (public.is_workspace_member(workspace_id));
 
--- 6. Seed Default Read-Only SOP Manuals for All 7 Roles on Workspace 1dfa4852-9415-446a-b8c2-6d2263f65998
+-- 7. Seed Default Read-Only SOP Manuals for All 7 Roles on Workspace 1dfa4852-9415-446a-b8c2-6d2263f65998
 do $$
 begin
   if exists (select 1 from public.workspaces where id = '1dfa4852-9415-446a-b8c2-6d2263f65998') then
@@ -286,37 +336,37 @@ begin
         '1dfa4852-9415-446a-b8c2-6d2263f65998',
         'chief_of_staff',
         'propose',
-        E'# Chief of Staff Bot SOP\n- Monitor daily cross-workspace health across Pipeline, Dispatch, Inventory, and Billing.\n- Surface high-impact bottlenecks as prioritized `staged_ops_actions` with exact integer cent figures.\n- Never execute financial or external messaging mutations without owner approval.'
+        E'# Chief of Staff Bot SOP\n- Compare `get_workspace_overview.state_hash` against the previous run; if identical, exit silently without consuming credits.\n- Surface cross-workspace bottlenecks as prioritized `staged_ops_actions` with exact integer cent figures.\n- Never execute financial or external messaging mutations without owner approval.'
       ),
       (
         '1dfa4852-9415-446a-b8c2-6d2263f65998',
         'scout',
         'propose',
-        E'# SMB Prospect Scout & Enrichment Bot SOP\n- Prioritize Ohio Valley / Appalachian regional SMBs (WV, OH, PA) alongside growth metros.\n- Crawl business websites to verify real owner/operations emails (`owner@`, `office@`, `billing@`, `service@`, `info@`) and reject non-buyer prefixes (`resumes@`, `careers@`, `jobs@`, `hr@`) and agency footer domains.\n- Upsert leads at `DRAFT_READY` and queue outreach drafts with `requires_approval = true`.'
+        E'# SMB Prospect Scout & Ops Readiness Grader SOP\n- Prioritize Ohio Valley / Appalachian regional SMBs (WV, OH, PA) alongside growth metros.\n- Crawl business websites to verify real owner/operations emails (`owner@`, `office@`, `billing@`, `service@`, `info@`) and generate a 0-100 (`A`-`D`) Operations Readiness Scorecard via `save_ops_readiness_audit`.\n- Reject non-buyer prefixes (`resumes@`, `careers@`, `jobs@`, `hr@`) and agency footer domains.'
       ),
       (
         '1dfa4852-9415-446a-b8c2-6d2263f65998',
         'dispatcher',
         'propose',
-        E'# Dispatch & Field Operations Bot SOP\n- Inspect open jobs (`ops_jobs`), technician availability, and incomplete checklist items.\n- Flag completed field jobs missing mandatory checklist sign-offs as `job_checklist_flag` in `staged_ops_actions` before invoicing.'
+        E'# Zero-Keyboard Dispatch & SMS/Voicemail Command SOP\n- Convert truck-cab SMS/voicemail transcripts into structured `sms_voicemail_command` and `job_checklist_flag` entries in `staged_ops_actions`.\n- Block invoice generation on any field job with incomplete checklist items.'
       ),
       (
         '1dfa4852-9415-446a-b8c2-6d2263f65998',
         'buyer',
         'propose',
-        E'# Inventory & Purchasing Buyer Bot SOP\n- Monitor SKU stock levels where `quantity - reserved <= reorder_threshold`.\n- Stage `purchase_order_draft` actions in `staged_ops_actions` with exact reorder quantities and unit purchase costs for owner review.'
+        E'# Photo-to-Inventory & Purchasing Buyer SOP\n- Parse shop shelf photos or distributor packing slips into `photo_inventory_import` and `purchase_order_draft` proposals in `staged_ops_actions`.\n- Flag any SKU where `quantity - reserved <= reorder_threshold`.'
       ),
       (
         '1dfa4852-9415-446a-b8c2-6d2263f65998',
         'billing',
         'propose',
-        E'# Billing & Document Parser Bot SOP\n- Parse vendor receipts and completed job records into integer cents.\n- Recompute line-item subtotals + tax deterministically; flag any arithmetic mismatch as `discrepancy_flag`.\n- Stage all invoice drafts and receipt entries as `pending_approval`.'
+        E'# +bills Vendor Bill Auditor & Invoice Parser SOP\n- Parse vendor receipts and bills into integer cents.\n- Recompute line-item subtotals + tax deterministically; flag duplicate charges, fuel surcharges, or >3% price hikes over PO cost as `vendor_bill_audit` or `discrepancy_flag`.'
       ),
       (
         '1dfa4852-9415-446a-b8c2-6d2263f65998',
         'collections',
         'propose',
-        E'# Collections & Revenue Leak Recovery Bot SOP\n- Prioritize overdue invoices (>7 days past due), completed unbilled jobs, and stale quotes (>5 days old).\n- Verify active channel opt-in in `customer_contact_consent_events` before staging any customer communication draft (`delivery_status = not_sent`).'
+        E'# Open-Loop Inbox Recovery & Collections SOP\n- Detect unanswered estimate threads (`open_loop_recovery`) and overdue invoices (>7 days past due).\n- Verify active channel opt-in in `customer_contact_consent_events` before staging follow-up drafts or `collection_call_request` cards.'
       ),
       (
         '1dfa4852-9415-446a-b8c2-6d2263f65998',

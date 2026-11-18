@@ -46,6 +46,7 @@ import type {
   RecoveryEvent,
   StagedLedgerEntry,
   StagedLedgerLineItem,
+  StagedOpsAction,
   Task,
   VerifiedRecoveryPayment,
   Workflow,
@@ -98,6 +99,7 @@ export interface DemoSandboxState {
   workflowRuns: WorkflowRun[]
   auditEvents: AuditEvent[]
   botManuals: BotManual[]
+  stagedOpsActions: StagedOpsAction[]
   stagedLedgerEntries: StagedLedgerEntry[]
   botRuns: BotRun[]
 }
@@ -1048,6 +1050,99 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     },
   ]
 
+  const stagedOpsActions: StagedOpsAction[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000b151',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'dispatcher',
+      workspace_domain: 'jobs',
+      action_type: 'sms_voicemail_command',
+      customer_id: customers[0]?.id ?? null,
+      title: 'Truck-Cab Voicemail Note → Job #201 Add-On & Checklist Sign-Off',
+      summary:
+        'Parsed tech Marcus Cole voicemail (42s): "Replaced 40/5 uF dual run capacitor + 2 lbs R-410A on Oakwood Dental RTU-2, static pressure tested OK." Staged checklist completion & $323.00 parts add-on.',
+      amount_cents: 32300,
+      payload: { source: 'sms_voicemail', tech: 'Marcus Cole', duration_sec: 42 },
+      confidence_score: 0.96,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -1 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b152',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'billing',
+      workspace_domain: 'billing',
+      action_type: 'vendor_bill_audit',
+      customer_id: null,
+      title: 'Vendor Bill Duplicate-Fee Audit Flag — Tri-State HVAC Supply #BILL-99204',
+      summary:
+        '+bills Auditor detected a $35.00 unapproved " Hazmat & Emergency Dispatch Surcharge" not present on approved PO #PO-1042 ($313.00 PO vs. $348.00 billed).',
+      amount_cents: 3500,
+      payload: { invoice_number: 'BILL-99204', expected_cents: 31300, billed_cents: 34800 },
+      confidence_score: 0.95,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -2 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b153',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'buyer',
+      workspace_domain: 'inventory',
+      action_type: 'photo_inventory_import',
+      customer_id: null,
+      title: 'Shop Shelf Photo-to-Inventory Batch (4 HVAC SKUs Counted)',
+      summary:
+        'Extracted shelf bin tags from uploaded bay photo: R-410A 25lb Cylinders (4 on hand, below threshold 5), 24V Contactors (11 on hand), Hard-Start Kits (3 on hand). Staged stock sync + reorder PO draft.',
+      amount_cents: 87000,
+      payload: { skus_counted: 4, low_stock_triggered: 1 },
+      confidence_score: 0.93,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -3 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b154',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'collections',
+      workspace_domain: 'comms',
+      action_type: 'open_loop_recovery',
+      customer_id: customers[1]?.id ?? null,
+      title: 'Open-Loop Gmail Follow-Up — Stalled $6,450 Rooftop Heat Pump Quote (8d Silent)',
+      summary:
+        'Detected unanswered estimate thread with Summit Logistics Warehouse (sent 8 days ago, verified email opt-in on file). Staged rebates & scheduling check-in draft.',
+      amount_cents: 645000,
+      payload: { thread_age_days: 8, channel: 'email', consent_verified: true },
+      confidence_score: 0.94,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -4 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b155',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'scout',
+      workspace_domain: 'pipeline',
+      action_type: 'ops_readiness_scorecard',
+      customer_id: null,
+      title: 'Ops Readiness Scorecard: Charleston Dental Associates (Grade A · 95/100)',
+      summary:
+        'Regional WV/OH/PA Scout audited website & booking flow: high patient volume, manual recall/treatment quote follow-up bottleneck detected. Ready for $249 Document Operations Pilot.',
+      amount_cents: 24900,
+      payload: { grade: 'A', score_0_100: 95, location: 'Charleston, WV' },
+      confidence_score: 0.95,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -5 * HOUR_MS),
+    },
+  ]
+
   const stagedLedgerEntries: StagedLedgerEntry[] = [
     {
       id: '00000000-0000-4000-8000-00000000b201',
@@ -1149,6 +1244,7 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     workflowRuns,
     auditEvents,
     botManuals,
+    stagedOpsActions,
     stagedLedgerEntries,
     botRuns,
   }
@@ -1225,6 +1321,7 @@ export interface DemoStoreContextValue {
     mode: BotAutonomyMode
     instructionsMarkdown: string
   }) => void
+  reviewDemoStagedOpsAction: (actionId: string, decision: 'approved' | 'rejected') => void
   reviewDemoStagedEntry: (entryId: string, decision: 'approved' | 'rejected') => void
   parseDemoReceiptWithGrokBot: (documentText: string) => StagedLedgerEntry
   resetDemo: () => void
@@ -1996,6 +2093,26 @@ export function DemoStoreProvider({
     [],
   )
 
+  const reviewDemoStagedOpsAction = useCallback(
+    (actionId: string, decision: 'approved' | 'rejected') => {
+      const nowIso = new Date().toISOString()
+      setState(prev => ({
+        ...prev,
+        stagedOpsActions: prev.stagedOpsActions.map(a =>
+          a.id === actionId
+            ? {
+                ...a,
+                status: decision,
+                reviewed_by: DEMO_OWNER_ID,
+                reviewed_at: nowIso,
+              }
+            : a,
+        ),
+      }))
+    },
+    [],
+  )
+
   const reviewDemoStagedEntry = useCallback(
     (entryId: string, decision: 'approved' | 'rejected') => {
       const nowIso = new Date().toISOString()
@@ -2146,6 +2263,7 @@ export function DemoStoreProvider({
       approveWorkflowRun,
       updateDemoPolicy,
       updateDemoBotManual,
+      reviewDemoStagedOpsAction,
       reviewDemoStagedEntry,
       parseDemoReceiptWithGrokBot,
       resetDemo,
@@ -2175,6 +2293,7 @@ export function DemoStoreProvider({
       approveWorkflowRun,
       updateDemoPolicy,
       updateDemoBotManual,
+      reviewDemoStagedOpsAction,
       reviewDemoStagedEntry,
       parseDemoReceiptWithGrokBot,
       resetDemo,

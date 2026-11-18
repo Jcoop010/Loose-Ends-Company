@@ -6,6 +6,7 @@ import {
   Copy,
   FileSearch,
   KeyRound,
+  Printer,
   Save,
   Sparkles,
   Trash2,
@@ -707,10 +708,10 @@ export function GrokBotsPanel({
           aria-label="Staged Bot Approvals Queue"
           className="exec-surface overflow-hidden lg:col-span-7"
         >
-          <div className="flex items-center justify-between border-b border-slate-200 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-4 sm:p-5">
             <div>
               <h3 className="text-base font-bold text-slate-900">
-                5-Workspace Staged Approvals (<code>staged_ops_actions</code> &amp;{' '}
+                Staged Zero-Keyboard Approvals (<code>staged_ops_actions</code> &amp;{' '}
                 <code>staged_ledger_entries</code>)
               </h3>
               <p className="text-xs text-slate-600">
@@ -718,7 +719,17 @@ export function GrokBotsPanel({
                 by an owner.
               </p>
             </div>
-            <Badge tone="amber">{pendingTotal} pending</Badge>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="exec-btn-secondary !px-2.5 !py-1.5 !text-xs"
+              >
+                <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+                Print Operations Binder
+              </button>
+              <Badge tone="amber">{pendingTotal} pending</Badge>
+            </div>
           </div>
 
           {loading ? (

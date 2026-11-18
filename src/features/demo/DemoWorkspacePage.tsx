@@ -1085,15 +1085,88 @@ export function DemoWorkspacePage(): React.ReactElement {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h3 className="text-base font-bold text-slate-900">
-                      Scoped Grok Accounting Bots & Staged Ledger Approvals
+                      Zero-Keyboard Ops, Remote HTTPS MCP &amp; Staged Bot Approvals
                     </h3>
                     <p className="text-xs text-slate-600">
-                      Bots parse receipts into integer cents, flag arithmetic discrepancies, and stage
-                      entries in <code>pending_approval</code> for owner sign-off.
+                      Remote MCP Endpoint:{' '}
+                      <code>/functions/v1/loose-ends-mcp (sandbox preview)</code>
                     </p>
                   </div>
-                  <Badge tone="emerald">grok-4.7</Badge>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="exec-btn-secondary !px-2.5 !py-1.5 !text-xs"
+                    >
+                      Print Operations Binder
+                    </button>
+                    <Badge tone="emerald">grok-4.7 · 11 MCP Tools</Badge>
+                  </div>
                 </div>
+
+                <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200">
+                  {demo.state.stagedOpsActions.map(action => (
+                    <li key={action.id} className="p-3.5 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs sm:text-sm font-bold text-slate-900">
+                            {action.title}
+                          </span>
+                          <Badge tone="neutral">{action.workspace_domain}</Badge>
+                          <Badge
+                            tone={
+                              action.action_type === 'vendor_bill_audit' ||
+                              action.action_type === 'discrepancy_flag'
+                                ? 'rose'
+                                : 'neutral'
+                            }
+                          >
+                            {action.action_type}
+                          </Badge>
+                          <Badge
+                            tone={
+                              action.status === 'approved'
+                                ? 'emerald'
+                                : action.status === 'rejected'
+                                  ? 'rose'
+                                  : 'amber'
+                            }
+                          >
+                            {action.status}
+                          </Badge>
+                        </div>
+                        <span className="text-sm font-bold text-slate-950 tabular-nums">
+                          {formatCents(action.amount_cents)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">{action.summary}</p>
+                      {action.status === 'pending_approval' ? (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              demo.reviewDemoStagedOpsAction(action.id, 'approved')
+                              toast.success('Staged action approved', action.title)
+                            }}
+                            className="exec-btn-emerald !px-3 !py-1.5 !text-xs touch-target"
+                          >
+                            Approve Action
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              demo.reviewDemoStagedOpsAction(action.id, 'rejected')
+                              toast.info('Staged action rejected', action.title)
+                            }}
+                            className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                   {demo.state.botManuals.map(manual => (

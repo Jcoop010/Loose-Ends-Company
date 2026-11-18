@@ -786,11 +786,32 @@ export type StagedOpsDomain =
 export type StagedOpsActionType =
   | 'quote_draft'
   | 'job_checklist_flag'
+  | 'sms_voicemail_command'
+  | 'open_loop_recovery'
+  | 'vendor_bill_audit'
+  | 'photo_inventory_import'
   | 'purchase_order_draft'
+  | 'collection_call_request'
+  | 'ops_readiness_scorecard'
   | 'expense_receipt'
   | 'invoice_draft'
   | 'payment_match'
   | 'discrepancy_flag'
+
+export type OpsReadinessGrade = 'A' | 'B' | 'C' | 'D'
+
+export interface OpsReadinessAudit {
+  id: string
+  workspace_id: string
+  lead_id: string | null
+  business_name: string
+  website_url: string | null
+  score_0_100: number
+  grade: OpsReadinessGrade
+  findings: string[]
+  report_html: string
+  created_at: string
+}
 
 export interface StagedOpsAction {
   id: string
@@ -861,6 +882,7 @@ export interface BotRun {
   mode: BotAutonomyMode
   surface?: string
   tool_name?: string
+  state_hash?: string | null
   status: BotRunStatus
   input_summary: string
   output_json: Record<string, unknown>

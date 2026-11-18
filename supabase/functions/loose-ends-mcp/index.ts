@@ -56,7 +56,7 @@ const MCP_TOOLS = [
   {
     name: "get_workspace_overview",
     description:
-      "Read-wide overview across all 5 Loose Ends workspaces: public leads, pipeline opportunities & quotes, active jobs, low-stock inventory, pending communication drafts, and staged bot actions.",
+      "Read-wide overview across all 5 Loose Ends workspaces: public leads, pipeline opportunities & quotes, active jobs, low-stock inventory, pending communication drafts, staged bot actions, ops readiness audits, PLUS a deterministic state_hash so scheduled Grok Bot routines stay silent when unchanged.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -66,7 +66,7 @@ const MCP_TOOLS = [
   {
     name: "list_public_leads",
     description:
-      "List SMB prospects in public.public_leads with optional status and minimum qualification score filters.",
+      "List SMB prospects in public.public_leads with optional status, minimum qualification score, and limit filters.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -109,6 +109,18 @@ const MCP_TOOLS = [
       additionalProperties: false,
       properties: {
         low_stock_only: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+    },
+  },
+  {
+    name: "list_ops_readiness_audits",
+    description:
+      "List A-D Operations Readiness Scorecards saved in public.ops_readiness_audits.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
         limit: { type: "integer", minimum: 1, maximum: 100 },
       },
     },
@@ -172,6 +184,28 @@ const MCP_TOOLS = [
     },
   },
   {
+    name: "save_ops_readiness_audit",
+    description:
+      "Write-narrow (staged): Save a 0-100 (A-D) Operations Readiness Scorecard and printable HTML report into public.ops_readiness_audits and stage a scorecard card in public.staged_ops_actions.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["business_name", "score_0_100", "grade", "findings"],
+      properties: {
+        lead_id: { type: "string" },
+        business_name: { type: "string" },
+        website_url: { type: "string" },
+        score_0_100: { type: "integer", minimum: 0, maximum: 100 },
+        grade: { type: "string", enum: ["A", "B", "C", "D"] },
+        findings: {
+          type: "array",
+          items: { type: "string" },
+        },
+        report_html: { type: "string" },
+      },
+    },
+  },
+  {
     name: "queue_communication_draft",
     description:
       "Write-narrow (staged): Re-verifies customer_contact_consent_events (hard-blocking revoked/opted-out contacts) and queues an owner-gated draft in ops_communication_drafts (status='draft', requires_approval=true, delivery_status='not_sent').",
@@ -193,7 +227,7 @@ const MCP_TOOLS = [
   {
     name: "stage_ops_action",
     description:
-      "Write-narrow (staged): Stage a quote draft, job checklist flag, PO draft, expense receipt, invoice draft, payment match, or discrepancy flag in public.staged_ops_actions at status='pending_approval'.",
+      "Write-narrow (staged): Stage an SMS/voicemail job command, open-loop inbox recovery, vendor bill duplicate-charge audit, photo-to-inventory batch, PO draft, collection call request, ops readiness scorecard, quote draft, or invoice draft in public.staged_ops_actions at status='pending_approval'.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -227,7 +261,13 @@ const MCP_TOOLS = [
           enum: [
             "quote_draft",
             "job_checklist_flag",
+            "sms_voicemail_command",
+            "open_loop_recovery",
+            "vendor_bill_audit",
+            "photo_inventory_import",
             "purchase_order_draft",
+            "collection_call_request",
+            "ops_readiness_scorecard",
             "expense_receipt",
             "invoice_draft",
             "payment_match",
@@ -305,7 +345,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "1.2.1",
+        version: "1.3.0",
         workspace_id: workspaceId,
       },
     });
@@ -333,6 +373,7 @@ Deno.serve(async (req: Request) => {
   try {
     let toolResult: Record<string, unknown> = {};
     let auditBotRole = "chief_of_staff";
+    let computedStateHash: string | null = null;
 
     if (toolName === "get_workspace_overview") {
       const [
@@ -343,6 +384,7 @@ Deno.serve(async (req: Request) => {
         { count: skusCount },
         { count: stagedOpsCount },
         { count: stagedLedgerCount },
+        { count: auditsCount },
       ] = await Promise.all([
         admin.from("public_leads").select("*", { count: "exact", head: true }),
         admin
@@ -374,19 +416,31 @@ Deno.serve(async (req: Request) => {
           .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
           .eq("status", "pending_approval"),
+        admin
+          .from("ops_readiness_audits")
+          .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId),
       ]);
+
+      const countsPayload = {
+        public_leads: leadsCount ?? 0,
+        pending_communication_drafts: draftsCount ?? 0,
+        opportunities: oppsCount ?? 0,
+        ops_jobs: jobsCount ?? 0,
+        active_inventory_skus: skusCount ?? 0,
+        pending_staged_ops_actions: stagedOpsCount ?? 0,
+        pending_staged_ledger_entries: stagedLedgerCount ?? 0,
+        ops_readiness_audits: auditsCount ?? 0,
+      };
+
+      computedStateHash = (
+        await sha256Hex(`${workspaceId}:${JSON.stringify(countsPayload)}`)
+      ).slice(0, 16);
 
       toolResult = {
         workspace_id: workspaceId,
-        counts: {
-          public_leads: leadsCount ?? 0,
-          pending_communication_drafts: draftsCount ?? 0,
-          opportunities: oppsCount ?? 0,
-          ops_jobs: jobsCount ?? 0,
-          active_inventory_skus: skusCount ?? 0,
-          pending_staged_ops_actions: stagedOpsCount ?? 0,
-          pending_staged_ledger_entries: stagedLedgerCount ?? 0,
-        },
+        state_hash: computedStateHash,
+        counts: countsPayload,
       };
     } else if (toolName === "list_public_leads") {
       auditBotRole = "scout";
@@ -473,6 +527,17 @@ Deno.serve(async (req: Request) => {
         inventory_items: filteredItems,
         purchase_orders: pos ?? [],
       };
+    } else if (toolName === "list_ops_readiness_audits") {
+      auditBotRole = "scout";
+      const limit = Math.min(100, Math.max(1, Number(args.limit ?? 25)));
+      const { data, error } = await admin
+        .from("ops_readiness_audits")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      toolResult = { audits: data ?? [] };
     } else if (toolName === "get_customer_consent_status") {
       auditBotRole = "qa";
       const email = typeof args.email === "string" ? args.email.trim().toLowerCase() : "";
@@ -575,6 +640,82 @@ Deno.serve(async (req: Request) => {
         .single();
       if (error) throw error;
       toolResult = { lead: leadRow, status: "DRAFT_READY" };
+    } else if (toolName === "save_ops_readiness_audit") {
+      auditBotRole = "scout";
+      const businessName =
+        typeof args.business_name === "string" ? args.business_name.trim() : "";
+      const websiteUrl =
+        typeof args.website_url === "string" ? args.website_url.trim() : null;
+      const score0100 = Math.min(100, Math.max(0, Math.round(Number(args.score_0_100 ?? 82))));
+      const grade =
+        typeof args.grade === "string" && ["A", "B", "C", "D"].includes(args.grade)
+          ? args.grade
+          : score0100 >= 85
+            ? "A"
+            : score0100 >= 70
+              ? "B"
+              : score0100 >= 55
+                ? "C"
+                : "D";
+      const findings = Array.isArray(args.findings) ? args.findings : [];
+      const reportHtml =
+        typeof args.report_html === "string" && args.report_html.trim()
+          ? args.report_html.trim()
+          : `<div class="ops-scorecard"><h2>${businessName} — Operations Readiness Grade: ${grade} (${score0100}/100)</h2><ul>${findings
+              .map((f) => `<li>${String(f)}</li>`)
+              .join("")}</ul></div>`;
+
+      if (!businessName) {
+        throw new Error("business_name is required");
+      }
+
+      const { data: auditRow, error: auditErr } = await admin
+        .from("ops_readiness_audits")
+        .insert({
+          workspace_id: workspaceId,
+          lead_id:
+            typeof args.lead_id === "string" && args.lead_id.trim()
+              ? args.lead_id.trim()
+              : null,
+          business_name: businessName,
+          website_url: websiteUrl,
+          score_0_100: score0100,
+          grade,
+          findings,
+          report_html: reportHtml,
+        })
+        .select("*")
+        .single();
+
+      if (auditErr) throw auditErr;
+
+      // Also stage a review card in staged_ops_actions
+      const { data: stagedCard } = await admin
+        .from("staged_ops_actions")
+        .insert({
+          workspace_id: workspaceId,
+          bot_role: "scout",
+          workspace_domain: "pipeline",
+          action_type: "ops_readiness_scorecard",
+          title: `Ops Readiness Scorecard: ${businessName} (Grade ${grade} · ${score0100}/100)`,
+          summary: findings.slice(0, 3).map(String).join(" · ") || "Operations readiness audit completed.",
+          amount_cents: 24900,
+          confidence_score: 0.95,
+          payload: {
+            audit_id: (auditRow as { id: string }).id,
+            grade,
+            score_0_100: score0100,
+            website_url: websiteUrl,
+          },
+          status: "pending_approval",
+        })
+        .select("*")
+        .single();
+
+      toolResult = {
+        audit: auditRow,
+        staged_action: stagedCard ?? null,
+      };
     } else if (toolName === "queue_communication_draft") {
       auditBotRole = "scout";
       const companyName =
@@ -596,7 +737,6 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      // Hard consent check before queuing
       const { data: consentRows } = await admin
         .from("customer_contact_consent_events")
         .select("id, status, decision")
@@ -618,7 +758,6 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      // Resolve or create workspace customer so draft links cleanly to Customer 360
       let customerId =
         typeof args.customer_id === "string" && args.customer_id.trim()
           ? args.customer_id.trim()
@@ -741,6 +880,7 @@ Deno.serve(async (req: Request) => {
       mode: "propose",
       surface: "mcp",
       tool_name: toolName,
+      state_hash: computedStateHash,
       status: "completed",
       input_summary: `MCP tools/call: ${toolName}`,
       output_json: toolResult,
