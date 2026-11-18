@@ -1479,8 +1479,15 @@ export async function discoverViaPublicWeb(
     if (!website) {
       continue;
     }
+    const rootDom = getRootDomain(website);
+    if (rootDom && seenNames.has(`domain:${rootDom}`)) {
+      continue;
+    }
 
     seenNames.add(lowerName);
+    if (rootDom) {
+      seenNames.add(`domain:${rootDom}`);
+    }
     const osmPhone = (tags.phone ?? tags['contact:phone'] ?? '').trim() || undefined;
     const osmEmail = (tags.email ?? tags['contact:email'] ?? '').trim() || undefined;
     const city = (tags['addr:city'] ?? '').trim();
@@ -1660,16 +1667,18 @@ async function main(): Promise<void> {
     }`
   );
 
-  // Query existing public_leads.business names first so we skip already-scouted companies
+  // Query existing public_leads.business names and website domains first so we skip already-scouted companies
   const { data: existingRows } = await supabase
     .from('public_leads')
-    .select('business');
+    .select('business, website');
 
-  const existingBusinesses = new Set<string>(
-    ((existingRows ?? []) as Array<{ business: string | null }>)
-      .map((r) => (r.business ?? '').trim().toLowerCase())
-      .filter(Boolean)
-  );
+  const existingBusinesses = new Set<string>();
+  for (const r of (existingRows ?? []) as Array<{ business: string | null; website: string | null }>) {
+    const bName = (r.business ?? '').trim().toLowerCase();
+    if (bName) existingBusinesses.add(bName);
+    const rDom = r.website ? getRootDomain(r.website) : '';
+    if (rDom) existingBusinesses.add(`domain:${rDom}`);
+  }
 
   let upsertedCount = 0;
   let errorCount = 0;

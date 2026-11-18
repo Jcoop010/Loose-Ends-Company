@@ -262,6 +262,21 @@ async function resolveOrCreateCustomerForProspect(params: {
     notes,
   } = params;
 
+  if (contactEmail) {
+    const { data: existingByEmail } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .ilike('email', contactEmail.trim().toLowerCase())
+      .limit(1)
+      .maybeSingle();
+
+    const emailRow = existingByEmail as CustomerRow | null;
+    if (emailRow?.id) {
+      return emailRow.id;
+    }
+  }
+
   const { data: existingByCompany } = await supabase
     .from('customers')
     .select('id')
