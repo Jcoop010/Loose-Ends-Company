@@ -325,6 +325,9 @@ const EXCLUDED_WEBSITE_DOMAINS: readonly string[] = [
   'f45training.com',
   'purebarre.com',
   'clubpilates.com',
+  'harborfreight.com',
+  'ashleyfurniture.com',
+  'voodoodoughnut.com',
 ];
 
 // ---------------------------------------------------------------------------
