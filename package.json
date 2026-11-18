@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "test:recovery": "node tests/revenue-recovery.test.mjs",
     "test:runtime": "node tests/production-runtime.test.mjs",
-    "test:scanner": "node tests/leak-scanner.test.mjs"
+    "test:scanner": "node tests/leak-scanner.test.mjs",
+    "scout": "tsx scripts/scoutProspects.ts",
+    "scout:seed": "tsx scripts/scoutProspects.ts --seed",
+    "outreach:draft": "tsx scripts/generateOutreachDrafts.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
@@ -29,5 +32,8 @@
     "tailwindcss": "4.3.3",
     "typescript": "^5.6.2",
     "vite": "^7.1.12"
+  },
+  "overrides": {
+    "picomatch": "4.0.8"
   }
 }

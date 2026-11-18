@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict'
-import {readFileSync} from 'node:fs'
-const css=readFileSync(new URL('../v3.1/overview-focus.js',import.meta.url),'utf8')
-const html=readFileSync(new URL('../index.html',import.meta.url),'utf8')
-assert.match(css,/@media\(max-width:700px\)/)
-for(const selector of ['#le-launch-panel .le-launch-steps{display:none!important}', '#le-launch-panel .le-launch-actions button:nth-child(n+3){display:none!important}', '#le-verified-collections{display:none!important}'])assert.ok(css.includes(selector),selector)
-assert.match(html,/overview-focus\.js\?v=20261021-mobile-focus-2/)
-assert.match(css,/if\(!overview\)return/)
+import { readSrc } from './helpers/load-src-module.mjs'
+
+const css = readSrc('src/index.css')
+const shell = readSrc('src/components/shell/AppShell.tsx')
+const commandCenter = readSrc('src/features/workspaces/command-center/CommandCenterPage.tsx')
+const html = readSrc('index.html')
+
+assert.match(css, /@media\s*\(max-width:\s*768px\)/)
+assert.match(css, /min-height:\s*44px/)
+assert.match(css, /overflow-x:\s*clip/)
+assert.match(shell, /aria-label="Mobile workspace navigation"/)
+assert.match(shell, /grid-cols-5/)
+assert.match(commandCenter, /grid-cols-2\s+gap-3\s+sm:grid-cols-3\s+lg:grid-cols-6/)
+assert.match(html, /name="viewport"\s+content="width=device-width,\s*initial-scale=1\.0"/)
+
 console.log('Mobile dashboard focus regression checks passed')

@@ -1,10 +1,25 @@
 import assert from 'node:assert/strict'
-import {readFileSync} from 'node:fs'
-const page=readFileSync(new URL('../public/revenue-checkup.html',import.meta.url),'utf8')
-const app=readFileSync(new URL('../v3.1/launch-center.js',import.meta.url),'utf8')
-for(const phrase of ['Create your business workspace','Choose the $199/month plan','Import and review opportunities','No automated customer messages'])assert.ok(page.includes(phrase),phrase)
-assert.match(page,/href="\/demo"/)
-assert.match(page,/href="\/dashboard"/)
-assert.match(app,/create-subscription-checkout/)
-assert.match(app,/checkout\.stripe\.com/)
+import { readSrc } from './helpers/load-src-module.mjs'
+
+const checkupPage = readSrc('public/revenue-checkup.html')
+const landingPage = readSrc('src/features/landing/LandingPage.tsx')
+const edgeFunctions = readSrc('src/lib/edgeFunctions.ts')
+
+for (const phrase of [
+  'Create your business workspace',
+  'Choose the $199/month plan',
+  'Import and review opportunities',
+  'No automated customer messages',
+]) {
+  assert.ok(checkupPage.includes(phrase), phrase)
+}
+
+assert.match(checkupPage, /href="\/demo"/)
+assert.match(checkupPage, /href="\/dashboard"/)
+assert.match(landingPage, /\$199/)
+assert.match(landingPage, /navigate\('\/demo'\)/)
+assert.match(landingPage, /navigate\('\/dashboard'\)/)
+assert.match(edgeFunctions, /create-subscription-checkout/)
+assert.match(edgeFunctions, /checkout\.stripe\.com/)
+
 console.log('Sales journey copy and secure checkout link guards passed')
