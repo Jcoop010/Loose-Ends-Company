@@ -1,6 +1,12 @@
 /// <reference path="./node-ambient.d.ts" />
 // scripts/generateOutreachDrafts.ts
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {
+  callOllamaStructured,
+  checkOllamaHealth,
+  normalizeOllamaBaseUrl,
+  type JsonSchemaObject,
+} from './lib/ollamaClient';
 
 try {
   process.loadEnvFile?.('.env.local');
@@ -15,6 +21,8 @@ try {
 
 const AUTHORITATIVE_SUPABASE_URL = 'https://uehfvpnnoitgybsmdgef.supabase.co';
 const AUTHORITATIVE_APP_URL = 'https://loose-ends-os.vercel.app';
+const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434';
+const DEFAULT_OLLAMA_MODEL = 'gemma4:e2b';
 
 const PLACEHOLDER_PATTERNS: readonly RegExp[] = [
   /your-project-ref/i,
@@ -35,6 +43,10 @@ function isPlaceholderValue(raw: string | undefined): boolean {
   const val = (raw ?? '').trim();
   if (!val) return false;
   return PLACEHOLDER_PATTERNS.some((re) => re.test(val));
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function resolveSupabaseUrl(): string {
@@ -139,8 +151,61 @@ interface CustomerRow {
   id: string;
 }
 
+export interface OutreachDraftInput {
+  companyName: string;
+  contactName: string;
+  industry: string;
+  location: string;
+  website: string;
+  notes: string;
+  publicAppUrl: string;
+  senderName: string;
+}
+
+export interface PersonalizedOutreachOutput {
+  subject: string;
+  body: string;
+  detected_angle: string;
+}
+
+export interface LocalOllamaProviderStatus {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  modeLabel: string;
+  reason?: string;
+}
+
+export interface GeneratedOutreachDraft {
+  subject: string;
+  body: string;
+  detectedAngle: string;
+  provider: string;
+}
+
+export const LOCAL_OUTREACH_SCHEMA: JsonSchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject', 'body', 'detected_angle'],
+  properties: {
+    subject: {
+      type: 'string',
+      description: 'Short, natural plain-text email subject line without hype or spam.',
+    },
+    body: {
+      type: 'string',
+      description:
+        'Concise plain-English founder-to-founder email under 110 words referencing the demo link.',
+    },
+    detected_angle: {
+      type: 'string',
+      description: 'Primary operational bottleneck angle detected for this business.',
+    },
+  },
+};
+
 // Tailors the operational hook to any small business category
-function buildUniversalHook(industryRaw: string, notes: string): string {
+export function buildUniversalHook(industryRaw: string, notes: string): string {
   const industry = industryRaw.toLowerCase();
 
   if (industry.includes('retail') || industry.includes('e-commerce')) {
@@ -190,6 +255,161 @@ function buildUniversalHook(industryRaw: string, notes: string): string {
   return 'catching unbilled work, open quotes, and overdue invoices in a single daily view';
 }
 
+export function normalizePublicAppUrl(rawAppUrl: string | undefined): string {
+  const trimmed = (rawAppUrl ?? '').trim();
+  if (trimmed && !isPlaceholderValue(trimmed)) {
+    return trimmed.replace(/\/+$/, '');
+  }
+  return AUTHORITATIVE_APP_URL;
+}
+
+export function validatePersonalizedOutreach(
+  raw: unknown,
+  publicAppUrl: string
+): PersonalizedOutreachOutput | null {
+  if (!isPlainRecord(raw)) {
+    return null;
+  }
+  const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
+  const body = typeof raw.body === 'string' ? raw.body.trim() : '';
+  const detectedAngle =
+    typeof raw.detected_angle === 'string' ? raw.detected_angle.trim() : '';
+
+  if (!subject || !body || !detectedAngle) {
+    return null;
+  }
+
+  const demoUrl = `${normalizePublicAppUrl(publicAppUrl)}/demo`;
+  if (!body.includes(demoUrl)) {
+    return null;
+  }
+
+  return {
+    subject,
+    body,
+    detected_angle: detectedAngle,
+  };
+}
+
+export function buildDeterministicOutreachDraft(
+  params: OutreachDraftInput
+): { subject: string; body: string; detectedAngle: string } {
+  const hook = buildUniversalHook(params.industry, params.notes);
+  const demoUrl = `${normalizePublicAppUrl(params.publicAppUrl)}/demo`;
+  const subject = `Quick question for ${params.companyName}`;
+  const body = `Hi ${params.contactName},
+
+I came across ${params.companyName}${params.location ? ` in ${params.location}` : ''} and noticed your team is growing in the ${params.industry} space.
+
+Many ${params.industry} owners we speak with mention that ${hook} takes up too much manual admin time every week.
+
+We built Loose Ends as a lightweight Operations OS for small businesses—combining pipeline quotes, scheduling, inventory & purchase orders, and automated revenue-leak checks in one workspace (with human approval gates before anything is sent or billed).
+
+Would you be open to a 5-minute interactive look at how it works for a ${params.industry} business? You can also click through the live sandbox anytime here:
+${demoUrl}
+
+Best regards,
+${params.senderName}`;
+
+  return {
+    subject,
+    body,
+    detectedAngle: hook,
+  };
+}
+
+export async function resolveLocalOllamaOutreachProvider(
+  env: Record<string, string | undefined> = process.env
+): Promise<LocalOllamaProviderStatus> {
+  const baseUrl = normalizeOllamaBaseUrl(
+    (env.OLLAMA_BASE_URL ?? '').trim() || DEFAULT_OLLAMA_BASE_URL
+  );
+  const model = (env.OLLAMA_MODEL ?? '').trim() || DEFAULT_OLLAMA_MODEL;
+
+  if ((env.CI ?? '').trim().toLowerCase() === 'true') {
+    return {
+      enabled: false,
+      baseUrl,
+      model,
+      modeLabel: 'deterministic-fallback',
+      reason: 'ci_environment',
+    };
+  }
+
+  if ((env.OLLAMA_DISABLED ?? '').trim().toLowerCase() === 'true') {
+    return {
+      enabled: false,
+      baseUrl,
+      model,
+      modeLabel: 'deterministic-fallback',
+      reason: 'ollama_disabled',
+    };
+  }
+
+  const health = await checkOllamaHealth(baseUrl, model, 2000);
+  if (health.available && health.hasModel) {
+    return {
+      enabled: true,
+      baseUrl,
+      model,
+      modeLabel: `local-ollama:${model}`,
+    };
+  }
+
+  return {
+    enabled: false,
+    baseUrl,
+    model,
+    modeLabel: 'deterministic-fallback',
+    reason: health.reason ?? 'ollama_unavailable',
+  };
+}
+
+async function generateLocalOllamaOutreach(
+  params: OutreachDraftInput,
+  config: { baseUrl: string; model: string; timeoutMs?: number }
+): Promise<PersonalizedOutreachOutput | null> {
+  const normalizedUrl = normalizePublicAppUrl(params.publicAppUrl);
+  const demoUrl = `${normalizedUrl}/demo`;
+
+  return callOllamaStructured<PersonalizedOutreachOutput>(
+    {
+      baseUrl: config.baseUrl,
+      model: config.model,
+      temperature: 0.2,
+      timeoutMs: config.timeoutMs ?? 45000,
+      think: false,
+      schema: LOCAL_OUTREACH_SCHEMA,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You write concise, plain-English founder-to-founder emails (strictly under 110 words) for Loose Ends Operations OS. Never invent dollar amounts, ROI percentages, fake metrics, or spammy formatting (no ALL CAPS, no excessive exclamation marks). You MUST include the exact demo URL verbatim in the email body: ' +
+            demoUrl +
+            '. Sign off warmly as ' +
+            params.senderName +
+            '. Respond strictly as JSON matching the schema.',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            business: params.companyName,
+            contact_name: params.contactName,
+            vertical: params.industry,
+            city_state: params.location,
+            website: params.website,
+            crawled_notes: params.notes,
+            required_demo_url: demoUrl,
+            sender_name: params.senderName,
+          }),
+        },
+      ],
+    },
+    (raw: unknown) => validatePersonalizedOutreach(raw, normalizedUrl)
+  );
+}
+
+// Fail-closed suppression lookup
 async function isEmailSuppressed(
   supabase: SupabaseClient,
   email: string
@@ -199,46 +419,62 @@ async function isEmailSuppressed(
     return false;
   }
 
-  const { data: directEvents } = await supabase
-    .from('customer_contact_consent_events')
-    .select('id, email, status, decision')
-    .eq('email', normalizedEmail);
+  try {
+    const { data: directEvents, error: directError } = await supabase
+      .from('customer_contact_consent_events')
+      .select('id, email, status, decision')
+      .eq('email', normalizedEmail);
 
-  const typedDirectEvents = (directEvents ?? []) as ConsentSuppressionRow[];
-  const hasDirectSuppression = typedDirectEvents.some(
-    (evt) =>
-      evt.status === 'opted_out' ||
-      evt.status === 'revoked' ||
-      evt.decision === 'revoked'
-  );
-  if (hasDirectSuppression) {
+    if (directError) {
+      return true;
+    }
+
+    const typedDirectEvents = (directEvents ?? []) as ConsentSuppressionRow[];
+    const hasDirectSuppression = typedDirectEvents.some(
+      (evt) =>
+        evt.status === 'opted_out' ||
+        evt.status === 'revoked' ||
+        evt.decision === 'revoked'
+    );
+    if (hasDirectSuppression) {
+      return true;
+    }
+
+    const { data: matchingCustomers, error: customerError } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('email', normalizedEmail);
+
+    if (customerError) {
+      return true;
+    }
+
+    const customerIds = ((matchingCustomers ?? []) as CustomerRow[]).map(
+      (c) => c.id
+    );
+    if (customerIds.length === 0) {
+      return false;
+    }
+
+    const { data: customerEvents, error: customerEventError } = await supabase
+      .from('customer_contact_consent_events')
+      .select('id, status, decision')
+      .in('customer_id', customerIds);
+
+    if (customerEventError) {
+      return true;
+    }
+
+    const typedCustomerEvents = (customerEvents ?? []) as ConsentSuppressionRow[];
+    return typedCustomerEvents.some(
+      (evt) =>
+        evt.status === 'opted_out' ||
+        evt.status === 'revoked' ||
+        evt.decision === 'revoked'
+    );
+  } catch {
     return true;
   }
-
-  const { data: matchingCustomers } = await supabase
-    .from('customers')
-    .select('id')
-    .ilike('email', normalizedEmail);
-
-  const customerIds = ((matchingCustomers ?? []) as CustomerRow[]).map(
-    (c) => c.id
-  );
-  if (customerIds.length === 0) {
-    return false;
-  }
-
-  const { data: customerEvents } = await supabase
-    .from('customer_contact_consent_events')
-    .select('id, status, decision')
-    .in('customer_id', customerIds);
-
-  const typedCustomerEvents = (customerEvents ?? []) as ConsentSuppressionRow[];
-  return typedCustomerEvents.some(
-    (evt) =>
-      evt.status === 'opted_out' ||
-      evt.status === 'revoked' ||
-      evt.decision === 'revoked'
-  );
 }
 
 async function resolveOrCreateCustomerForProspect(params: {
@@ -321,12 +557,6 @@ async function resolveOrCreateCustomerForProspect(params: {
   return (created as CustomerRow).id;
 }
 
-interface GrokOutreachStructuredOutput {
-  subject: string;
-  body: string;
-  detected_angle: string;
-}
-
 interface XaiResponsesPayload {
   output_text?: string;
   output?: Array<{
@@ -337,32 +567,15 @@ interface XaiResponsesPayload {
   }>;
 }
 
-const GROK_OUTREACH_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['subject', 'body', 'detected_angle'],
-  properties: {
-    subject: { type: 'string' },
-    body: { type: 'string' },
-    detected_angle: { type: 'string' },
-  },
-};
-
-async function generateGrokPersonalizedOutreach(params: {
-  companyName: string;
-  contactName: string;
-  industry: string;
-  location: string;
-  website: string;
-  notes: string;
-  publicAppUrl: string;
-  senderName: string;
-}): Promise<GrokOutreachStructuredOutput | null> {
+async function generateGrokPersonalizedOutreach(
+  params: OutreachDraftInput
+): Promise<PersonalizedOutreachOutput | null> {
   const xaiKey = (process.env.XAI_API_KEY ?? '').trim();
   if (!xaiKey || isPlaceholderValue(xaiKey)) {
     return null;
   }
   const xaiModel = (process.env.XAI_MODEL ?? 'grok-4.7').trim() || 'grok-4.7';
+  const normalizedUrl = normalizePublicAppUrl(params.publicAppUrl);
 
   try {
     const response = await fetch('https://api.x.ai/v1/responses', {
@@ -378,7 +591,7 @@ async function generateGrokPersonalizedOutreach(params: {
             role: 'system',
             content:
               'You are the Loose Ends Founder-to-Founder Outreach Bot. Write a concise, natural, non-pushy founder-to-founder email to a small business owner. Focus on their industry operational bottleneck (unbilled field work, stale quotes, stockouts, or overdue invoices). Include the interactive demo link (' +
-              params.publicAppUrl +
+              normalizedUrl +
               '/demo) and sign off from ' +
               params.senderName +
               '.',
@@ -392,7 +605,7 @@ async function generateGrokPersonalizedOutreach(params: {
               location: params.location,
               website: params.website,
               operational_notes: params.notes,
-              demo_url: `${params.publicAppUrl}/demo`,
+              demo_url: `${normalizedUrl}/demo`,
             }),
           },
         ],
@@ -401,7 +614,7 @@ async function generateGrokPersonalizedOutreach(params: {
             type: 'json_schema',
             name: 'grok_outreach_email',
             strict: true,
-            schema: GROK_OUTREACH_SCHEMA,
+            schema: LOCAL_OUTREACH_SCHEMA,
           },
         },
       }),
@@ -428,17 +641,62 @@ async function generateGrokPersonalizedOutreach(params: {
       return null;
     }
 
-    const parsed = JSON.parse(rawJson) as GrokOutreachStructuredOutput;
-    if (!parsed.subject?.trim() || !parsed.body?.trim()) {
-      return null;
-    }
-    return parsed;
+    const parsed: unknown = JSON.parse(rawJson);
+    return validatePersonalizedOutreach(parsed, normalizedUrl);
   } catch {
     return null;
   }
 }
 
-async function generateDailyOutreachDrafts(): Promise<void> {
+export async function generateOutreachDraftText(
+  params: OutreachDraftInput,
+  options: {
+    localOllama: Pick<LocalOllamaProviderStatus, 'enabled' | 'baseUrl' | 'model'>;
+    allowXaiFallback?: boolean;
+    timeoutMs?: number;
+  }
+): Promise<GeneratedOutreachDraft> {
+  if (options.localOllama.enabled) {
+    const localDraft = await generateLocalOllamaOutreach(params, {
+      baseUrl: options.localOllama.baseUrl,
+      model: options.localOllama.model,
+      timeoutMs: options.timeoutMs,
+    });
+    if (localDraft) {
+      return {
+        subject: localDraft.subject,
+        body: localDraft.body,
+        detectedAngle: localDraft.detected_angle,
+        provider: `local-ollama:${options.localOllama.model}`,
+      };
+    }
+    const deterministic = buildDeterministicOutreachDraft(params);
+    return {
+      ...deterministic,
+      provider: 'deterministic-fallback',
+    };
+  }
+
+  if (options.allowXaiFallback !== false) {
+    const grokDraft = await generateGrokPersonalizedOutreach(params);
+    if (grokDraft) {
+      return {
+        subject: grokDraft.subject,
+        body: grokDraft.body,
+        detectedAngle: grokDraft.detected_angle,
+        provider: 'xai-fallback',
+      };
+    }
+  }
+
+  const deterministic = buildDeterministicOutreachDraft(params);
+  return {
+    ...deterministic,
+    provider: 'deterministic-fallback',
+  };
+}
+
+export async function generateDailyOutreachDrafts(): Promise<void> {
   const supabaseUrl = resolveSupabaseUrl();
   const serviceKeyCheck = resolveServiceRoleKey();
 
@@ -462,15 +720,19 @@ async function generateDailyOutreachDrafts(): Promise<void> {
     process.exit(1);
   }
 
+  const localProvider = await resolveLocalOllamaOutreachProvider(process.env);
   console.log(
     `🔗 Connected to ${supabaseUrl} | Workspace: ${verifiedWorkspaceId} (${
       workspaceName ?? 'verified'
-    })`
+    }) | Draft provider: ${localProvider.modeLabel}${
+      localProvider.reason ? ` (${localProvider.reason})` : ''
+    }`
   );
 
   const { data: leads, error: fetchError } = await supabase
     .from('public_leads')
     .select('*')
+    .or(`workspace_id.eq.${verifiedWorkspaceId},workspace_id.is.null`)
     .eq('status', 'DRAFT_READY')
     .order('score', { ascending: false })
     .limit(25);
@@ -486,11 +748,9 @@ async function generateDailyOutreachDrafts(): Promise<void> {
     return;
   }
 
-  const rawAppUrl = (process.env.PUBLIC_APP_URL ?? '').trim();
-  const publicAppUrl =
-    rawAppUrl && !isPlaceholderValue(rawAppUrl)
-      ? rawAppUrl.replace(/\/+$/, '')
-      : AUTHORITATIVE_APP_URL;
+  const publicAppUrl = normalizePublicAppUrl(process.env.PUBLIC_APP_URL);
+  const senderName =
+    (process.env.SENDER_NAME ?? '').trim() || 'Loose Ends Operations Team';
 
   let generatedCount = 0;
 
@@ -507,11 +767,11 @@ async function generateDailyOutreachDrafts(): Promise<void> {
     ).trim();
     const workspaceId = lead.workspace_id ?? verifiedWorkspaceId;
 
-    // 1. Respect opt-out / consent rules before drafting
+    // 1. Respect opt-out / consent rules before drafting (fail closed)
     if (contactEmail) {
       const suppressed = await isEmailSuppressed(supabase, contactEmail);
       if (suppressed) {
-        console.log(`⏭️ Skipping ${companyName} (opt-out on file)`);
+        console.log(`⏭️ Skipping ${companyName} (opt-out or consent check blocked)`);
         continue;
       }
     }
@@ -529,36 +789,21 @@ async function generateDailyOutreachDrafts(): Promise<void> {
       notes: lead.notes ?? '',
     });
 
-    const senderName =
-      (process.env.SENDER_NAME ?? '').trim() || 'Loose Ends Operations Team';
-    const grokDraft = await generateGrokPersonalizedOutreach({
-      companyName,
-      contactName,
-      industry,
-      location: lead.location ?? '',
-      website,
-      notes: lead.notes ?? '',
-      publicAppUrl,
-      senderName,
-    });
-
-    const hook = buildUniversalHook(industry, lead.notes ?? '');
-    const subject = grokDraft?.subject ?? `Quick question for ${companyName}`;
-    const body =
-      grokDraft?.body ??
-      `Hi ${contactName},
-
-I came across ${companyName}${lead.location ? ` in ${lead.location}` : ''} and noticed your team is growing in the ${industry} space.
-
-Many ${industry} owners we speak with mention that ${hook} takes up too much manual admin time every week.
-
-We built Loose Ends as a lightweight Operations OS for small businesses—combining pipeline quotes, scheduling, inventory & purchase orders, and automated revenue-leak checks in one workspace (with human approval gates before anything is sent or billed).
-
-Would you be open to a 5-minute interactive look at how it works for a ${industry} business? You can also click through the live sandbox anytime here:
-${publicAppUrl}/demo
-
-Best regards,
-${senderName}`;
+    const draftResult = await generateOutreachDraftText(
+      {
+        companyName,
+        contactName,
+        industry,
+        location: lead.location ?? '',
+        website,
+        notes: lead.notes ?? '',
+        publicAppUrl,
+        senderName,
+      },
+      {
+        localOllama: localProvider,
+      }
+    );
 
     // 3. Insert into ops_communication_drafts as NOT_SENT (Owner Approval Gate)
     const { error: draftError } = await supabase
@@ -571,8 +816,8 @@ ${senderName}`;
         recipient_email: contactEmail || null,
         recipient_name: contactName,
         company_name: companyName,
-        subject,
-        message: body,
+        subject: draftResult.subject,
+        message: draftResult.body,
         status: 'draft',
         delivery_status: 'not_sent',
         requires_approval: true,
@@ -605,7 +850,9 @@ ${senderName}`;
     }
 
     generatedCount += 1;
-    console.log(`📝 Draft queued for owner review: ${companyName}`);
+    console.log(
+      `📝 Draft queued for owner review (${draftResult.provider}): ${companyName}`
+    );
   }
 
   console.log(
@@ -613,7 +860,13 @@ ${senderName}`;
   );
 }
 
-generateDailyOutreachDrafts().catch((err: unknown) => {
-  console.error('Fatal error in generateOutreachDrafts:', err);
-  process.exit(1);
-});
+const invokedScript = (process.argv[1] ?? '').replace(/\\/g, '/');
+if (
+  invokedScript.endsWith('/scripts/generateOutreachDrafts.ts') ||
+  invokedScript === 'scripts/generateOutreachDrafts.ts'
+) {
+  generateDailyOutreachDrafts().catch((err: unknown) => {
+    console.error('Fatal error in generateOutreachDrafts:', err);
+    process.exit(1);
+  });
+}
