@@ -244,14 +244,18 @@ const SMB_VERTICALS: readonly string[] = [
 ];
 
 const METRO_BBOXES: readonly MetroBbox[] = [
-  { market: 'Columbus, OH',   south: 39.90, west: -83.12, north: 40.12, east: -82.88 },
-  { market: 'Charlotte, NC',  south: 35.14, west: -80.93, north: 35.32, east: -80.72 },
-  { market: 'Austin, TX',     south: 30.20, west: -97.82, north: 30.40, east: -97.66 },
-  { market: 'Pittsburgh, PA', south: 40.40, west: -80.06, north: 40.50, east: -79.90 },
-  { market: 'Nashville, TN',  south: 36.10, west: -86.86, north: 36.24, east: -86.68 },
-  { market: 'Denver, CO',     south: 39.68, west: -105.05, north: 39.80, east: -104.90 },
-  { market: 'Raleigh, NC',    south: 35.74, west: -78.74, north: 35.88, east: -78.56 },
-  { market: 'Tampa, FL',      south: 27.90, west: -82.56, north: 28.06, east: -82.40 },
+  { market: 'Parkersburg, WV', south: 39.20, west: -81.62, north: 39.34, east: -81.48 },
+  { market: 'Marietta, OH',    south: 39.38, west: -81.50, north: 39.46, east: -81.40 },
+  { market: 'Charleston, WV',  south: 38.30, west: -81.72, north: 38.40, east: -81.56 },
+  { market: 'Morgantown, WV',  south: 39.60, west: -80.02, north: 39.68, east: -79.90 },
+  { market: 'Pittsburgh, PA',  south: 40.40, west: -80.06, north: 40.50, east: -79.90 },
+  { market: 'Columbus, OH',    south: 39.90, west: -83.12, north: 40.12, east: -82.88 },
+  { market: 'Charlotte, NC',   south: 35.14, west: -80.93, north: 35.32, east: -80.72 },
+  { market: 'Austin, TX',      south: 30.20, west: -97.82, north: 30.40, east: -97.66 },
+  { market: 'Nashville, TN',   south: 36.10, west: -86.86, north: 36.24, east: -86.68 },
+  { market: 'Denver, CO',      south: 39.68, west: -105.05, north: 39.80, east: -104.90 },
+  { market: 'Raleigh, NC',     south: 35.74, west: -78.74, north: 35.88, east: -78.56 },
+  { market: 'Tampa, FL',       south: 27.90, west: -82.56, north: 28.06, east: -82.40 },
 ];
 
 const OVERPASS_ENDPOINTS: readonly string[] = [
