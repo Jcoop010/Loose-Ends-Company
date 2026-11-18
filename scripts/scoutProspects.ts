@@ -1,3 +1,4 @@
+/// <reference path="./node-ambient.d.ts" />
 /**
  * scripts/scoutProspects.ts
  *
@@ -65,7 +66,7 @@ interface ScoutedProspect {
   website:         string;
   notes:           string;
   score:           number;   // 0–100 qualification score
-  status?:         'DRAFT_READY' | 'OWNER_APPROVED' | 'CONTACTED' | 'DEMO_SCHEDULED' | 'PILOT_SOLD' | 'LOST';
+  status?:         'DRAFT_READY' | 'DRAFT_GENERATED' | 'OWNER_APPROVED' | 'CONTACTED' | 'DEMO_SCHEDULED' | 'PILOT_SOLD' | 'LOST';
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,41 @@
+name: Daily SMB Prospect Scout & Draft Generator
+
+on:
+  schedule:
+    # Runs every weekday at 13:00 UTC (8:00 AM EST)
+    - cron: '0 13 * * 1-5'
+  workflow_dispatch: # Allows manual 1-click trigger anytime in GitHub Actions
+
+jobs:
+  scout-and-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g tsx
+
+      - name: Run Universal SMB Scout
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEFAULT_WORKSPACE_ID: ${{ secrets.DEFAULT_WORKSPACE_ID }}
+          TARGET_MARKET: ${{ vars.TARGET_MARKET || 'United States' }}
+        run: npm run scout
+
+      - name: Generate Outreach Drafts (Owner-Gated)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEFAULT_WORKSPACE_ID: ${{ secrets.DEFAULT_WORKSPACE_ID }}
+          PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || 'https://loose-ends-co.vercel.app' }}
+        run: npm run outreach:draft
