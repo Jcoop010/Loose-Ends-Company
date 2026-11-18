@@ -738,12 +738,33 @@ export interface Customer360Snapshot {
 }
 
 // ============================================================================
-// Grok Accounting & Outreach Bots (bot_manuals, staged_ledger_entries, bot_runs)
+// Grok Accounting & Outreach Bots + Cursor MCP Layer
 // ============================================================================
 
-export type BotRole = 'billing' | 'cash_applications' | 'collections' | 'outreach'
+export type BotRole =
+  | 'chief_of_staff'
+  | 'scout'
+  | 'dispatcher'
+  | 'buyer'
+  | 'billing'
+  | 'collections'
+  | 'qa'
+  | 'cash_applications'
+  | 'outreach'
 
 export type BotAutonomyMode = 'observe' | 'propose' | 'auto_with_escalation'
+
+export interface WorkspaceMcpToken {
+  id: string
+  workspace_id: string
+  label: string
+  token_hash: string
+  token_prefix: string
+  scopes: string[]
+  last_used_at: string | null
+  revoked_at: string | null
+  created_at: string
+}
 
 export interface BotManual {
   id: string
@@ -753,6 +774,40 @@ export interface BotManual {
   instructions_markdown: string
   updated_by: string | null
   updated_at: string
+}
+
+export type StagedOpsDomain =
+  | 'pipeline'
+  | 'jobs'
+  | 'inventory'
+  | 'comms'
+  | 'billing'
+
+export type StagedOpsActionType =
+  | 'quote_draft'
+  | 'job_checklist_flag'
+  | 'purchase_order_draft'
+  | 'expense_receipt'
+  | 'invoice_draft'
+  | 'payment_match'
+  | 'discrepancy_flag'
+
+export interface StagedOpsAction {
+  id: string
+  workspace_id: string
+  bot_role: BotRole
+  workspace_domain: StagedOpsDomain
+  action_type: StagedOpsActionType
+  customer_id: string | null
+  title: string
+  summary: string
+  amount_cents: number
+  payload: Record<string, unknown>
+  confidence_score: number
+  status: StagedLedgerEntryStatus
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
 }
 
 export type StagedLedgerEntryType =
@@ -804,6 +859,8 @@ export interface BotRun {
   bot_role: BotRole
   model: string
   mode: BotAutonomyMode
+  surface?: string
+  tool_name?: string
   status: BotRunStatus
   input_summary: string
   output_json: Record<string, unknown>

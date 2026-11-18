@@ -24,6 +24,7 @@ import type {
   RecoveryStage,
   StagedLedgerEntry,
   StagedLedgerEntryStatus,
+  StagedOpsAction,
   Task,
   TaskStatus,
   VerifiedRecoveryPayment,
@@ -33,8 +34,10 @@ import type {
   WorkflowMode,
   WorkflowTriggerType,
   Workspace,
+  WorkspaceMcpToken,
   WorkspaceSettings,
 } from '../types/domain'
+import { sha256Hex } from './csv'
 import { assertSupabaseConfigured, supabase } from './supabase'
 
 export const WORKSPACE_ROW_SAFETY_LIMIT = 10_000
@@ -981,4 +984,125 @@ export async function fetchBotRuns(workspaceId: string): Promise<BotRun[]> {
     .limit(25)
   if (error) throw error
   return (data ?? []) as BotRun[]
+}
+
+export async function fetchWorkspaceMcpTokens(
+  workspaceId: string,
+): Promise<WorkspaceMcpToken[]> {
+  assertSupabaseConfigured()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const { data, error } = await supabase
+    .from('workspace_mcp_tokens')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as WorkspaceMcpToken[]
+}
+
+export async function mintWorkspaceMcpToken(params: {
+  workspaceId: string
+  label: string
+}): Promise<{ rawToken: string; tokenRecord: WorkspaceMcpToken }> {
+  assertSupabaseConfigured()
+  const { workspaceId } = params
+  const label = params.label.trim()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (label.length < 2 || label.length > 120) {
+    throw new Error('Token label must be between 2 and 120 characters.')
+  }
+
+  const randomPart =
+    `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`.slice(
+      0,
+      40,
+    )
+  const rawToken = `le_mcp_${randomPart}`
+  const tokenPrefix = rawToken.slice(0, 14)
+  const tokenHash = await sha256Hex(rawToken)
+
+  const { data, error } = await supabase
+    .from('workspace_mcp_tokens')
+    .insert({
+      workspace_id: workspaceId,
+      label,
+      token_hash: tokenHash,
+      token_prefix: tokenPrefix,
+      scopes: ['read_all', 'stage_actions'],
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+
+  return {
+    rawToken,
+    tokenRecord: data as WorkspaceMcpToken,
+  }
+}
+
+export async function revokeWorkspaceMcpToken(params: {
+  workspaceId: string
+  tokenId: string
+}): Promise<WorkspaceMcpToken> {
+  assertSupabaseConfigured()
+  const { workspaceId, tokenId } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(tokenId)) {
+    throw new Error('Valid workspace and token UUIDs are required.')
+  }
+  const { data, error } = await supabase
+    .from('workspace_mcp_tokens')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('id', tokenId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as WorkspaceMcpToken
+}
+
+export async function fetchStagedOpsActions(
+  workspaceId: string,
+): Promise<StagedOpsAction[]> {
+  assertSupabaseConfigured()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const { data, error } = await supabase
+    .from('staged_ops_actions')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return (data ?? []) as StagedOpsAction[]
+}
+
+export async function reviewStagedOpsAction(params: {
+  workspaceId: string
+  actionId: string
+  decision: Extract<StagedLedgerEntryStatus, 'approved' | 'rejected'>
+}): Promise<StagedOpsAction> {
+  assertSupabaseConfigured()
+  const { workspaceId, actionId, decision } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(actionId)) {
+    throw new Error('Valid workspace and staged action UUIDs are required.')
+  }
+  const { data: userRes } = await supabase.auth.getUser()
+  const { data, error } = await supabase
+    .from('staged_ops_actions')
+    .update({
+      status: decision,
+      reviewed_by: userRes.user?.id ?? null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', actionId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as StagedOpsAction
 }

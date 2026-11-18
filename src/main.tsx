@@ -2,6 +2,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './index.css'
 import { AppRoot } from './AppRoot'
+import { initSentryTelemetry } from './lib/sentry'
+
+initSentryTelemetry()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {
