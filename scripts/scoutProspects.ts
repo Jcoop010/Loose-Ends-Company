@@ -734,7 +734,13 @@ const IGNORED_EMAIL_DOMAINS: readonly string[] = [
   'wixpress.com',
   'wix.com',
   'squarespace.com',
+  'squarespace-mail.com',
   'godaddy.com',
+  'shopify.com',
+  'myshopify.com',
+  'weebly.com',
+  'webflow.io',
+  'theoceanwide.com',
   'wordpress.org',
   'wordpress.com',
   'example.com',
@@ -752,37 +758,71 @@ const IGNORED_EMAIL_DOMAINS: readonly string[] = [
   'latofonts.com',
   'typekit.com',
   'fontawesome.com',
-  ' bootstrapcdn.com',
+  'getbootstrap.com',
+  'mailchimp.com',
+  'constantcontact.com',
+];
+
+const ALLOWED_FREEMAIL_DOMAINS: readonly string[] = [
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'aol.com',
+  'icloud.com',
+  'me.com',
+  'msn.com',
+  'comcast.net',
+  'att.net',
+  'protonmail.com',
+  'proton.me',
+  'zoho.com',
 ];
 
 const IGNORED_EMAIL_PREFIXES: readonly string[] = [
+  'resumes@',
+  'resume@',
+  'careers@',
+  'career@',
+  'jobs@',
+  'job@',
+  'hiring@',
+  'hr@',
+  'recruiting@',
+  'press@',
+  'media@',
+  'pr@',
+  'privacy@',
+  'legal@',
+  'abuse@',
+  'webmaster@',
   'noreply@',
   'no-reply@',
   'donotreply@',
   'do-not-reply@',
   'postmaster@',
   'mailer-daemon@',
-  'abuse@',
-  'privacy@',
   'dpo@',
-  'legal@',
   'copyright@',
   'accessibility@',
-  'webmaster@',
 ];
 
 const PREFERRED_EMAIL_PREFIXES: readonly string[] = [
-  'info@',
+  'owner@',
+  'founder@',
+  'president@',
+  'ceo@',
   'office@',
+  'operations@',
   'billing@',
   'service@',
-  'sales@',
-  'contact@',
-  'hello@',
   'estimates@',
   'quotes@',
   'dispatch@',
-  'operations@',
+  'sales@',
+  'info@',
+  'contact@',
+  'hello@',
   'admin@',
   'support@',
 ];
@@ -851,26 +891,50 @@ function isValidBusinessEmail(rawEmail: string): boolean {
   return true;
 }
 
+function isDomainMatchForRoot(domainPart: string, rootDomain: string): boolean {
+  if (!rootDomain || !domainPart) return false;
+  if (
+    domainPart === rootDomain ||
+    domainPart.endsWith(`.${rootDomain}`) ||
+    rootDomain.endsWith(`.${domainPart}`)
+  ) {
+    return true;
+  }
+  // Also match core brand token when rootDomain has a hyphen or location suffix
+  const rootBase = rootDomain.split('.')[0].replace(/[^a-z0-9]/g, '');
+  const emailBase = domainPart.split('.')[0].replace(/[^a-z0-9]/g, '');
+  return (
+    rootBase.length >= 6 &&
+    emailBase.length >= 6 &&
+    (rootBase.includes(emailBase) || emailBase.includes(rootBase))
+  );
+}
+
 function rankCandidateEmail(email: string, rootDomain: string): number {
   const lower = email.toLowerCase();
-  const [, domainPart = ''] = lower.split('@');
-  let rank = 10;
+  const [localPart = '', domainPart = ''] = lower.split('@');
+  const domainMatched = isDomainMatchForRoot(domainPart, rootDomain);
+  const isFreemail = ALLOWED_FREEMAIL_DOMAINS.includes(domainPart);
 
-  if (
-    rootDomain &&
-    (domainPart === rootDomain ||
-      domainPart.endsWith(`.${rootDomain}`) ||
-      rootDomain.endsWith(`.${domainPart}`))
-  ) {
-    rank += 50;
+  // Reject unrelated third-party agency/template domains
+  if (!domainMatched && !isFreemail) {
+    return -50;
   }
+
+  let rank = domainMatched ? 100 : 25;
 
   const prefIdx = PREFERRED_EMAIL_PREFIXES.findIndex((p) => lower.startsWith(p));
   if (prefIdx !== -1) {
-    rank += 30 - prefIdx;
+    // Executive / operations role prefixes (owner@, founder@, office@, billing@, service@, info@, etc.)
+    rank += 42 - prefIdx;
+  } else if (
+    domainMatched &&
+    /^[a-z]{2,18}(\.[a-z]{2,18})?$/.test(localPart)
+  ) {
+    // Named owner/founder email on the business's own domain (e.g. bobbi@, greg@, steve@)
+    rank += 48;
   } else {
-    // Named person email on company domain (e.g. steve@company.com)
-    rank += 22;
+    rank += 18;
   }
 
   return rank;
@@ -1008,7 +1072,7 @@ export async function enrichFromWebsite(
 
       // If homepage already yielded a domain-matched email, skip extra subpage fetches
       const hasDomainMatch = Array.from(foundEmails).some(
-        (e) => rankCandidateEmail(e, rootDomain) >= 60
+        (e) => rankCandidateEmail(e, rootDomain) >= 100
       );
       if (hasDomainMatch && discoveredPhone) {
         break;
@@ -1018,12 +1082,14 @@ export async function enrichFromWebsite(
     }
   }
 
-  const sortedEmails = Array.from(foundEmails).sort(
-    (a, b) => rankCandidateEmail(b, rootDomain) - rankCandidateEmail(a, rootDomain)
-  );
-  const bestEmail = sortedEmails[0] ?? null;
+  const validRankedEmails = Array.from(foundEmails)
+    .filter((e) => rankCandidateEmail(e, rootDomain) > 0)
+    .sort(
+      (a, b) => rankCandidateEmail(b, rootDomain) - rankCandidateEmail(a, rootDomain)
+    );
+  const bestEmail = validRankedEmails[0] ?? null;
   const domainMatched = Boolean(
-    bestEmail && rankCandidateEmail(bestEmail, rootDomain) >= 60
+    bestEmail && rankCandidateEmail(bestEmail, rootDomain) >= 100
   );
 
   return {

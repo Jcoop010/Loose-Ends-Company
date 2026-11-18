@@ -91,14 +91,18 @@ create index if not exists public_leads_workspace_idx
   on public.public_leads (workspace_id)
   where workspace_id is not null;
 
--- 5. Extend public.ops_communication_drafts for outbound prospect drafts
+-- 5. Extend public.ops_communication_drafts for outbound prospect drafts & live dispatch tracking
 alter table public.ops_communication_drafts
   alter column customer_id drop not null,
+  drop constraint if exists ops_communication_drafts_delivery_status_check,
+  add constraint ops_communication_drafts_delivery_status_check
+    check (delivery_status in ('not_sent', 'sent', 'failed')),
   add column if not exists lead_id           uuid references public.public_leads(id) on delete set null,
   add column if not exists recipient_email   text,
   add column if not exists recipient_name    text,
   add column if not exists company_name      text,
-  add column if not exists requires_approval boolean not null default true;
+  add column if not exists requires_approval boolean not null default true,
+  add column if not exists sent_at           timestamptz;
 
 create unique index if not exists ops_drafts_lead_id_unique_idx
   on public.ops_communication_drafts (lead_id)

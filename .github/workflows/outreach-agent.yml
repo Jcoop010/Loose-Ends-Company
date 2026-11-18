@@ -41,3 +41,15 @@ jobs:
           DEFAULT_WORKSPACE_ID: ${{ secrets.DEFAULT_WORKSPACE_ID }}
           PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || 'https://loose-ends-os.vercel.app' }}
         run: npm run outreach:draft
+
+      - name: Dispatch Owner-Approved Outreach Drafts
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEFAULT_WORKSPACE_ID: ${{ secrets.DEFAULT_WORKSPACE_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          OUTREACH_FROM_EMAIL: ${{ vars.OUTREACH_FROM_EMAIL || 'Loose Ends Operations <operations@looseends.co>' }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+        run: npm run outreach:send

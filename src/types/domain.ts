@@ -479,7 +479,8 @@ export interface OpsCommunicationDraft {
   status: CommunicationDraftStatus
   approved_by: string | null
   approved_at: string | null
-  delivery_status: 'not_sent'
+  delivery_status: 'not_sent' | 'sent' | 'failed'
+  sent_at?: string | null
   created_at: string
 }
 

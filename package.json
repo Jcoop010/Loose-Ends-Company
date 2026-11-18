@@ -13,7 +13,8 @@
     "test:scanner": "node tests/leak-scanner.test.mjs",
     "scout": "tsx scripts/scoutProspects.ts",
     "scout:seed": "tsx scripts/scoutProspects.ts --seed",
-    "outreach:draft": "tsx scripts/generateOutreachDrafts.ts"
+    "outreach:draft": "tsx scripts/generateOutreachDrafts.ts",
+    "outreach:send": "tsx scripts/sendApprovedDrafts.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
