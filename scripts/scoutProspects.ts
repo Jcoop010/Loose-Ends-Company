@@ -9,13 +9,114 @@
  * Authoritative App       : https://loose-ends-os.vercel.app/
  */
 
-import { createClient } from '@supabase/supabase-js';
-import {
-  isPlaceholderValue,
-  resolveServiceRoleKey,
-  resolveSupabaseUrl,
-  verifyDatabaseAndWorkspace,
-} from './envValidation';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
+try {
+  process.loadEnvFile?.('.env.local');
+} catch {
+  // .env.local not present
+}
+try {
+  process.loadEnvFile?.('.env');
+} catch {
+  // .env not present
+}
+
+const AUTHORITATIVE_SUPABASE_URL = 'https://uehfvpnnoitgybsmdgef.supabase.co';
+
+const PLACEHOLDER_PATTERNS: readonly RegExp[] = [
+  /your-project-ref/i,
+  /your-service-role-key/i,
+  /your-anon-publishable-key/i,
+  /your-workspace-id/i,
+  /placeholder/i,
+  /example/i,
+  /todo/i,
+  /replace[_-]?me/i,
+  /^<.*>$/,
+  /^\.+$/,
+];
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isPlaceholderValue(raw: string | undefined): boolean {
+  const val = (raw ?? '').trim();
+  if (!val) return false;
+  return PLACEHOLDER_PATTERNS.some((re) => re.test(val));
+}
+
+function resolveSupabaseUrl(): string {
+  const raw = (process.env.VITE_SUPABASE_URL ?? '').trim();
+  if (!raw || isPlaceholderValue(raw)) {
+    return AUTHORITATIVE_SUPABASE_URL;
+  }
+  return raw;
+}
+
+function resolveServiceRoleKey(): {
+  valid: boolean;
+  key: string;
+  reason?: string;
+} {
+  const raw = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
+  if (!raw) {
+    return { valid: false, key: '', reason: 'SUPABASE_SERVICE_ROLE_KEY is missing.' };
+  }
+  if (isPlaceholderValue(raw)) {
+    return { valid: false, key: '', reason: 'SUPABASE_SERVICE_ROLE_KEY contains a literal placeholder value.' };
+  }
+  if (raw.startsWith('sb_publishable_')) {
+    return { valid: false, key: '', reason: 'SUPABASE_SERVICE_ROLE_KEY is set to a publishable/anon key instead of the service_role key.' };
+  }
+  return { valid: true, key: raw };
+}
+
+interface WorkspaceRow {
+  id: string;
+  name: string;
+}
+
+async function verifyDatabaseAndWorkspace(
+  supabase: SupabaseClient,
+  requireWorkspace: boolean
+): Promise<{ workspaceId: string | null; workspaceName: string | null }> {
+  const configuredWorkspaceId = (process.env.DEFAULT_WORKSPACE_ID ?? '').trim();
+  if (configuredWorkspaceId && isPlaceholderValue(configuredWorkspaceId)) {
+    throw new Error('DEFAULT_WORKSPACE_ID contains a literal placeholder.');
+  }
+  if (configuredWorkspaceId && !UUID_REGEX.test(configuredWorkspaceId)) {
+    throw new Error(`DEFAULT_WORKSPACE_ID ("${configuredWorkspaceId}") is not a valid UUID.`);
+  }
+  if (configuredWorkspaceId) {
+    const { data, error } = await supabase
+      .from('workspaces')
+      .select('id, name')
+      .eq('id', configuredWorkspaceId)
+      .maybeSingle();
+    if (error) throw new Error(`Database connectivity check failed: ${error.message}`);
+    const row = data as WorkspaceRow | null;
+    if (!row) throw new Error(`DEFAULT_WORKSPACE_ID (${configuredWorkspaceId}) does not exist in public.workspaces.`);
+    return { workspaceId: row.id, workspaceName: row.name };
+  }
+  const { data: workspaces, error: listError } = await supabase
+    .from('workspaces')
+    .select('id, name')
+    .order('created_at', { ascending: true })
+    .limit(5);
+  if (listError) throw new Error(`Database connectivity check failed: ${listError.message}`);
+  const typedWorkspaces = (workspaces ?? []) as WorkspaceRow[];
+  if (typedWorkspaces.length === 1) {
+    return { workspaceId: typedWorkspaces[0].id, workspaceName: typedWorkspaces[0].name };
+  }
+  if (requireWorkspace && typedWorkspaces.length === 0) {
+    throw new Error('No rows found in public.workspaces.');
+  }
+  if (requireWorkspace && typedWorkspaces.length > 1) {
+    const summary = typedWorkspaces.map((w) => `${w.id} (${w.name})`).join(', ');
+    throw new Error(`Multiple workspaces found in public.workspaces: ${summary}. Set DEFAULT_WORKSPACE_ID explicitly.`);
+  }
+  return { workspaceId: null, workspaceName: null };
+}
 
 // ---------------------------------------------------------------------------
 // Types (Strict TypeScript — zero `any`)

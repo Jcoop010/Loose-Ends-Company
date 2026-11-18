@@ -10,6 +10,7 @@ declare namespace NodeJS {
     env: ProcessEnv;
     argv: string[];
     cwd(): string;
+    loadEnvFile?(path?: string): void;
     exit(code?: number): never;
   }
   type Timeout = ReturnType<typeof setTimeout>;
