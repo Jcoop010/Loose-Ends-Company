@@ -1,5 +1,9 @@
 import type {
   Appointment,
+  BotAutonomyMode,
+  BotManual,
+  BotRole,
+  BotRun,
   ConsentChannel,
   ConsentDecision,
   ConsentEvent,
@@ -18,6 +22,8 @@ import type {
   OpsPolicy,
   PublicLeadInput,
   RecoveryStage,
+  StagedLedgerEntry,
+  StagedLedgerEntryStatus,
   Task,
   TaskStatus,
   VerifiedRecoveryPayment,
@@ -864,4 +870,115 @@ export async function updateWorkspaceName(params: {
     .single()
   if (error) throw error
   return data as Workspace
+}
+
+// ============================================================================
+// Grok Accounting & Outreach Bots (bot_manuals, staged_ledger_entries, bot_runs)
+// ============================================================================
+
+export async function fetchBotManuals(workspaceId: string): Promise<BotManual[]> {
+  assertSupabaseConfigured()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const { data, error } = await supabase
+    .from('bot_manuals')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('bot_role', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as BotManual[]
+}
+
+export async function upsertBotManual(params: {
+  workspaceId: string
+  botRole: BotRole
+  mode: BotAutonomyMode
+  instructionsMarkdown: string
+}): Promise<BotManual> {
+  assertSupabaseConfigured()
+  const { workspaceId, botRole, mode } = params
+  const instructionsMarkdown = params.instructionsMarkdown.trim()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (instructionsMarkdown.length < 10) {
+    throw new Error('SOP manual instructions must be at least 10 characters.')
+  }
+  const { data: userRes } = await supabase.auth.getUser()
+  const { data, error } = await supabase
+    .from('bot_manuals')
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        bot_role: botRole,
+        mode,
+        instructions_markdown: instructionsMarkdown,
+        updated_by: userRes.user?.id ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'workspace_id,bot_role' },
+    )
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as BotManual
+}
+
+export async function fetchStagedLedgerEntries(
+  workspaceId: string,
+): Promise<StagedLedgerEntry[]> {
+  assertSupabaseConfigured()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const { data, error } = await supabase
+    .from('staged_ledger_entries')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return (data ?? []) as StagedLedgerEntry[]
+}
+
+export async function reviewStagedLedgerEntry(params: {
+  workspaceId: string
+  entryId: string
+  decision: Extract<StagedLedgerEntryStatus, 'approved' | 'rejected'>
+}): Promise<StagedLedgerEntry> {
+  assertSupabaseConfigured()
+  const { workspaceId, entryId, decision } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(entryId)) {
+    throw new Error('Valid workspace and staged entry UUIDs are required.')
+  }
+  const { data: userRes } = await supabase.auth.getUser()
+  const { data, error } = await supabase
+    .from('staged_ledger_entries')
+    .update({
+      status: decision,
+      reviewed_by: userRes.user?.id ?? null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', entryId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as StagedLedgerEntry
+}
+
+export async function fetchBotRuns(workspaceId: string): Promise<BotRun[]> {
+  assertSupabaseConfigured()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  const { data, error } = await supabase
+    .from('bot_runs')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(25)
+  if (error) throw error
+  return (data ?? []) as BotRun[]
 }

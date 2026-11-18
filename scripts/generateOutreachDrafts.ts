@@ -321,6 +321,123 @@ async function resolveOrCreateCustomerForProspect(params: {
   return (created as CustomerRow).id;
 }
 
+interface GrokOutreachStructuredOutput {
+  subject: string;
+  body: string;
+  detected_angle: string;
+}
+
+interface XaiResponsesPayload {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+}
+
+const GROK_OUTREACH_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject', 'body', 'detected_angle'],
+  properties: {
+    subject: { type: 'string' },
+    body: { type: 'string' },
+    detected_angle: { type: 'string' },
+  },
+};
+
+async function generateGrokPersonalizedOutreach(params: {
+  companyName: string;
+  contactName: string;
+  industry: string;
+  location: string;
+  website: string;
+  notes: string;
+  publicAppUrl: string;
+  senderName: string;
+}): Promise<GrokOutreachStructuredOutput | null> {
+  const xaiKey = (process.env.XAI_API_KEY ?? '').trim();
+  if (!xaiKey || isPlaceholderValue(xaiKey)) {
+    return null;
+  }
+  const xaiModel = (process.env.XAI_MODEL ?? 'grok-4.7').trim() || 'grok-4.7';
+
+  try {
+    const response = await fetch('https://api.x.ai/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${xaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: xaiModel,
+        input: [
+          {
+            role: 'system',
+            content:
+              'You are the Loose Ends Founder-to-Founder Outreach Bot. Write a concise, natural, non-pushy founder-to-founder email to a small business owner. Focus on their industry operational bottleneck (unbilled field work, stale quotes, stockouts, or overdue invoices). Include the interactive demo link (' +
+              params.publicAppUrl +
+              '/demo) and sign off from ' +
+              params.senderName +
+              '.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              company_name: params.companyName,
+              contact_name: params.contactName,
+              industry: params.industry,
+              location: params.location,
+              website: params.website,
+              operational_notes: params.notes,
+              demo_url: `${params.publicAppUrl}/demo`,
+            }),
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'grok_outreach_email',
+            strict: true,
+            schema: GROK_OUTREACH_SCHEMA,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as XaiResponsesPayload;
+    let rawJson = payload.output_text?.trim() ?? '';
+    if (!rawJson) {
+      for (const item of payload.output ?? []) {
+        for (const part of item.content ?? []) {
+          if (part.text?.trim()) {
+            rawJson = part.text.trim();
+            break;
+          }
+        }
+      }
+    }
+    if (!rawJson) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawJson) as GrokOutreachStructuredOutput;
+    if (!parsed.subject?.trim() || !parsed.body?.trim()) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 async function generateDailyOutreachDrafts(): Promise<void> {
   const supabaseUrl = resolveSupabaseUrl();
   const serviceKeyCheck = resolveServiceRoleKey();
@@ -412,9 +529,24 @@ async function generateDailyOutreachDrafts(): Promise<void> {
       notes: lead.notes ?? '',
     });
 
+    const senderName =
+      (process.env.SENDER_NAME ?? '').trim() || 'Loose Ends Operations Team';
+    const grokDraft = await generateGrokPersonalizedOutreach({
+      companyName,
+      contactName,
+      industry,
+      location: lead.location ?? '',
+      website,
+      notes: lead.notes ?? '',
+      publicAppUrl,
+      senderName,
+    });
+
     const hook = buildUniversalHook(industry, lead.notes ?? '');
-    const subject = `Quick question for ${companyName}`;
-    const body = `Hi ${contactName},
+    const subject = grokDraft?.subject ?? `Quick question for ${companyName}`;
+    const body =
+      grokDraft?.body ??
+      `Hi ${contactName},
 
 I came across ${companyName}${lead.location ? ` in ${lead.location}` : ''} and noticed your team is growing in the ${industry} space.
 
@@ -426,7 +558,7 @@ Would you be open to a 5-minute interactive look at how it works for a ${industr
 ${publicAppUrl}/demo
 
 Best regards,
-${process.env.SENDER_NAME ?? 'Loose Ends Operations Team'}`;
+${senderName}`;
 
     // 3. Insert into ops_communication_drafts as NOT_SENT (Owner Approval Gate)
     const { error: draftError } = await supabase

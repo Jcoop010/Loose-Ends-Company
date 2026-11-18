@@ -79,6 +79,11 @@ export function DemoWorkspacePage(): React.ReactElement {
   const [vendorAmount, setVendorAmount] = useState('')
   const [vendorDesc, setVendorDesc] = useState('')
 
+  // Grok Receipt Parser state (Autopilot tab)
+  const [demoReceiptText, setDemoReceiptText] = useState(
+    'Vendor: Johnstone Supply Wholesale\nInvoice #: INV-2026-8841\nR-410A Refrigerant Cylinder 25lb 2 x $145.00\n24V Contactor Relay 3 x $28.00\nTax: $22.44\nTotal: $396.44',
+  )
+
   const customerNameById = (id: string | null | undefined): string => {
     if (!id) return 'Unassigned Customer'
     const found = demo.state.customers.find(c => c.id === id)
@@ -1073,6 +1078,148 @@ export function DemoWorkspacePage(): React.ReactElement {
                       </li>
                     )
                   })}
+                </ul>
+              </div>
+
+              <div className="exec-surface p-5 sm:p-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Scoped Grok Accounting Bots & Staged Ledger Approvals
+                    </h3>
+                    <p className="text-xs text-slate-600">
+                      Bots parse receipts into integer cents, flag arithmetic discrepancies, and stage
+                      entries in <code>pending_approval</code> for owner sign-off.
+                    </p>
+                  </div>
+                  <Badge tone="emerald">grok-4.7</Badge>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                  {demo.state.botManuals.map(manual => (
+                    <div
+                      key={manual.id}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-2"
+                    >
+                      <span className="font-bold uppercase text-slate-800">
+                        {manual.bot_role.replace('_', ' ')}
+                      </span>
+                      <select
+                        aria-label={`${manual.bot_role} autonomy mode`}
+                        value={manual.mode}
+                        onChange={e =>
+                          demo.updateDemoBotManual({
+                            botRole: manual.bot_role,
+                            mode: e.target.value as 'observe' | 'propose' | 'auto_with_escalation',
+                            instructionsMarkdown: manual.instructions_markdown,
+                          })
+                        }
+                        className="exec-input !w-auto !py-1 !px-2 !text-xs font-semibold"
+                      >
+                        <option value="observe">Observe</option>
+                        <option value="propose">Propose (Owner Gate)</option>
+                        <option value="auto_with_escalation">Auto + Escalate</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                <form
+                  onSubmit={e => {
+                    e.preventDefault()
+                    try {
+                      const entry = demo.parseDemoReceiptWithGrokBot(demoReceiptText)
+                      toast.success(
+                        entry.entry_type === 'discrepancy_flag'
+                          ? 'Discrepancy flagged in staged ledger'
+                          : 'Receipt parsed & staged for approval',
+                        `${entry.vendor_name ?? 'Vendor'} · ${formatCents(entry.amount_cents)}`,
+                      )
+                    } catch (err) {
+                      toast.error(
+                        'Parse error',
+                        err instanceof Error ? err.message : 'Check receipt text.',
+                      )
+                    }
+                  }}
+                  className="space-y-2.5"
+                >
+                  <label htmlFor="demo-grok-receipt" className="exec-label">
+                    Test Receipt / Vendor Bill Parser (Integer Cent Recomputation)
+                  </label>
+                  <textarea
+                    id="demo-grok-receipt"
+                    rows={4}
+                    value={demoReceiptText}
+                    onChange={e => setDemoReceiptText(e.target.value)}
+                    className="exec-input font-mono !text-xs"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      className="exec-btn-primary !px-3.5 !py-2 !text-xs touch-target"
+                    >
+                      Parse & Stage Receipt
+                    </button>
+                  </div>
+                </form>
+
+                <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200">
+                  {demo.state.stagedLedgerEntries.map(entry => (
+                    <li key={entry.id} className="p-3.5 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs sm:text-sm font-bold text-slate-900">
+                            {entry.vendor_name ?? entry.entry_type}
+                          </span>
+                          <Badge
+                            tone={entry.entry_type === 'discrepancy_flag' ? 'rose' : 'neutral'}
+                          >
+                            {entry.entry_type}
+                          </Badge>
+                          <Badge
+                            tone={
+                              entry.status === 'approved'
+                                ? 'emerald'
+                                : entry.status === 'rejected'
+                                  ? 'rose'
+                                  : 'amber'
+                            }
+                          >
+                            {entry.status}
+                          </Badge>
+                        </div>
+                        <span className="text-sm font-bold text-slate-950 tabular-nums">
+                          {formatCents(entry.amount_cents)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">{entry.reasoning_summary}</p>
+                      {entry.status === 'pending_approval' ? (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              demo.reviewDemoStagedEntry(entry.id, 'approved')
+                              toast.success('Staged entry approved', entry.vendor_name ?? '')
+                            }}
+                            className="exec-btn-emerald !px-3 !py-1.5 !text-xs touch-target"
+                          >
+                            Approve Entry
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              demo.reviewDemoStagedEntry(entry.id, 'rejected')
+                              toast.info('Staged entry rejected', entry.vendor_name ?? '')
+                            }}
+                            className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
                 </ul>
               </div>
 

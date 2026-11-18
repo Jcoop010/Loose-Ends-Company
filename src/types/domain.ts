@@ -736,3 +736,76 @@ export interface Customer360Snapshot {
   opportunities: Opportunity[]
   verifiedPayments: VerifiedRecoveryPayment[]
 }
+
+// ============================================================================
+// Grok Accounting & Outreach Bots (bot_manuals, staged_ledger_entries, bot_runs)
+// ============================================================================
+
+export type BotRole = 'billing' | 'cash_applications' | 'collections' | 'outreach'
+
+export type BotAutonomyMode = 'observe' | 'propose' | 'auto_with_escalation'
+
+export interface BotManual {
+  id: string
+  workspace_id: string
+  bot_role: BotRole
+  mode: BotAutonomyMode
+  instructions_markdown: string
+  updated_by: string | null
+  updated_at: string
+}
+
+export type StagedLedgerEntryType =
+  | 'invoice_draft'
+  | 'expense_receipt'
+  | 'payment_match'
+  | 'credit_adjustment'
+  | 'discrepancy_flag'
+
+export type StagedLedgerEntryStatus =
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected'
+  | 'applied'
+
+export interface StagedLedgerLineItem {
+  description: string
+  quantity: number
+  unit_price_cents: number
+}
+
+export interface StagedLedgerEntry {
+  id: string
+  workspace_id: string
+  bot_role: BotRole
+  entry_type: StagedLedgerEntryType
+  customer_id: string | null
+  vendor_name: string | null
+  amount_cents: number
+  currency: string
+  line_items: StagedLedgerLineItem[]
+  reasoning_summary: string
+  confidence_score: number
+  status: StagedLedgerEntryStatus
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+export type BotRunStatus =
+  | 'running'
+  | 'completed'
+  | 'fallback_deterministic'
+  | 'failed'
+
+export interface BotRun {
+  id: string
+  workspace_id: string
+  bot_role: BotRole
+  model: string
+  mode: BotAutonomyMode
+  status: BotRunStatus
+  input_summary: string
+  output_json: Record<string, unknown>
+  created_at: string
+}

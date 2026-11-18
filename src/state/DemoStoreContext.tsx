@@ -8,6 +8,10 @@ import {
 import type {
   Appointment,
   AuditEvent,
+  BotAutonomyMode,
+  BotManual,
+  BotRole,
+  BotRun,
   CommunicationDraftChannel,
   ConsentChannel,
   ConsentDecision,
@@ -40,6 +44,8 @@ import type {
   OpsTeamMemberStatus,
   PurchaseOrderStatus,
   RecoveryEvent,
+  StagedLedgerEntry,
+  StagedLedgerLineItem,
   Task,
   VerifiedRecoveryPayment,
   Workflow,
@@ -91,6 +97,9 @@ export interface DemoSandboxState {
   workflows: Workflow[]
   workflowRuns: WorkflowRun[]
   auditEvents: AuditEvent[]
+  botManuals: BotManual[]
+  stagedLedgerEntries: StagedLedgerEntry[]
+  botRuns: BotRun[]
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -996,6 +1005,119 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     },
   ]
 
+  const botManuals: BotManual[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000b101',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'billing',
+      mode: 'propose',
+      instructions_markdown:
+        '# Billing & Document Parser SOP\n- Verify every completed job checklist item and reserved material before staging an invoice draft.\n- Recompute line-item subtotals and tax in integer cents; flag any vendor receipt or estimate where line items + tax do not equal total.',
+      updated_by: DEMO_OWNER_ID,
+      updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b102',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'cash_applications',
+      mode: 'propose',
+      instructions_markdown:
+        '# Cash Applications & Receipt Match SOP\n- Match incoming vendor bills, supplier POs, and remittance advice against open documents by exact dollar amount and reference number.\n- Flag partial payments or unapproved price increases (>3% over PO cost) as `discrepancy_flag` entries.',
+      updated_by: DEMO_OWNER_ID,
+      updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b103',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'collections',
+      mode: 'propose',
+      instructions_markdown:
+        '# Collections & Revenue Leak Recovery SOP\n- Prioritize overdue invoices (>7 days past due), completed unbilled jobs, and stale quotes (>5 days old).\n- Verify active channel opt-in in `customer_contact_consent_events` before proposing any customer follow-up.',
+      updated_by: DEMO_OWNER_ID,
+      updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b104',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'outreach',
+      mode: 'propose',
+      instructions_markdown:
+        '# Founder-to-Founder SMB Outreach SOP\n- Tailor outreach to the prospect\'s specific industry bottleneck.\n- Queue all outreach in `ops_communication_drafts` with `requires_approval = true` and `delivery_status = not_sent`.',
+      updated_by: DEMO_OWNER_ID,
+      updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+  ]
+
+  const stagedLedgerEntries: StagedLedgerEntry[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000b201',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'billing',
+      entry_type: 'invoice_draft',
+      customer_id: customers[0]?.id ?? null,
+      vendor_name: 'Oakwood Dental Group — Completed Condenser Coil & TXV Replacement',
+      amount_cents: 130300,
+      currency: 'USD',
+      line_items: [
+        { description: 'Completed Field Labor (Job #201)', quantity: 1, unit_price_cents: 98000 },
+        { description: 'R-410A 25lb Cylinder + 40/5 uF Dual Run Capacitor', quantity: 1, unit_price_cents: 32300 },
+      ],
+      reasoning_summary:
+        'Job completed 3 days ago with 3/3 checklist steps verified, but invoice_id is null. Staged draft invoice for owner approval.',
+      confidence_score: 0.96,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -3 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b202',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'cash_applications',
+      entry_type: 'discrepancy_flag',
+      customer_id: null,
+      vendor_name: 'Tri-State HVAC Supply (Invoice #BILL-99204)',
+      amount_cents: 34800,
+      currency: 'USD',
+      line_items: [
+        { description: 'High-Pressure Hose Assembly', quantity: 2, unit_price_cents: 11500 },
+        { description: 'Hydraulic Coupler Kit', quantity: 1, unit_price_cents: 6500 },
+      ],
+      reasoning_summary:
+        'ARITHMETIC MISMATCH FLAGGED: Recomputed subtotal $295.00 + tax $18.00 = $313.00, but vendor invoice stated $348.00 (+$35.00 overcharge).',
+      confidence_score: 0.94,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -2 * HOUR_MS),
+    },
+  ]
+
+  const botRuns: BotRun[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000b301',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'billing',
+      model: 'grok-4.7',
+      mode: 'propose',
+      status: 'completed',
+      input_summary: 'audit_billing_leaks: scanned 4 jobs & 5 documents',
+      output_json: { staged_count: 1, unbilled_cents: 130300 },
+      created_at: isoOffsetFrom(anchorMs, -3 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000b302',
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'cash_applications',
+      model: 'grok-4.7',
+      mode: 'propose',
+      status: 'completed',
+      input_summary: 'parse_document: Tri-State HVAC Supply (BILL-99204)',
+      output_json: { computed_total_cents: 31300, stated_total_cents: 34800, has_discrepancy: true },
+      created_at: isoOffsetFrom(anchorMs, -2 * HOUR_MS),
+    },
+  ]
+
   return {
     workspace,
     settings,
@@ -1026,6 +1148,9 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     workflows,
     workflowRuns,
     auditEvents,
+    botManuals,
+    stagedLedgerEntries,
+    botRuns,
   }
 }
 
@@ -1095,6 +1220,13 @@ export interface DemoStoreContextValue {
   toggleDemoExpensePaid: (expenseId: string, paid: boolean) => void
   approveWorkflowRun: (runId: string) => void
   updateDemoPolicy: (patch: Partial<OpsPolicy>) => void
+  updateDemoBotManual: (params: {
+    botRole: BotRole
+    mode: BotAutonomyMode
+    instructionsMarkdown: string
+  }) => void
+  reviewDemoStagedEntry: (entryId: string, decision: 'approved' | 'rejected') => void
+  parseDemoReceiptWithGrokBot: (documentText: string) => StagedLedgerEntry
   resetDemo: () => void
 }
 
@@ -1840,6 +1972,150 @@ export function DemoStoreProvider({
     }))
   }, [])
 
+  const updateDemoBotManual = useCallback(
+    (params: {
+      botRole: BotRole
+      mode: BotAutonomyMode
+      instructionsMarkdown: string
+    }) => {
+      const nowIso = new Date().toISOString()
+      setState(prev => ({
+        ...prev,
+        botManuals: prev.botManuals.map(m =>
+          m.bot_role === params.botRole
+            ? {
+                ...m,
+                mode: params.mode,
+                instructions_markdown: params.instructionsMarkdown,
+                updated_at: nowIso,
+              }
+            : m,
+        ),
+      }))
+    },
+    [],
+  )
+
+  const reviewDemoStagedEntry = useCallback(
+    (entryId: string, decision: 'approved' | 'rejected') => {
+      const nowIso = new Date().toISOString()
+      setState(prev => ({
+        ...prev,
+        stagedLedgerEntries: prev.stagedLedgerEntries.map(e =>
+          e.id === entryId
+            ? {
+                ...e,
+                status: decision,
+                reviewed_by: DEMO_OWNER_ID,
+                reviewed_at: nowIso,
+              }
+            : e,
+        ),
+      }))
+    },
+    [],
+  )
+
+  const parseDemoReceiptWithGrokBot = useCallback((documentText: string): StagedLedgerEntry => {
+    const raw = documentText.trim()
+    if (!raw) throw new Error('Paste a receipt or invoice to parse.')
+    const nowIso = new Date().toISOString()
+    const lines = raw
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+    const vendorMatch = /(?:vendor|supplier|from|merchant)[:\s]+([^\n\r]+)/i.exec(raw)
+    const vendorName = (vendorMatch?.[1] ?? lines[0] ?? 'Submitted Vendor Bill')
+      .slice(0, 120)
+      .trim()
+    const invMatch = /(?:invoice|receipt|bill|po)\s*(?:#|no\.?|number)?[:\s]*([A-Z0-9-]{3,40})/i.exec(
+      raw,
+    )
+    const invoiceNumber = invMatch?.[1] ?? `DOC-${Date.now().toString().slice(-5)}`
+    const taxMatch = /tax[:\s]*\$?\s*(\d+(?:\.\d{1,2})?)/i.exec(raw)
+    const taxCents = taxMatch ? Math.round(Number(taxMatch[1]) * 100) : 0
+    const totalMatch = /total[:\s]*\$?\s*(\d+(?:\.\d{1,2})?)/i.exec(raw)
+
+    const lineItems: StagedLedgerLineItem[] = []
+    const lineRegex = /^(.+?)\s+(?:(\d+(?:\.\d+)?)\s*[x@]\s*)?\$\s*(\d+(?:\.\d{1,2})?)$/i
+    for (const line of lines) {
+      if (/^(subtotal|tax|total|amount due|balance)/i.test(line)) continue
+      const m = lineRegex.exec(line)
+      if (m) {
+        lineItems.push({
+          description: m[1].trim(),
+          quantity: m[2] ? Number(m[2]) : 1,
+          unit_price_cents: Math.round(Number(m[3]) * 100),
+        })
+      }
+    }
+
+    const computedSub = lineItems.reduce(
+      (sum, item) => sum + Math.round(item.quantity * item.unit_price_cents),
+      0,
+    )
+    const totalCents = totalMatch
+      ? Math.round(Number(totalMatch[1]) * 100)
+      : computedSub + taxCents
+
+    if (lineItems.length === 0 && totalCents > 0) {
+      lineItems.push({
+        description: `${vendorName} (${invoiceNumber})`,
+        quantity: 1,
+        unit_price_cents: Math.max(0, totalCents - taxCents),
+      })
+    }
+
+    const recomputedSub = lineItems.reduce(
+      (sum, item) => sum + Math.round(item.quantity * item.unit_price_cents),
+      0,
+    )
+    const computedTotalCents = recomputedSub + taxCents
+    const hasDiscrepancy = Math.abs(totalCents - computedTotalCents) > 1
+
+    const entry: StagedLedgerEntry = {
+      id: crypto.randomUUID(),
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'billing',
+      entry_type: hasDiscrepancy ? 'discrepancy_flag' : 'expense_receipt',
+      customer_id: null,
+      vendor_name: `${vendorName} (${invoiceNumber})`,
+      amount_cents: totalCents,
+      currency: 'USD',
+      line_items: lineItems,
+      reasoning_summary: `Invoice ${invoiceNumber} · Recomputed subtotal $${(recomputedSub / 100).toFixed(2)} + tax $${(taxCents / 100).toFixed(2)} = $${(computedTotalCents / 100).toFixed(2)}${hasDiscrepancy ? ` · ARITHMETIC MISMATCH FLAGGED (stated $${(totalCents / 100).toFixed(2)})` : ''}`,
+      confidence_score: 0.94,
+      status: 'pending_approval',
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: nowIso,
+    }
+
+    const run: BotRun = {
+      id: crypto.randomUUID(),
+      workspace_id: DEMO_WORKSPACE_ID,
+      bot_role: 'billing',
+      model: 'grok-4.7',
+      mode: 'propose',
+      status: 'completed',
+      input_summary: `parse_document: ${vendorName} (${invoiceNumber})`,
+      output_json: {
+        computed_subtotal_cents: recomputedSub,
+        computed_total_cents: computedTotalCents,
+        has_discrepancy: hasDiscrepancy,
+      },
+      created_at: nowIso,
+    }
+
+    setState(prev => ({
+      ...prev,
+      stagedLedgerEntries: [entry, ...prev.stagedLedgerEntries],
+      botRuns: [run, ...prev.botRuns],
+    }))
+
+    return entry
+  }, [])
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -1869,6 +2145,9 @@ export function DemoStoreProvider({
       toggleDemoExpensePaid,
       approveWorkflowRun,
       updateDemoPolicy,
+      updateDemoBotManual,
+      reviewDemoStagedEntry,
+      parseDemoReceiptWithGrokBot,
       resetDemo,
     }),
     [
@@ -1895,6 +2174,9 @@ export function DemoStoreProvider({
       toggleDemoExpensePaid,
       approveWorkflowRun,
       updateDemoPolicy,
+      updateDemoBotManual,
+      reviewDemoStagedEntry,
+      parseDemoReceiptWithGrokBot,
       resetDemo,
     ],
   )

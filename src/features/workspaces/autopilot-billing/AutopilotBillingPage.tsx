@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  Bot,
   CreditCard,
   RefreshCw,
   ScrollText,
@@ -21,14 +22,21 @@ import type {
 import { MetricCardSkeleton } from '../../../components/ui/MetricCard'
 import { BillingSubscriptionCard } from './BillingSubscriptionCard'
 import { EventQueuesAuditPanel } from './EventQueuesAuditPanel'
+import { GrokBotsPanel } from './GrokBotsPanel'
 import { OperationsPolicyForm } from './OperationsPolicyForm'
 import { WorkflowBuilderPanel } from './WorkflowBuilderPanel'
 import { WorkspaceSetupHealth } from './WorkspaceSetupHealth'
 
-type AutopilotTab = 'policies' | 'queues' | 'workflows' | 'setup' | 'billing'
+type AutopilotTab = 'policies' | 'grok_bots' | 'queues' | 'workflows' | 'setup' | 'billing'
 
 function parseAutopilotTab(raw: string | null): AutopilotTab {
-  if (raw === 'queues' || raw === 'workflows' || raw === 'setup' || raw === 'billing') {
+  if (
+    raw === 'grok_bots' ||
+    raw === 'queues' ||
+    raw === 'workflows' ||
+    raw === 'setup' ||
+    raw === 'billing'
+  ) {
     return raw
   }
   return 'policies'
@@ -150,6 +158,7 @@ export function AutopilotBillingPage(): React.ReactElement {
     icon: React.ComponentType<{ className?: string }>
   }> = [
     { id: 'policies', label: 'Policies & Guardrails', icon: Sliders },
+    { id: 'grok_bots', label: 'Grok Bots & Approvals', icon: Bot },
     { id: 'queues', label: 'Queues & Audit', icon: ScrollText },
     { id: 'workflows', label: 'Workflows', icon: WorkflowIcon },
     { id: 'setup', label: 'Setup & Integrations', icon: Settings2 },
@@ -225,6 +234,14 @@ export function AutopilotBillingPage(): React.ReactElement {
               policy={data.policy}
               defaultTimezone={settings?.timezone}
               onSaved={() => loadAutopilotWorkspace(true)}
+            />
+          ) : null}
+
+          {activeTab === 'grok_bots' ? (
+            <GrokBotsPanel
+              workspaceId={workspaceId}
+              isAdminOrOwner={isAdminOrOwner}
+              timezone={settings?.timezone}
             />
           ) : null}
 

@@ -1,4 +1,12 @@
-import type { BillingPlanKey, ConsentChannel, Workspace } from '../types/domain'
+import type {
+  BillingPlanKey,
+  BotRole,
+  BotRun,
+  ConsentChannel,
+  StagedLedgerEntry,
+  StagedLedgerLineItem,
+  Workspace,
+} from '../types/domain'
 import { assertSupabaseConfigured, supabase } from './supabase'
 
 export const CUSTOMER_IMPORT_BATCH_SIZE = 100
@@ -387,4 +395,180 @@ export async function syncQuickBooks(workspaceId: string): Promise<Record<string
     )
   }
   return (data ?? {}) as Record<string, unknown>
+}
+
+export interface GrokParseDocumentResponse {
+  staged_entry: StagedLedgerEntry
+  bot_run: BotRun | null
+  computed_subtotal_cents: number
+  computed_total_cents: number
+  has_discrepancy: boolean
+}
+
+export async function invokeGrokBotParseDocument(params: {
+  workspaceId: string
+  botRole?: BotRole
+  documentText: string
+  imageBase64?: string
+}): Promise<GrokParseDocumentResponse> {
+  assertSupabaseConfigured()
+  const { workspaceId, botRole = 'billing' } = params
+  const documentText = params.documentText.trim()
+  const imageBase64 = params.imageBase64?.trim() ?? ''
+
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (!documentText && !imageBase64) {
+    throw new Error('Paste a receipt/invoice or attach an image to parse.')
+  }
+
+  const { data, error } = await supabase.functions.invoke('grok-bot-router', {
+    body: {
+      workspace_id: workspaceId,
+      action: 'parse_document',
+      bot_role: botRole,
+      document_text: documentText,
+      image_base64: imageBase64 || undefined,
+    },
+  })
+
+  if (!error && data && (data as { staged_entry?: StagedLedgerEntry }).staged_entry) {
+    return data as GrokParseDocumentResponse
+  }
+
+  // Resilient direct-table fallback if Edge Function is warming or offline
+  const lines = documentText
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean)
+  const vendorMatch = /(?:vendor|supplier|from|merchant)[:\s]+([^\n\r]+)/i.exec(documentText)
+  const vendorName = (vendorMatch?.[1] ?? lines[0] ?? 'Submitted Vendor Bill')
+    .slice(0, 120)
+    .trim()
+  const invMatch = /(?:invoice|receipt|bill|po)\s*(?:#|no\.?|number)?[:\s]*([A-Z0-9-]{3,40})/i.exec(
+    documentText,
+  )
+  const invoiceNumber = invMatch?.[1] ?? `DOC-${Date.now().toString().slice(-6)}`
+  const taxMatch = /tax[:\s]*\$?\s*(\d+(?:\.\d{1,2})?)/i.exec(documentText)
+  const taxCents = taxMatch ? Math.round(Number(taxMatch[1]) * 100) : 0
+  const totalMatch = /total[:\s]*\$?\s*(\d+(?:\.\d{1,2})?)/i.exec(documentText)
+
+  const lineItems: StagedLedgerLineItem[] = []
+  const lineRegex = /^(.+?)\s+(?:(\d+(?:\.\d+)?)\s*[x@]\s*)?\$\s*(\d+(?:\.\d{1,2})?)$/i
+  for (const line of lines) {
+    if (/^(subtotal|tax|total|amount due|balance)/i.test(line)) continue
+    const m = lineRegex.exec(line)
+    if (m) {
+      lineItems.push({
+        description: m[1].trim(),
+        quantity: m[2] ? Number(m[2]) : 1,
+        unit_price_cents: Math.round(Number(m[3]) * 100),
+      })
+    }
+  }
+
+  const computedSubtotalCents = lineItems.reduce(
+    (sum, item) => sum + Math.round(item.quantity * item.unit_price_cents),
+    0,
+  )
+  const totalCents = totalMatch
+    ? Math.round(Number(totalMatch[1]) * 100)
+    : computedSubtotalCents + taxCents
+
+  if (lineItems.length === 0 && totalCents > 0) {
+    lineItems.push({
+      description: `${vendorName} (${invoiceNumber})`,
+      quantity: 1,
+      unit_price_cents: Math.max(0, totalCents - taxCents),
+    })
+  }
+
+  const recomputedSub = lineItems.reduce(
+    (sum, item) => sum + Math.round(item.quantity * item.unit_price_cents),
+    0,
+  )
+  const computedTotalCents = recomputedSub + taxCents
+  const hasDiscrepancy = Math.abs(totalCents - computedTotalCents) > 1
+
+  const { data: stagedRow, error: stageErr } = await supabase
+    .from('staged_ledger_entries')
+    .insert({
+      workspace_id: workspaceId,
+      bot_role: botRole,
+      entry_type: hasDiscrepancy ? 'discrepancy_flag' : 'expense_receipt',
+      vendor_name: vendorName,
+      amount_cents: totalCents,
+      currency: 'USD',
+      line_items: lineItems,
+      reasoning_summary: `Invoice ${invoiceNumber} · Recomputed $${(recomputedSub / 100).toFixed(2)} + tax $${(taxCents / 100).toFixed(2)} = $${(computedTotalCents / 100).toFixed(2)}${hasDiscrepancy ? ` · ARITHMETIC MISMATCH FLAGGED (stated $${(totalCents / 100).toFixed(2)})` : ''}`,
+      confidence_score: 0.9,
+      status: 'pending_approval',
+    })
+    .select('*')
+    .single()
+
+  if (stageErr) throw stageErr
+
+  const { data: runRow } = await supabase
+    .from('bot_runs')
+    .insert({
+      workspace_id: workspaceId,
+      bot_role: botRole,
+      model: 'grok-4.7',
+      mode: 'propose',
+      status: 'fallback_deterministic',
+      input_summary: `parse_document: ${vendorName} (${invoiceNumber})`,
+      output_json: {
+        computed_subtotal_cents: recomputedSub,
+        computed_total_cents: computedTotalCents,
+        has_discrepancy: hasDiscrepancy,
+      },
+    })
+    .select('*')
+    .single()
+
+  return {
+    staged_entry: stagedRow as StagedLedgerEntry,
+    bot_run: (runRow as BotRun | null) ?? null,
+    computed_subtotal_cents: recomputedSub,
+    computed_total_cents: computedTotalCents,
+    has_discrepancy: hasDiscrepancy,
+  }
+}
+
+export interface GrokAuditLeaksResponse {
+  executive_summary: string
+  staged_entries: StagedLedgerEntry[]
+  bot_run: BotRun | null
+}
+
+export async function invokeGrokBotAuditLeaks(params: {
+  workspaceId: string
+  leakSummary?: string
+}): Promise<GrokAuditLeaksResponse> {
+  assertSupabaseConfigured()
+  const { workspaceId, leakSummary = '' } = params
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+
+  const { data, error } = await supabase.functions.invoke('grok-bot-router', {
+    body: {
+      workspace_id: workspaceId,
+      action: 'audit_billing_leaks',
+      bot_role: 'collections',
+      leak_summary: leakSummary,
+    },
+  })
+
+  if (!error && data && typeof (data as { executive_summary?: string }).executive_summary === 'string') {
+    return data as GrokAuditLeaksResponse
+  }
+
+  throw new Error(
+    (data as { error?: string } | null)?.error ||
+      error?.message ||
+      'Grok leak audit service unavailable.',
+  )
 }
