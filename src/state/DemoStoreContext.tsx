@@ -1,0 +1,1742 @@
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import {agingBucketForDays, parseIsoMs} from '../lib/format'
+import {
+  calculateJobBillableTotal,
+  scanRevenueLeaks,
+  type RevenueLeakScanSummary,
+} from '../lib/leakScanner'
+import type {
+  Appointment,
+  AuditEvent,
+  CommunicationDraftChannel,
+  ConsentChannel,
+  ConsentDecision,
+  ConsentEvent,
+  Customer,
+  Customer360Snapshot,
+  DocumentRecord,
+  FollowUp,
+  InventoryItem,
+  InventoryMovement,
+  InventoryMovementKind,
+  JobMaterial,
+  JobStatus,
+  Opportunity,
+  OpsBusinessEvent,
+  OpsCommunicationDraft,
+  OpsCoordinationSummary,
+  OpsEmployeeProfile,
+  OpsExpense,
+  OpsInvoiceAgingBucket,
+  OpsInvoiceAgingKey,
+  OpsJob,
+  OpsPolicy,
+  OpsPurchaseOrder,
+  OpsQueueItem,
+  OpsQuoteApproval,
+  OpsQuoteRevision,
+  OpsServicePlan,
+  OpsSummary,
+  OpsTeamMemberStatus,
+  PurchaseOrderStatus,
+  RecoveryEvent,
+  Task,
+  VerifiedRecoveryPayment,
+  Workflow,
+  WorkflowRun,
+  Workspace,
+  WorkspaceSettings,
+  WorkspaceSubscription,
+} from '../types/domain'
+
+const DEMO_WORKSPACE_ID = '00000000-0000-4000-8000-00000000d3a0'
+const DEMO_OWNER_ID = '00000000-0000-4000-8000-000000000101'
+const DEMO_TECH_LEAD_ID = '00000000-0000-4000-8000-000000000102'
+const DEMO_TECH_TWO_ID = '00000000-0000-4000-8000-000000000103'
+
+const DAY_MS = 86_400_000
+const HOUR_MS = 3_600_000
+
+function isoOffsetFrom(anchorMs: number, deltaMs: number): string {
+  return new Date(anchorMs + deltaMs).toISOString()
+}
+
+export interface DemoSandboxState {
+  workspace: Workspace
+  settings: WorkspaceSettings
+  subscription: WorkspaceSubscription
+  policy: OpsPolicy
+  employees: OpsEmployeeProfile[]
+  customers: Customer[]
+  opportunities: Opportunity[]
+  recoveryEvents: RecoveryEvent[]
+  verifiedPayments: VerifiedRecoveryPayment[]
+  documents: DocumentRecord[]
+  followUps: FollowUp[]
+  tasks: Task[]
+  jobs: OpsJob[]
+  jobMaterials: JobMaterial[]
+  quoteRevisions: OpsQuoteRevision[]
+  quoteApprovals: OpsQuoteApproval[]
+  appointments: Appointment[]
+  servicePlans: OpsServicePlan[]
+  inventoryItems: InventoryItem[]
+  inventoryMovements: InventoryMovement[]
+  purchaseOrders: OpsPurchaseOrder[]
+  expenses: OpsExpense[]
+  consentEvents: ConsentEvent[]
+  drafts: OpsCommunicationDraft[]
+  queueItems: OpsQueueItem[]
+  businessEvents: OpsBusinessEvent[]
+  workflows: Workflow[]
+  workflowRuns: WorkflowRun[]
+  auditEvents: AuditEvent[]
+}
+
+export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
+  const workspace: Workspace = {
+    id: DEMO_WORKSPACE_ID,
+    name: 'Ridgeway HVAC & Mechanical (Sandbox)',
+    slug: 'ridgeway-hvac-demo',
+    owner_user_id: DEMO_OWNER_ID,
+    created_at: isoOffsetFrom(anchorMs, -120 * DAY_MS),
+  }
+
+  const settings: WorkspaceSettings = {
+    workspace_id: DEMO_WORKSPACE_ID,
+    business_type: 'HVAC & Mechanical',
+    timezone: 'America/New_York',
+    onboarding_completed: true,
+    onboarding_completed_at: isoOffsetFrom(anchorMs, -119 * DAY_MS),
+  }
+
+  const subscription: WorkspaceSubscription = {
+    workspace_id: DEMO_WORKSPACE_ID,
+    provider: 'stripe',
+    provider_customer_id: 'cus_demo_ridgeway',
+    provider_subscription_id: 'sub_demo_revenue_recovery',
+    plan_key: 'revenue_recovery',
+    status: 'active',
+    current_period_start: isoOffsetFrom(anchorMs, -12 * DAY_MS),
+    current_period_end: isoOffsetFrom(anchorMs, 18 * DAY_MS),
+    cancel_at_period_end: false,
+    billing_livemode: false,
+  }
+
+  const policy: OpsPolicy = {
+    workspace_id: DEMO_WORKSPACE_ID,
+    enabled: true,
+    draft_limit: 25,
+    industry: 'hvac',
+    coordinate_enabled: true,
+    timezone: 'America/New_York',
+    business_start: '07:30',
+    business_end: '18:00',
+    business_days: [1, 2, 3, 4, 5, 6],
+    enforce_hours: true,
+    travel_buffer: 30,
+    updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+  }
+
+  const employees: OpsEmployeeProfile[] = [
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: DEMO_OWNER_ID,
+      display_name: 'Elena Vance',
+      job_title: 'Operations Owner',
+      phone: '(555) 214-8801',
+      skills: ['Commercial Bidding', 'Diagnostics', 'Dispatch'],
+      active: true,
+      created_at: isoOffsetFrom(anchorMs, -120 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+    },
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: DEMO_TECH_LEAD_ID,
+      display_name: 'Marcus Cole',
+      job_title: 'Lead EPA-608 Technician',
+      phone: '(555) 214-8802',
+      skills: ['Heat Pumps', 'Rooftop Units', 'Refrigerant Recovery'],
+      active: true,
+      created_at: isoOffsetFrom(anchorMs, -110 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
+    },
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      user_id: DEMO_TECH_TWO_ID,
+      display_name: 'Devon Brooks',
+      job_title: 'Service & Install Tech',
+      phone: '(555) 214-8803',
+      skills: ['Mini-Splits', 'Airflow Balancing', 'Preventive Maintenance'],
+      active: true,
+      created_at: isoOffsetFrom(anchorMs, -95 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+    },
+  ]
+
+  const c1 = '00000000-0000-4000-8000-00000000c001'
+  const c2 = '00000000-0000-4000-8000-00000000c002'
+  const c3 = '00000000-0000-4000-8000-00000000c003'
+  const c4 = '00000000-0000-4000-8000-00000000c004'
+  const c5 = '00000000-0000-4000-8000-00000000c005'
+
+  const customers: Customer[] = [
+    {
+      id: c1,
+      workspace_id: DEMO_WORKSPACE_ID,
+      first_name: 'Hannah',
+      last_name: 'Mercer',
+      email: 'hannah@mercerdental.example',
+      phone: '(555) 390-1120',
+      notes: 'Mercer Family Dental — 2 rooftop Carrier package units; prefers email/SMS before 4pm.',
+      created_at: isoOffsetFrom(anchorMs, -90 * DAY_MS),
+    },
+    {
+      id: c2,
+      workspace_id: DEMO_WORKSPACE_ID,
+      first_name: 'grant',
+      last_name: 'Calloway',
+      email: 'gcalloway@oakstreetbakery.example',
+      phone: '(555) 390-4418',
+      notes: 'Oak Street Bakery — walk-in condenser & makeup air unit.',
+      created_at: isoOffsetFrom(anchorMs, -74 * DAY_MS),
+    },
+    {
+      id: c3,
+      workspace_id: DEMO_WORKSPACE_ID,
+      first_name: 'Priya',
+      last_name: 'Natarajan',
+      email: 'priya.n@westsideortho.example',
+      phone: '(555) 390-7721',
+      notes: 'Westside Orthodontics — server closet mini-split + quarterly filter contract.',
+      created_at: isoOffsetFrom(anchorMs, -62 * DAY_MS),
+    },
+    {
+      id: c4,
+      workspace_id: DEMO_WORKSPACE_ID,
+      first_name: 'Trevor',
+      last_name: 'Kowalski',
+      email: 'tkowalski@harborfreightwarehousing.example',
+      phone: '(555) 390-9084',
+      notes: 'Harbor Logistics Bay 4 — opted out of SMS reminders; email only.',
+      created_at: isoOffsetFrom(anchorMs, -48 * DAY_MS),
+    },
+    {
+      id: c5,
+      workspace_id: DEMO_WORKSPACE_ID,
+      first_name: 'Claire',
+      last_name: 'Whitaker',
+      email: 'claire@whitakerresidence.example',
+      phone: '(555) 390-6532',
+      notes: '3.5-ton variable-speed heat pump replacement quote sent last week.',
+      created_at: isoOffsetFrom(anchorMs, -15 * DAY_MS),
+    },
+  ]
+  // Normalize capital first letter on Grant
+  customers[1].first_name = 'Grant'
+
+  const opp1 = '00000000-0000-4000-8000-00000000a001'
+  const opp2 = '00000000-0000-4000-8000-00000000a002'
+  const opp3 = '00000000-0000-4000-8000-00000000a003'
+  const opp4 = '00000000-0000-4000-8000-00000000a004'
+
+  const opportunities: Opportunity[] = [
+    {
+      id: opp1,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      title: 'Overdue Invoice INV-1892 — Rooftop Economizer & Compressor Contactor',
+      source: 'invoice_aging',
+      reason: 'Invoice 24 days past due with signed work order on file.',
+      status: 'open',
+      amount: 2840,
+      recovered_amount: null,
+      priority: 95,
+      confidence_score: 92,
+      due_at: isoOffsetFrom(anchorMs, -24 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -38 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -10 * DAY_MS),
+      customers: customers[0],
+    },
+    {
+      id: opp2,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c5,
+      title: 'Quote QTE-2041 — 3.5-Ton Bosch Heat Pump & Air Handler',
+      source: 'quote_followup',
+      reason: 'Quote sent 9 days ago; homeowner asked about utility rebate.',
+      status: 'contacted',
+      amount: 6450,
+      recovered_amount: null,
+      priority: 88,
+      confidence_score: 78,
+      due_at: isoOffsetFrom(anchorMs, 2 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -9 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -9 * DAY_MS),
+      customers: customers[4],
+    },
+    {
+      id: opp3,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c4,
+      title: 'Warehouse Unit Heater Flue & Gas Valve Replacement',
+      source: 'diagnostic_visit',
+      reason: 'Diagnostic completed 11 days ago; awaiting PO sign-off.',
+      status: 'open',
+      amount: 1920,
+      recovered_amount: null,
+      priority: 82,
+      confidence_score: 74,
+      due_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -11 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -11 * DAY_MS),
+      customers: customers[3],
+    },
+    {
+      id: opp4,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c3,
+      title: 'Server Room Mini-Split Condensate Pump & Coil Clean',
+      source: 'invoice_collection',
+      reason: 'Collected via Stripe invoice link.',
+      status: 'recovered',
+      amount: 1180,
+      recovered_amount: 1180,
+      recovered_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+      priority: 70,
+      confidence_score: 100,
+      due_at: isoOffsetFrom(anchorMs, -6 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -18 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+      customers: customers[2],
+    },
+  ]
+
+  const recoveryEvents: RecoveryEvent[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000e001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      opportunity_id: opp4,
+      customer_id: c3,
+      amount: 1180,
+      source: 'owner_confirmed_collection',
+      note: 'Collected on INV-1884',
+      created_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
+  ]
+
+  const verifiedPayments: VerifiedRecoveryPayment[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000f001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c3,
+      opportunity_id: opp4,
+      amount_cents: 118000,
+      currency: 'USD',
+      payment_provider: 'stripe',
+      provider_payment_id: 'pi_demo_verified_1884',
+      provider_verified_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
+  ]
+
+  const doc1 = '00000000-0000-4000-8000-00000000d001'
+  const doc2 = '00000000-0000-4000-8000-00000000d002'
+  const doc3 = '00000000-0000-4000-8000-00000000d003'
+  const doc4 = '00000000-0000-4000-8000-00000000d004'
+
+  const documents: DocumentRecord[] = [
+    {
+      id: doc1,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      opportunity_id: opp1,
+      document_type: 'invoice',
+      document_number: 'INV-1892',
+      status: 'overdue',
+      total: 2840,
+      due_at: isoOffsetFrom(anchorMs, -24 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -38 * DAY_MS),
+    },
+    {
+      id: doc2,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c2,
+      opportunity_id: null,
+      document_type: 'invoice',
+      document_number: 'INV-1904',
+      status: 'sent',
+      total: 965,
+      due_at: isoOffsetFrom(anchorMs, -8 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -22 * DAY_MS),
+    },
+    {
+      id: doc3,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c5,
+      opportunity_id: opp2,
+      document_type: 'quote',
+      document_number: 'QTE-2041',
+      status: 'sent',
+      total: 6450,
+      due_at: isoOffsetFrom(anchorMs, 5 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -9 * DAY_MS),
+    },
+    {
+      id: doc4,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c3,
+      opportunity_id: opp4,
+      document_type: 'invoice',
+      document_number: 'INV-1884',
+      status: 'paid',
+      total: 1180,
+      due_at: isoOffsetFrom(anchorMs, -6 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -18 * DAY_MS),
+    },
+  ]
+
+  const sku1 = '00000000-0000-4000-8000-00000000b001'
+  const sku2 = '00000000-0000-4000-8000-00000000b002'
+  const sku3 = '00000000-0000-4000-8000-00000000b003'
+  const sku4 = '00000000-0000-4000-8000-00000000b004'
+
+  const inventoryItems: InventoryItem[] = [
+    {
+      id: sku1,
+      workspace_id: DEMO_WORKSPACE_ID,
+      name: 'R-410A Refrigerant Cylinder (25 lb)',
+      sku: 'REF-410A-25',
+      barcode: '810042190012',
+      category: 'Refrigerants',
+      description: 'EPA-608 tracked 25 lb cylinder',
+      supplier: 'United Refrigeration',
+      location: 'Cage A-1',
+      purchase_cost: 168,
+      selling_price: 295,
+      quantity: 3,
+      reserved: 2,
+      reorder_threshold: 4,
+      reorder_quantity: 8,
+      archived: false,
+      created_at: isoOffsetFrom(anchorMs, -90 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+    },
+    {
+      id: sku2,
+      workspace_id: DEMO_WORKSPACE_ID,
+      name: 'Dual Run Capacitor 45/5 MFD 440V',
+      sku: 'CAP-45-5-440',
+      barcode: '810042190029',
+      category: 'Electrical',
+      description: 'AmRad USA turbo-grade dual capacitor',
+      supplier: 'Johnstone Supply',
+      location: 'Truck Bin B-4',
+      purchase_cost: 19,
+      selling_price: 68,
+      quantity: 2,
+      reserved: 1,
+      reorder_threshold: 6,
+      reorder_quantity: 15,
+      archived: false,
+      created_at: isoOffsetFrom(anchorMs, -90 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: sku3,
+      workspace_id: DEMO_WORKSPACE_ID,
+      name: 'Honeywell T6 Pro Programmable Thermostat',
+      sku: 'STAT-T6PRO-2H2C',
+      barcode: '810042190036',
+      category: 'Controls',
+      description: '2H/2C heat pump & conventional pro thermostat',
+      supplier: 'Johnstone Supply',
+      location: 'Shelf C-2',
+      purchase_cost: 74,
+      selling_price: 165,
+      quantity: 9,
+      reserved: 1,
+      reorder_threshold: 4,
+      reorder_quantity: 10,
+      archived: false,
+      created_at: isoOffsetFrom(anchorMs, -80 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+    },
+    {
+      id: sku4,
+      workspace_id: DEMO_WORKSPACE_ID,
+      name: 'Little Giant Condensate Pump VCMA-20ULS',
+      sku: 'PUMP-VCMA-20',
+      barcode: '810042190043',
+      category: 'Condensate',
+      description: '115V condensate removal pump w/ safety switch',
+      supplier: 'Ferguson HVAC',
+      location: 'Shelf D-1',
+      purchase_cost: 58,
+      selling_price: 138,
+      quantity: 5,
+      reserved: 0,
+      reorder_threshold: 3,
+      reorder_quantity: 6,
+      archived: false,
+      created_at: isoOffsetFrom(anchorMs, -75 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
+  ]
+
+  const job1 = '00000000-0000-4000-8000-000000009001'
+  const job2 = '00000000-0000-4000-8000-000000009002'
+  const job3 = '00000000-0000-4000-8000-000000009003'
+  const job4 = '00000000-0000-4000-8000-000000009004'
+
+  const jobs: OpsJob[] = [
+    {
+      id: job1,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c2,
+      title: 'Walk-In Cooler Condenser Fan Motor & Subcooling Recharge',
+      status: 'completed',
+      priority: 'urgent',
+      assigned_to: DEMO_TECH_LEAD_ID,
+      notes: 'Completed emergency repair at 6:15pm; invoice still needs to be issued.',
+      checklist: [
+        { title: 'Isolate disconnect & verify 208V supply', done: true },
+        { title: 'Replace condenser fan capacitor & weigh in R-410A', done: true },
+        { title: 'Verify 36°F box pull-down & superheat', done: true },
+      ],
+      labor_total: 680,
+      revision: 1,
+      service_details: { equipment: 'Heatcraft 3HP Condensing Unit', serial: 'HC-229841' },
+      recurring_plan_id: null,
+      recurring_due: null,
+      approved_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
+      approval_evidence: 'Signed kitchen manager work authorization #WO-412',
+      completed_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+      invoice_id: null, // Intentionally unbilled completed job so leak scanner surfaces it!
+      created_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: job2,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      title: 'RTU #2 Supply Belt, Economizer Damper Check & T6 Upgrade',
+      status: 'scheduled',
+      priority: 'high',
+      assigned_to: DEMO_TECH_TWO_ID,
+      notes: 'Roof hatch key at front reception.',
+      checklist: [
+        { title: 'Inspect heat exchanger & belt tension', done: false },
+        { title: 'Install Honeywell T6 Pro in Suite B', done: false },
+      ],
+      labor_total: 420,
+      revision: 1,
+      service_details: { equipment: 'Carrier 48TC-06 Rooftop', roof_access: 'Interior ladder' },
+      recurring_plan_id: null,
+      recurring_due: null,
+      approved_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+      approval_evidence: 'Email confirmation from hannah@mercerdental.example',
+      completed_at: null,
+      invoice_id: null,
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -6 * HOUR_MS),
+    },
+    {
+      id: job3,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c5,
+      title: '3.5-Ton Variable-Speed Heat Pump System Installation',
+      status: 'quoted',
+      priority: 'normal',
+      assigned_to: DEMO_TECH_LEAD_ID,
+      notes: 'Includes crane/pad set, line-set flush, and 10-year parts registration.',
+      checklist: [
+        { title: 'Recover existing refrigerant per EPA-608', done: false },
+        { title: 'Nitrogen braze & 500-micron evacuation test', done: false },
+        { title: 'Commission static pressure & airflow', done: false },
+      ],
+      labor_total: 5860,
+      revision: 2,
+      service_details: { equipment: 'Bosch IDS 2.0 3.5-Ton', warranty: '10yr parts / 2yr labor' },
+      recurring_plan_id: null,
+      recurring_due: null,
+      approved_at: null,
+      approval_evidence: null,
+      completed_at: null,
+      invoice_id: null,
+      created_at: isoOffsetFrom(anchorMs, -9 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -9 * DAY_MS),
+    },
+    {
+      id: job4,
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c3,
+      title: 'Quarterly Orthodontic Clinic HEPA & Mini-Split Tune-Up',
+      status: 'in_progress',
+      priority: 'normal',
+      assigned_to: DEMO_TECH_TWO_ID,
+      notes: 'Technician currently on site checking condensate safety switch.',
+      checklist: [
+        { title: 'Wash Mitsubishi indoor blower wheel & filters', done: true },
+        { title: 'Test condensate overflow float switch', done: false },
+      ],
+      labor_total: 295,
+      revision: 1,
+      service_details: { equipment: 'Mitsubishi MSZ-GL18NA', location: 'Imaging & Server Closet' },
+      recurring_plan_id: '00000000-0000-4000-8000-000000007001',
+      recurring_due: isoOffsetFrom(anchorMs, 90 * DAY_MS),
+      approved_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+      approval_evidence: 'Active Preventive Maintenance Agreement #PMA-108',
+      completed_at: null,
+      invoice_id: null,
+      created_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -1 * HOUR_MS),
+    },
+  ]
+
+  const jobMaterials: JobMaterial[] = [
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job1,
+      item_id: sku1,
+      quantity: 1,
+      unit_cost: 168,
+      unit_price: 295,
+      state: 'consumed',
+    },
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job1,
+      item_id: sku2,
+      quantity: 1,
+      unit_cost: 19,
+      unit_price: 68,
+      state: 'consumed',
+    },
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job2,
+      item_id: sku3,
+      quantity: 1,
+      unit_cost: 74,
+      unit_price: 165,
+      state: 'reserved',
+    },
+    {
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job3,
+      item_id: sku1,
+      quantity: 2,
+      unit_cost: 168,
+      unit_price: 295,
+      state: 'reserved',
+    },
+  ]
+
+  const quoteRevisions: OpsQuoteRevision[] = [
+    {
+      id: '00000000-0000-4000-8000-000000006001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job3,
+      revision: 2,
+      document_id: doc3,
+      snapshot: {
+        job: jobs[2],
+        materials: [jobMaterials[3]],
+        revision: 2,
+      },
+      total: 6450,
+      actor_id: DEMO_OWNER_ID,
+      created_at: isoOffsetFrom(anchorMs, -9 * DAY_MS),
+    },
+  ]
+
+  const quoteApprovals: OpsQuoteApproval[] = [
+    {
+      id: '00000000-0000-4000-8000-000000006101',
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job1,
+      revision: 1,
+      evidence: 'Signed kitchen manager work authorization #WO-412',
+      actor_id: DEMO_OWNER_ID,
+      approved_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
+      source: 'ops_command',
+      created_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
+    },
+  ]
+
+  const appointments: Appointment[] = [
+    {
+      id: '00000000-0000-4000-8000-000000005001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c4,
+      ops_job_id: null,
+      assigned_worker: DEMO_TECH_LEAD_ID,
+      title: 'Bay 4 Unit Heater Safety Re-Inspection',
+      starts_at: isoOffsetFrom(anchorMs, -28 * HOUR_MS),
+      ends_at: isoOffsetFrom(anchorMs, -26 * HOUR_MS),
+      status: 'scheduled', // Past unclosed booking surfaced by leak scanner
+      notes: 'Verify if customer PO arrived or reschedule.',
+      created_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005002',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c3,
+      ops_job_id: job4,
+      assigned_worker: DEMO_TECH_TWO_ID,
+      title: 'Quarterly Orthodontic Clinic HEPA & Mini-Split Tune-Up',
+      starts_at: isoOffsetFrom(anchorMs, 1 * HOUR_MS),
+      ends_at: isoOffsetFrom(anchorMs, 3 * HOUR_MS),
+      status: 'scheduled',
+      notes: 'Suite 200 back entrance.',
+      created_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005003',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      ops_job_id: job2,
+      assigned_worker: DEMO_TECH_TWO_ID,
+      title: 'RTU #2 Supply Belt, Economizer Damper Check & T6 Upgrade',
+      starts_at: isoOffsetFrom(anchorMs, 22 * HOUR_MS),
+      ends_at: isoOffsetFrom(anchorMs, 25 * HOUR_MS),
+      status: 'scheduled',
+      notes: 'Bring 48-inch cogged belt & T6 Pro.',
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+  ]
+
+  const servicePlans: OpsServicePlan[] = [
+    {
+      id: '00000000-0000-4000-8000-000000007001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c3,
+      title: 'Quarterly Medical & Server Closet HVAC Maintenance',
+      interval_days: 90,
+      next_due: isoOffsetFrom(anchorMs, 85 * DAY_MS).slice(0, 10),
+      assigned_to: DEMO_TECH_TWO_ID,
+      enabled: true,
+      template: {
+        labor_total: 295,
+        checklist: [
+          { title: 'Sanitize evaporator coil & blower wheel', done: false },
+          { title: 'Test condensate float switch & amp draw', done: false },
+        ],
+      },
+      created_at: isoOffsetFrom(anchorMs, -90 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+    },
+  ]
+
+  const inventoryMovements: InventoryMovement[] = [
+    {
+      id: '00000000-0000-4000-8000-000000004001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      item_id: sku1,
+      job_id: job1,
+      kind: 'consume',
+      quantity: -1,
+      balance: 3,
+      reason: 'Consumed on Oak Street Bakery walk-in repair',
+      actor_id: DEMO_TECH_LEAD_ID,
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000004002',
+      workspace_id: DEMO_WORKSPACE_ID,
+      item_id: sku2,
+      job_id: job1,
+      kind: 'consume',
+      quantity: -1,
+      balance: 2,
+      reason: 'Consumed on Oak Street Bakery walk-in repair',
+      actor_id: DEMO_TECH_LEAD_ID,
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+  ]
+
+  const purchaseOrders: OpsPurchaseOrder[] = [
+    {
+      id: '00000000-0000-4000-8000-000000003001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      item_id: sku1,
+      supplier: 'United Refrigeration',
+      quantity: 8,
+      unit_cost: 168,
+      status: 'draft',
+      approved_by: null,
+      receipt_reference: null,
+      created_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000003002',
+      workspace_id: DEMO_WORKSPACE_ID,
+      item_id: sku2,
+      supplier: 'Johnstone Supply',
+      quantity: 15,
+      unit_cost: 19,
+      status: 'approved',
+      approved_by: DEMO_OWNER_ID,
+      receipt_reference: null,
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+  ]
+
+  const expenses: OpsExpense[] = [
+    {
+      id: '00000000-0000-4000-8000-000000003501',
+      workspace_id: DEMO_WORKSPACE_ID,
+      job_id: job1,
+      vendor: 'United Refrigeration',
+      description: 'After-hours counter call fee & nitrogen purge refill',
+      amount: 145,
+      due_at: isoOffsetFrom(anchorMs, 10 * DAY_MS).slice(0, 10),
+      paid: false,
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+  ]
+
+  const consentEvents: ConsentEvent[] = [
+    {
+      id: '00000000-0000-4000-8000-000000002001',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      channel: 'email',
+      decision: 'granted',
+      evidence_reference: 'MSA-MERCER-2026-EMAIL-OPTIN',
+      actor_user_id: DEMO_OWNER_ID,
+      created_at: isoOffsetFrom(anchorMs, -60 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000002002',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c5,
+      channel: 'sms',
+      decision: 'granted',
+      evidence_reference: 'WEBFORM-WHITAKER-SMS-9941',
+      actor_user_id: DEMO_OWNER_ID,
+      created_at: isoOffsetFrom(anchorMs, -14 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000002003',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c4,
+      channel: 'sms',
+      decision: 'revoked',
+      evidence_reference: 'SMS-STOP-REPLY-2026-10',
+      actor_user_id: DEMO_OWNER_ID,
+      created_at: isoOffsetFrom(anchorMs, -20 * DAY_MS),
+    },
+  ]
+
+  const drafts: OpsCommunicationDraft[] = [
+    {
+      id: '00000000-0000-4000-8000-000000002501',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      source_event_id: null,
+      channel: 'email',
+      subject: 'Friendly check-in on Invoice INV-1892 — Mercer Family Dental',
+      message:
+        'Hi Hannah, wanted to share a quick copy of Invoice INV-1892 ($2,840) for the RTU #1 contactor & economizer repair before our tech arrives for RTU #2 tomorrow. Let us know if accounting needs the signed work order resent.',
+      status: 'draft',
+      approved_by: null,
+      approved_at: null,
+      delivery_status: 'not_sent',
+      created_at: isoOffsetFrom(anchorMs, -12 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000002502',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c5,
+      source_event_id: null,
+      channel: 'sms',
+      subject: 'Bosch Heat Pump Quote QTE-2041 & Rebate Sheet',
+      message:
+        'Hi Claire, this is Elena at Ridgeway HVAC. Checking in on Quote QTE-2041 ($6,450) — we confirmed your system qualifies for the $850 utility heat-pump rebate. Would Thursday or Friday work to lock in your install date?',
+      status: 'draft',
+      approved_by: null,
+      approved_at: null,
+      delivery_status: 'not_sent',
+      created_at: isoOffsetFrom(anchorMs, -8 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000002503',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c4,
+      source_event_id: null,
+      channel: 'sms',
+      subject: 'SMS blocked by revoked consent',
+      message: 'Checking on Bay 4 unit heater quote.',
+      status: 'rejected',
+      approved_by: null,
+      approved_at: null,
+      delivery_status: 'not_sent',
+      created_at: isoOffsetFrom(anchorMs, -19 * DAY_MS),
+    },
+  ]
+
+  const tasks: Task[] = [
+    {
+      id: '00000000-0000-4000-8000-000000001501',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c2,
+      opportunity_id: null,
+      title: 'Review & send invoice for Oak Street Bakery emergency cooler repair',
+      status: 'open',
+      priority: 95,
+      due_at: isoOffsetFrom(anchorMs, 4 * HOUR_MS),
+      created_at: isoOffsetFrom(anchorMs, -20 * HOUR_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-000000001502',
+      workspace_id: DEMO_WORKSPACE_ID,
+      customer_id: c1,
+      opportunity_id: opp1,
+      title: 'Approve email reminder draft for INV-1892 ($2,840)',
+      status: 'open',
+      priority: 90,
+      due_at: isoOffsetFrom(anchorMs, 6 * HOUR_MS),
+      created_at: isoOffsetFrom(anchorMs, -12 * HOUR_MS),
+    },
+  ]
+
+  const followUps: FollowUp[] = []
+
+  const queueItems: OpsQueueItem[] = [
+    {
+      id: '00000000-0000-4000-8000-000000001801',
+      workspace_id: DEMO_WORKSPACE_ID,
+      item_id: sku1,
+      event_key: `low-stock:${sku1}`,
+      status: 'completed',
+      attempts: 1,
+      available_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+      started_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+      completed_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+      result: { purchase_order_drafted: true },
+      error: null,
+      created_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+    },
+  ]
+
+  const businessEvents: OpsBusinessEvent[] = [
+    {
+      id: '00000000-0000-4000-8000-000000001901',
+      workspace_id: DEMO_WORKSPACE_ID,
+      event_key: `job-completed:${job1}`,
+      event_type: 'job_completed',
+      entity_type: 'ops_job',
+      entity_id: job1,
+      customer_id: c2,
+      payload: { labor_total: 680 },
+      status: 'completed',
+      attempts: 1,
+      available_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+      started_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+      completed_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+      result: { task_created: true },
+      error: null,
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+  ]
+
+  const wf1 = '00000000-0000-4000-8000-000000008001'
+  const workflows: Workflow[] = [
+    {
+      id: wf1,
+      workspace_id: DEMO_WORKSPACE_ID,
+      name: 'High-Value Stalled Quote Owner Approval Rule',
+      description: 'Queues an owner-approved follow-up task when a quote above $3,000 ages past 7 days.',
+      enabled: true,
+      mode: 'approval',
+      trigger_type: 'record_due',
+      trigger_config: { entity_type: 'opportunity' },
+      conditions: [{ field: 'amount', operator: 'gte', value: 3000 }],
+      actions: [
+        {
+          type: 'create_task',
+          title: 'Call homeowner with rebate sheet on high-value HVAC quote',
+          priority: 90,
+        },
+      ],
+      created_at: isoOffsetFrom(anchorMs, -60 * DAY_MS),
+      updated_at: isoOffsetFrom(anchorMs, -10 * DAY_MS),
+    },
+  ]
+
+  const workflowRuns: WorkflowRun[] = [
+    {
+      id: '00000000-0000-4000-8000-000000008501',
+      workspace_id: DEMO_WORKSPACE_ID,
+      workflow_id: wf1,
+      trigger_event_id: null,
+      status: 'waiting_approval',
+      idempotency_key: `demo-wf-run:${opp2}`,
+      context: { record: { id: opp2, title: opportunities[1].title, amount: 6450 } },
+      result: {},
+      error: null,
+      started_at: isoOffsetFrom(anchorMs, -6 * HOUR_MS),
+      completed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -6 * HOUR_MS),
+    },
+  ]
+
+  const auditEvents: AuditEvent[] = [
+    {
+      id: '00000000-0000-4000-8000-000000009901',
+      workspace_id: DEMO_WORKSPACE_ID,
+      actor_user_id: DEMO_OWNER_ID,
+      entity_type: 'opportunity',
+      entity_id: opp4,
+      action: 'opportunity_collected',
+      metadata: { amount: 1180, invoice_number: 'INV-1884' },
+      created_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
+  ]
+
+  return {
+    workspace,
+    settings,
+    subscription,
+    policy,
+    employees,
+    customers,
+    opportunities,
+    recoveryEvents,
+    verifiedPayments,
+    documents,
+    followUps,
+    tasks,
+    jobs,
+    jobMaterials,
+    quoteRevisions,
+    quoteApprovals,
+    appointments,
+    servicePlans,
+    inventoryItems,
+    inventoryMovements,
+    purchaseOrders,
+    expenses,
+    consentEvents,
+    drafts,
+    queueItems,
+    businessEvents,
+    workflows,
+    workflowRuns,
+    auditEvents,
+  }
+}
+
+const AGING_LABELS: Record<OpsInvoiceAgingKey, string> = {
+  not_due: 'Current (not yet due)',
+  days_1_30: '1–30 days past due',
+  days_31_60: '31–60 days past due',
+  days_61_90: '61–90 days past due',
+  over_90: 'Over 90 days past due',
+}
+
+export interface DemoStoreContextValue {
+  state: DemoSandboxState
+  opsSummary: OpsSummary
+  coordinationSummary: OpsCoordinationSummary
+  teamStatus: OpsTeamMemberStatus[]
+  invoiceAging: OpsInvoiceAgingBucket[]
+  leakScan: RevenueLeakScanSummary
+  getCustomer360: (customerId: string) => Customer360Snapshot | null
+  transitionJob: (jobId: string, nextStatus: Exclude<JobStatus, 'draft'>, evidence?: string) => void
+  issueInvoiceForJob: (jobId: string) => DocumentRecord
+  collectDemoOpportunity: (opportunityId: string, amount: number) => void
+  recordDemoConsent: (params: {
+    customerId: string
+    channel: ConsentChannel
+    decision: ConsentDecision
+    evidenceReference: string
+  }) => ConsentEvent
+  saveDemoDraft: (params: {
+    customerId: string
+    channel: CommunicationDraftChannel
+    subject: string
+    message: string
+  }) => OpsCommunicationDraft
+  reviewDemoDraft: (draftId: string, decision: 'approved' | 'rejected') => void
+  createDraftPurchaseOrder: (itemId: string) => OpsPurchaseOrder
+  transitionPurchaseOrder: (
+    poId: string,
+    status: Exclude<PurchaseOrderStatus, 'draft'>,
+    receiptReference?: string,
+  ) => void
+  adjustInventoryStock: (
+    itemId: string,
+    kind: Extract<InventoryMovementKind, 'receipt' | 'adjustment' | 'return'>,
+    quantity: number,
+    reason: string,
+  ) => void
+  completeTask: (taskId: string) => void
+  approveWorkflowRun: (runId: string) => void
+  updateDemoPolicy: (patch: Partial<OpsPolicy>) => void
+  resetDemo: () => void
+}
+
+const DemoStoreContext = createContext<DemoStoreContextValue | null>(null)
+
+export function DemoStoreProvider({
+  children,
+}: {
+  children: React.ReactNode
+}): React.ReactElement {
+  const [state, setState] = useState<DemoSandboxState>(() => createInitialDemoState())
+
+  const leakScan = useMemo<RevenueLeakScanSummary>(
+    () =>
+      scanRevenueLeaks({
+        customers: state.customers,
+        documents: state.documents,
+        opportunities: state.opportunities,
+        jobs: state.jobs,
+        jobMaterials: state.jobMaterials,
+        appointments: state.appointments,
+        followUps: state.followUps,
+        tasks: state.tasks,
+      }),
+    [
+      state.customers,
+      state.documents,
+      state.opportunities,
+      state.jobs,
+      state.jobMaterials,
+      state.appointments,
+      state.followUps,
+      state.tasks,
+    ],
+  )
+
+  const opsSummary = useMemo<OpsSummary>(() => {
+    const nowMs = Date.now()
+    const openJobs = state.jobs.filter(
+      j => j.status !== 'completed' && j.status !== 'cancelled',
+    ).length
+    const openEstimates = state.jobs.filter(
+      j => j.status === 'draft' || j.status === 'quoted',
+    ).length
+    const todayJobs = state.appointments.filter(a => {
+      if (a.status !== 'scheduled') return false
+      const ms = parseIsoMs(a.starts_at)
+      return ms !== null && Math.abs(ms - nowMs) <= DAY_MS
+    }).length
+    const lowStock = state.inventoryItems.filter(
+      item => !item.archived && item.quantity - item.reserved <= item.reorder_threshold,
+    ).length
+    const inventoryValue = state.inventoryItems
+      .filter(i => !i.archived)
+      .reduce((sum, i) => sum + i.quantity * i.purchase_cost, 0)
+    const urgentTasks = state.tasks.filter(
+      t => (t.status === 'open' || t.status === 'in_progress') && t.priority >= 85,
+    ).length
+    const invoices = state.documents.filter(d => d.document_type === 'invoice')
+    const invoiceTotal = invoices.reduce((sum, d) => sum + d.total, 0)
+    const unpaidInvoices = invoices
+      .filter(d => d.status === 'sent' || d.status === 'overdue')
+      .reduce((sum, d) => sum + d.total, 0)
+    const ownerReportedPaid = invoices
+      .filter(d => d.status === 'paid')
+      .reduce((sum, d) => sum + d.total, 0)
+    const verifiedCollections = state.verifiedPayments.reduce(
+      (sum, p) => sum + p.amount_cents / 100,
+      0,
+    )
+    const expensesTotal = state.expenses.reduce((sum, e) => sum + e.amount, 0)
+    const billsDue = state.expenses.filter(e => !e.paid).reduce((sum, e) => sum + e.amount, 0)
+    const awaitingApproval =
+      state.purchaseOrders.filter(po => po.status === 'draft').length +
+      state.drafts.filter(dr => dr.status === 'draft').length +
+      state.workflowRuns.filter(r => r.status === 'waiting_approval').length
+    const failedOperations =
+      state.queueItems.filter(q => q.status === 'dead_letter').length +
+      state.businessEvents.filter(e => e.status === 'dead_letter').length
+
+    return {
+      open_jobs: openJobs,
+      open_estimates: openEstimates,
+      today_jobs: todayJobs,
+      low_stock: lowStock,
+      inventory_value: Math.round(inventoryValue * 100) / 100,
+      urgent_tasks: urgentTasks,
+      invoice_total: Math.round(invoiceTotal * 100) / 100,
+      unpaid_invoices: Math.round(unpaidInvoices * 100) / 100,
+      owner_reported_paid: Math.round(ownerReportedPaid * 100) / 100,
+      verified_collections: Math.round(verifiedCollections * 100) / 100,
+      expenses: Math.round(expensesTotal * 100) / 100,
+      bills_due: Math.round(billsDue * 100) / 100,
+      awaiting_approval: awaitingApproval,
+      failed_operations: failedOperations,
+    }
+  }, [state])
+
+  const coordinationSummary = useMemo<OpsCoordinationSummary>(
+    () => ({
+      events_pending: state.businessEvents.filter(e => e.status === 'pending').length,
+      events_completed: state.businessEvents.filter(e => e.status === 'completed').length,
+      events_failed: state.businessEvents.filter(e => e.status === 'dead_letter').length,
+      verified_tasks: state.tasks.filter(t => t.status === 'open' || t.status === 'in_progress')
+        .length,
+      completed_tasks: state.tasks.filter(t => t.status === 'done' || t.status === 'completed')
+        .length,
+      drafts_waiting: state.drafts.filter(d => d.status === 'draft').length,
+      recurring_services: state.servicePlans.filter(s => s.enabled).length,
+    }),
+    [state.businessEvents, state.tasks, state.drafts, state.servicePlans],
+  )
+
+  const teamStatus = useMemo<OpsTeamMemberStatus[]>(
+    () =>
+      state.employees.map((emp, idx) => ({
+        user_id: emp.user_id,
+        role: idx === 0 ? 'owner' : 'staff',
+        display_name: emp.display_name,
+        job_title: emp.job_title,
+        phone: emp.phone,
+        skills: emp.skills,
+        active: emp.active,
+        open_jobs: state.jobs.filter(
+          j =>
+            j.assigned_to === emp.user_id &&
+            j.status !== 'completed' &&
+            j.status !== 'cancelled',
+        ).length,
+      })),
+    [state.employees, state.jobs],
+  )
+
+  const invoiceAging = useMemo<OpsInvoiceAgingBucket[]>(() => {
+    const totals: Record<OpsInvoiceAgingKey, number> = {
+      not_due: 0,
+      days_1_30: 0,
+      days_31_60: 0,
+      days_61_90: 0,
+      over_90: 0,
+    }
+    const nowMs = Date.now()
+    for (const doc of state.documents) {
+      if (doc.document_type !== 'invoice') continue
+      if (doc.status !== 'sent' && doc.status !== 'overdue') continue
+      const dueMs = parseIsoMs(doc.due_at)
+      const overdueDays = dueMs !== null && nowMs > dueMs ? Math.floor((nowMs - dueMs) / DAY_MS) : 0
+      const key = agingBucketForDays(overdueDays)
+      totals[key] = Math.round((totals[key] + doc.total) * 100) / 100
+    }
+    const order: OpsInvoiceAgingKey[] = ['not_due', 'days_1_30', 'days_31_60', 'days_61_90', 'over_90']
+    return order.map(key => ({
+      key,
+      label: AGING_LABELS[key],
+      amount: totals[key],
+    }))
+  }, [state.documents])
+
+  const getCustomer360 = useCallback(
+    (customerId: string): Customer360Snapshot | null => {
+      const customer = state.customers.find(c => c.id === customerId)
+      if (!customer) return null
+      return {
+        customer,
+        jobs: state.jobs.filter(j => j.customer_id === customerId),
+        documents: state.documents.filter(d => d.customer_id === customerId),
+        appointments: state.appointments.filter(a => a.customer_id === customerId),
+        drafts: state.drafts.filter(d => d.customer_id === customerId),
+        consentEvents: state.consentEvents.filter(e => e.customer_id === customerId),
+        tasks: state.tasks.filter(t => t.customer_id === customerId),
+        followUps: state.followUps.filter(f => f.customer_id === customerId),
+        opportunities: state.opportunities.filter(o => o.customer_id === customerId),
+        verifiedPayments: state.verifiedPayments.filter(p => p.customer_id === customerId),
+      }
+    },
+    [state],
+  )
+
+  const transitionJob = useCallback(
+    (jobId: string, nextStatus: Exclude<JobStatus, 'draft'>, evidence?: string) => {
+      setState(prev => {
+        const target = prev.jobs.find(j => j.id === jobId)
+        if (!target) return prev
+        if (nextStatus === 'approved' && (!evidence || evidence.trim().length < 4)) {
+          throw new Error('Customer approval evidence is required before marking a quote approved.')
+        }
+        const nowIso = new Date().toISOString()
+        const updatedJobs = prev.jobs.map(j => {
+          if (j.id !== jobId) return j
+          return {
+            ...j,
+            status: nextStatus,
+            approved_at: nextStatus === 'approved' ? nowIso : j.approved_at,
+            approval_evidence:
+              nextStatus === 'approved' ? evidence?.trim() ?? j.approval_evidence : j.approval_evidence,
+            completed_at: nextStatus === 'completed' ? nowIso : j.completed_at,
+            updated_at: nowIso,
+          }
+        })
+        return { ...prev, jobs: updatedJobs }
+      })
+    },
+    [],
+  )
+
+  const issueInvoiceForJob = useCallback(
+    (jobId: string): DocumentRecord => {
+      const targetJob = state.jobs.find(j => j.id === jobId)
+      if (!targetJob) {
+        throw new Error('Job not found in sandbox.')
+      }
+      const total = calculateJobBillableTotal(targetJob, state.jobMaterials)
+      const nowIso = new Date().toISOString()
+      const newDoc: DocumentRecord = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        customer_id: targetJob.customer_id,
+        opportunity_id: null,
+        document_type: 'invoice',
+        document_number: `INV-${1910 + state.documents.length}`,
+        status: 'sent',
+        total,
+        due_at: new Date(Date.now() + 14 * DAY_MS).toISOString(),
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        documents: [newDoc, ...prev.documents],
+        jobs: prev.jobs.map(j =>
+          j.id === jobId ? { ...j, invoice_id: newDoc.id, updated_at: nowIso } : j,
+        ),
+      }))
+
+      return newDoc
+    },
+    [state.documents.length, state.jobMaterials, state.jobs],
+  )
+
+  const collectDemoOpportunity = useCallback((opportunityId: string, amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Enter a valid collected dollar amount greater than $0.')
+    }
+    const cleanAmount = Math.round(amount * 100) / 100
+    const nowIso = new Date().toISOString()
+
+    setState(prev => {
+      const target = prev.opportunities.find(o => o.id === opportunityId)
+      if (!target || target.status === 'recovered') return prev
+
+      const nextOpps = prev.opportunities.map(o =>
+        o.id === opportunityId
+          ? {
+              ...o,
+              status: 'recovered' as const,
+              recovered_amount: cleanAmount,
+              recovered_at: nowIso,
+              updated_at: nowIso,
+            }
+          : o,
+      )
+      const nextDocs = prev.documents.map(d =>
+        d.opportunity_id === opportunityId && d.document_type === 'invoice'
+          ? { ...d, status: 'paid' as const, updated_at: nowIso }
+          : d,
+      )
+      const newEvent: RecoveryEvent = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        opportunity_id: opportunityId,
+        customer_id: target.customer_id,
+        amount: cleanAmount,
+        source: 'owner_confirmed_collection',
+        note: `Collected on ${target.title}`,
+        created_at: nowIso,
+      }
+      const newAudit: AuditEvent = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        actor_user_id: DEMO_OWNER_ID,
+        entity_type: 'opportunity',
+        entity_id: opportunityId,
+        action: 'opportunity_collected',
+        metadata: { amount: cleanAmount },
+        created_at: nowIso,
+      }
+
+      return {
+        ...prev,
+        opportunities: nextOpps,
+        documents: nextDocs,
+        recoveryEvents: [newEvent, ...prev.recoveryEvents],
+        auditEvents: [newAudit, ...prev.auditEvents],
+      }
+    })
+  }, [])
+
+  const recordDemoConsent = useCallback(
+    (params: {
+      customerId: string
+      channel: ConsentChannel
+      decision: ConsentDecision
+      evidenceReference: string
+    }): ConsentEvent => {
+      const ref = params.evidenceReference.trim()
+      if (ref.length < 8) {
+        throw new Error('Consent evidence reference must be at least 8 characters.')
+      }
+      const event: ConsentEvent = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        customer_id: params.customerId,
+        channel: params.channel,
+        decision: params.decision,
+        evidence_reference: ref,
+        actor_user_id: DEMO_OWNER_ID,
+        created_at: new Date().toISOString(),
+      }
+
+      setState(prev => ({
+        ...prev,
+        consentEvents: [event, ...prev.consentEvents],
+        // Mirror database trigger `ops_consent_revocation`: automatically reject drafts on revoke
+        drafts:
+          params.decision === 'revoked'
+            ? prev.drafts.map(d =>
+                d.customer_id === params.customerId &&
+                d.channel === params.channel &&
+                d.status === 'draft'
+                  ? { ...d, status: 'rejected' }
+                  : d,
+              )
+            : prev.drafts,
+      }))
+
+      return event
+    },
+    [],
+  )
+
+  const saveDemoDraft = useCallback(
+    (params: {
+      customerId: string
+      channel: CommunicationDraftChannel
+      subject: string
+      message: string
+    }): OpsCommunicationDraft => {
+      if (!params.message.trim()) {
+        throw new Error('Draft message cannot be empty.')
+      }
+      const draft: OpsCommunicationDraft = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        customer_id: params.customerId,
+        source_event_id: null,
+        channel: params.channel,
+        subject: params.subject.trim() || 'Customer Follow-Up',
+        message: params.message.trim(),
+        status: 'draft',
+        approved_by: null,
+        approved_at: null,
+        delivery_status: 'not_sent',
+        created_at: new Date().toISOString(),
+      }
+      setState(prev => ({ ...prev, drafts: [draft, ...prev.drafts] }))
+      return draft
+    },
+    [],
+  )
+
+  const reviewDemoDraft = useCallback((draftId: string, decision: 'approved' | 'rejected') => {
+    setState(prev => {
+      const draft = prev.drafts.find(d => d.id === draftId)
+      if (!draft) return prev
+
+      if (decision === 'approved') {
+        const latestConsent = prev.consentEvents.find(
+          e => e.customer_id === draft.customer_id && e.channel === draft.channel,
+        )
+        if (!latestConsent || latestConsent.decision !== 'granted') {
+          throw new Error(
+            `Cannot approve ${draft.channel.toUpperCase()} draft: active granted customer consent is required.`,
+          )
+        }
+      }
+
+      const nowIso = new Date().toISOString()
+      const nextDrafts = prev.drafts.map(d =>
+        d.id === draftId
+          ? {
+              ...d,
+              status: decision,
+              approved_by: decision === 'approved' ? DEMO_OWNER_ID : null,
+              approved_at: decision === 'approved' ? nowIso : null,
+            }
+          : d,
+      )
+      const audit: AuditEvent = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        actor_user_id: DEMO_OWNER_ID,
+        entity_type: 'ops_communication_draft',
+        entity_id: draftId,
+        action: decision === 'approved' ? 'recovery_draft_approved' : 'recovery_draft_rejected',
+        metadata: { channel: draft.channel, delivery_status: 'not_sent' },
+        created_at: nowIso,
+      }
+      return {
+        ...prev,
+        drafts: nextDrafts,
+        auditEvents: [audit, ...prev.auditEvents],
+      }
+    })
+  }, [])
+
+  const createDraftPurchaseOrder = useCallback(
+    (itemId: string): OpsPurchaseOrder => {
+      const item = state.inventoryItems.find(i => i.id === itemId)
+      if (!item) {
+        throw new Error('Inventory SKU not found.')
+      }
+      const po: OpsPurchaseOrder = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        item_id: item.id,
+        supplier: item.supplier,
+        quantity: Math.max(1, item.reorder_quantity || 5),
+        unit_cost: item.purchase_cost,
+        status: 'draft',
+        approved_by: null,
+        receipt_reference: null,
+        created_at: new Date().toISOString(),
+      }
+      setState(prev => ({ ...prev, purchaseOrders: [po, ...prev.purchaseOrders] }))
+      return po
+    },
+    [state.inventoryItems],
+  )
+
+  const transitionPurchaseOrder = useCallback(
+    (
+      poId: string,
+      status: Exclude<PurchaseOrderStatus, 'draft'>,
+      receiptReference?: string,
+    ) => {
+      setState(prev => {
+        const target = prev.purchaseOrders.find(p => p.id === poId)
+        if (!target) return prev
+
+        const nowIso = new Date().toISOString()
+        const nextPos = prev.purchaseOrders.map(p =>
+          p.id === poId
+            ? {
+                ...p,
+                status,
+                approved_by: status === 'approved' ? DEMO_OWNER_ID : p.approved_by,
+                receipt_reference: receiptReference?.trim() || p.receipt_reference,
+              }
+            : p,
+        )
+
+        if (status !== 'received') {
+          return { ...prev, purchaseOrders: nextPos }
+        }
+
+        const nextItems = prev.inventoryItems.map(item =>
+          item.id === target.item_id
+            ? { ...item, quantity: item.quantity + target.quantity, updated_at: nowIso }
+            : item,
+        )
+        const updatedItem = nextItems.find(i => i.id === target.item_id)
+        const movement: InventoryMovement = {
+          id: crypto.randomUUID(),
+          workspace_id: DEMO_WORKSPACE_ID,
+          item_id: target.item_id,
+          job_id: null,
+          kind: 'receipt',
+          quantity: target.quantity,
+          balance: updatedItem?.quantity ?? target.quantity,
+          reason: `PO received (${receiptReference?.trim() || poId.slice(0, 8)})`,
+          actor_id: DEMO_OWNER_ID,
+          created_at: nowIso,
+        }
+
+        return {
+          ...prev,
+          purchaseOrders: nextPos,
+          inventoryItems: nextItems,
+          inventoryMovements: [movement, ...prev.inventoryMovements],
+        }
+      })
+    },
+    [],
+  )
+
+  const adjustInventoryStock = useCallback(
+    (
+      itemId: string,
+      kind: Extract<InventoryMovementKind, 'receipt' | 'adjustment' | 'return'>,
+      quantity: number,
+      reason: string,
+    ) => {
+      if (!Number.isFinite(quantity) || quantity === 0) {
+        throw new Error('Stock movement quantity must be non-zero.')
+      }
+      if (!reason.trim()) {
+        throw new Error('Provide a reason for the inventory stock adjustment.')
+      }
+      setState(prev => {
+        const target = prev.inventoryItems.find(i => i.id === itemId)
+        if (!target) return prev
+        const delta = kind === 'receipt' || kind === 'return' ? Math.abs(Math.trunc(quantity)) : Math.trunc(quantity)
+        const nextQty = target.quantity + delta
+        if (nextQty < target.reserved) {
+          throw new Error('Stock cannot drop below currently reserved job materials.')
+        }
+        const nowIso = new Date().toISOString()
+        const nextItems = prev.inventoryItems.map(i =>
+          i.id === itemId ? { ...i, quantity: nextQty, updated_at: nowIso } : i,
+        )
+        const movement: InventoryMovement = {
+          id: crypto.randomUUID(),
+          workspace_id: DEMO_WORKSPACE_ID,
+          item_id: itemId,
+          job_id: null,
+          kind,
+          quantity: delta,
+          balance: nextQty,
+          reason: reason.trim(),
+          actor_id: DEMO_OWNER_ID,
+          created_at: nowIso,
+        }
+        return {
+          ...prev,
+          inventoryItems: nextItems,
+          inventoryMovements: [movement, ...prev.inventoryMovements],
+        }
+      })
+    },
+    [],
+  )
+
+  const completeTask = useCallback((taskId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => ({
+      ...prev,
+      tasks: prev.tasks.map(t =>
+        t.id === taskId ? { ...t, status: 'completed', updated_at: nowIso } : t,
+      ),
+    }))
+  }, [])
+
+  const approveWorkflowRun = useCallback((runId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => {
+      const targetRun = prev.workflowRuns.find(r => r.id === runId)
+      if (!targetRun || targetRun.status !== 'waiting_approval') return prev
+      const wf = prev.workflows.find(w => w.id === targetRun.workflow_id)
+      const createdTasks: Task[] = []
+      for (const action of wf?.actions ?? []) {
+        if (action.type === 'create_task') {
+          createdTasks.push({
+            id: crypto.randomUUID(),
+            workspace_id: DEMO_WORKSPACE_ID,
+            customer_id: null,
+            opportunity_id: (targetRun.context.record?.id as string | undefined) ?? null,
+            title: action.title,
+            status: 'open',
+            priority: action.priority ?? 80,
+            due_at: new Date(Date.now() + DAY_MS).toISOString(),
+            created_at: nowIso,
+          })
+        }
+      }
+      return {
+        ...prev,
+        tasks: [...createdTasks, ...prev.tasks],
+        workflowRuns: prev.workflowRuns.map(r =>
+          r.id === runId
+            ? {
+                ...r,
+                status: 'completed',
+                approved_by: DEMO_OWNER_ID,
+                completed_at: nowIso,
+                result: { tasks_created: createdTasks.length },
+              }
+            : r,
+        ),
+      }
+    })
+  }, [])
+
+  const updateDemoPolicy = useCallback((patch: Partial<OpsPolicy>) => {
+    setState(prev => ({
+      ...prev,
+      policy: {
+        ...prev.policy,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      },
+    }))
+  }, [])
+
+  const resetDemo = useCallback(() => {
+    setState(createInitialDemoState())
+  }, [])
+
+  const value = useMemo<DemoStoreContextValue>(
+    () => ({
+      state,
+      opsSummary,
+      coordinationSummary,
+      teamStatus,
+      invoiceAging,
+      leakScan,
+      getCustomer360,
+      transitionJob,
+      issueInvoiceForJob,
+      collectDemoOpportunity,
+      recordDemoConsent,
+      saveDemoDraft,
+      reviewDemoDraft,
+      createDraftPurchaseOrder,
+      transitionPurchaseOrder,
+      adjustInventoryStock,
+      completeTask,
+      approveWorkflowRun,
+      updateDemoPolicy,
+      resetDemo,
+    }),
+    [
+      state,
+      opsSummary,
+      coordinationSummary,
+      teamStatus,
+      invoiceAging,
+      leakScan,
+      getCustomer360,
+      transitionJob,
+      issueInvoiceForJob,
+      collectDemoOpportunity,
+      recordDemoConsent,
+      saveDemoDraft,
+      reviewDemoDraft,
+      createDraftPurchaseOrder,
+      transitionPurchaseOrder,
+      adjustInventoryStock,
+      completeTask,
+      approveWorkflowRun,
+      updateDemoPolicy,
+      resetDemo,
+    ],
+  )
+
+  return <DemoStoreContext.Provider value={value}>{children}</DemoStoreContext.Provider>
+}
+
+export function useDemoStore(): DemoStoreContextValue {
+  const ctx = useContext(DemoStoreContext)
+  if (!ctx) {
+    throw new Error('useDemoStore must be used inside <DemoStoreProvider>.')
+  }
+  return ctx
+}

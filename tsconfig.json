@@ -32,7 +32,9 @@
     "components/**/*.ts",
     "components/**/*.tsx",
     "pages/**/*.ts",
-    "pages/**/*.tsx"
+    "pages/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx"
   ],
   "exclude": ["node_modules", "dist", "v3.1", "vite.config.ts"]
 }
