@@ -6,13 +6,19 @@ import type {
   Customer,
   Customer360Snapshot,
   DocumentRecord,
+  DocumentStatus,
+  DocumentType,
   FollowUp,
   InventoryItem,
+  LooseEnd,
+  LooseEndStatus,
   Opportunity,
   OpsCommunicationDraft,
   OpsJob,
   PublicLeadInput,
+  RecoveryStage,
   Task,
+  TaskStatus,
   VerifiedRecoveryPayment,
 } from '../types/domain'
 import { assertSupabaseConfigured, supabase } from './supabase'
@@ -555,4 +561,161 @@ export async function createFollowUpTask(params: {
 
   if (insertError) throw insertError
   return { task: inserted as Task, duplicate: false }
+}
+
+export async function updateTaskStatus(params: {
+  workspaceId: string
+  taskId: string
+  status: TaskStatus
+}): Promise<Task> {
+  assertSupabaseConfigured()
+  const { workspaceId, taskId, status } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(taskId)) {
+    throw new Error('Valid workspace and task UUIDs are required.')
+  }
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', taskId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as Task
+}
+
+export async function updateLooseEndStage(params: {
+  workspaceId: string
+  looseEndId: string
+  status: LooseEndStatus
+  recoveryStage?: RecoveryStage
+  lastAction?: string
+}): Promise<LooseEnd> {
+  assertSupabaseConfigured()
+  const { workspaceId, looseEndId, status, recoveryStage, lastAction } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(looseEndId)) {
+    throw new Error('Valid workspace and loose-end UUIDs are required.')
+  }
+  const nowIso = new Date().toISOString()
+  const patch: Record<string, unknown> = {
+    status,
+    updated_at: nowIso,
+  }
+  if (recoveryStage) patch.recovery_stage = recoveryStage
+  if (lastAction) {
+    patch.last_action = lastAction
+    patch.last_action_at = nowIso
+  }
+
+  const { data, error } = await supabase
+    .from('loose_ends')
+    .update(patch)
+    .eq('workspace_id', workspaceId)
+    .eq('id', looseEndId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as LooseEnd
+}
+
+export async function createCustomerRecord(params: {
+  workspaceId: string
+  firstName: string
+  lastName?: string | null
+  email?: string | null
+  phone?: string | null
+  notes?: string | null
+}): Promise<Customer> {
+  assertSupabaseConfigured()
+  const { workspaceId } = params
+  const firstName = params.firstName.trim()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (!firstName) {
+    throw new Error('Customer first name is required.')
+  }
+
+  const { data, error } = await supabase
+    .from('customers')
+    .insert({
+      workspace_id: workspaceId,
+      first_name: firstName,
+      last_name: params.lastName?.trim() || null,
+      email: params.email?.trim().toLowerCase() || null,
+      phone: params.phone?.trim() || null,
+      notes: params.notes?.trim() || null,
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as Customer
+}
+
+export async function createDocumentRecord(params: {
+  workspaceId: string
+  customerId?: string | null
+  opportunityId?: string | null
+  documentType: DocumentType
+  documentNumber: string
+  status: DocumentStatus
+  total: number
+  dueAt?: string | null
+}): Promise<DocumentRecord> {
+  assertSupabaseConfigured()
+  const { workspaceId, documentType, status } = params
+  const docNumber = params.documentNumber.trim()
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (!docNumber) {
+    throw new Error('Document number is required.')
+  }
+  if (!Number.isFinite(params.total) || params.total < 0) {
+    throw new Error('Enter a valid non-negative document total.')
+  }
+
+  const { data, error } = await supabase
+    .from('documents')
+    .insert({
+      workspace_id: workspaceId,
+      customer_id: params.customerId || null,
+      opportunity_id: params.opportunityId || null,
+      document_type: documentType,
+      document_number: docNumber,
+      status,
+      total: Math.round(params.total * 100) / 100,
+      due_at: params.dueAt || null,
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as DocumentRecord
+}
+
+export async function updateDocumentStatus(params: {
+  workspaceId: string
+  documentId: string
+  status: DocumentStatus
+}): Promise<DocumentRecord> {
+  assertSupabaseConfigured()
+  const { workspaceId, documentId, status } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(documentId)) {
+    throw new Error('Valid workspace and document UUIDs are required.')
+  }
+  const { data, error } = await supabase
+    .from('documents')
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', documentId)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as DocumentRecord
 }

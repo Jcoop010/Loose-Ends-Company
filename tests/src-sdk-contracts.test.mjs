@@ -359,6 +359,98 @@ const financePanelSource = readRepoFile(
 assert.match(financePanelSource, /'expense_save'/)
 assert.match(financePanelSource, /'expense_update'/)
 
+// 8. Phase 3B Workspaces 2 & 3 (Pipeline & Quotes + Dispatch & Jobs) contracts
+const phase3BModules = [
+  'src/features/workspaces/pipeline-quotes/OpportunityBoard.tsx',
+  'src/features/workspaces/pipeline-quotes/Customer360Drawer.tsx',
+  'src/features/workspaces/pipeline-quotes/CustomerBulkImportModal.tsx',
+  'src/features/workspaces/pipeline-quotes/QuotesDocumentsPanel.tsx',
+  'src/features/workspaces/pipeline-quotes/ConsentDraftsPanel.tsx',
+  'src/features/workspaces/pipeline-quotes/PipelineQuotesPage.tsx',
+  'src/features/workspaces/dispatch-jobs/JobsPipelinePanel.tsx',
+  'src/features/workspaces/dispatch-jobs/DispatchCalendar.tsx',
+  'src/features/workspaces/dispatch-jobs/TasksQueuePanel.tsx',
+  'src/features/workspaces/dispatch-jobs/ServicePlansPanel.tsx',
+  'src/features/workspaces/dispatch-jobs/TeamAvailabilityPanel.tsx',
+  'src/features/workspaces/dispatch-jobs/DispatchJobsPage.tsx',
+]
+
+for (const mod of phase3BModules) {
+  readRepoFile(mod)
+}
+
+const appRootSource = readRepoFile('src/AppRoot.tsx')
+assert.match(appRootSource, /PipelineQuotesPage/)
+assert.match(appRootSource, /DispatchJobsPage/)
+
+const oppBoardSource = readRepoFile(
+  'src/features/workspaces/pipeline-quotes/OpportunityBoard.tsx',
+)
+assert.match(oppBoardSource, /collectOpportunity\(/)
+
+const cust360Source = readRepoFile(
+  'src/features/workspaces/pipeline-quotes/Customer360Drawer.tsx',
+)
+assert.match(cust360Source, /fetchCustomer360\(/)
+assert.match(cust360Source, /'customer_update'/)
+assert.match(cust360Source, /searchCustomers\(/)
+
+const bulkImportModalSource = readRepoFile(
+  'src/features/workspaces/pipeline-quotes/CustomerBulkImportModal.tsx',
+)
+assert.match(bulkImportModalSource, /parseCustomerCsv\(/)
+assert.match(bulkImportModalSource, /sha256Hex\(/)
+assert.match(bulkImportModalSource, /runCustomerBulkImport\(/)
+
+const quotesDocsSource = readRepoFile(
+  'src/features/workspaces/pipeline-quotes/QuotesDocumentsPanel.tsx',
+)
+assert.match(quotesDocsSource, /'estimate_revise'/)
+assert.match(quotesDocsSource, /'job_transition'/)
+
+const consentDraftsSource = readRepoFile(
+  'src/features/workspaces/pipeline-quotes/ConsentDraftsPanel.tsx',
+)
+assert.match(consentDraftsSource, /'draft_save'/)
+assert.match(consentDraftsSource, /'draft_review'/)
+assert.match(consentDraftsSource, /recordCustomerConsentEvent\(/)
+assert.match(consentDraftsSource, /approveAndEnqueueRecoveryDraft\(/)
+
+const jobsPanelSource = readRepoFile(
+  'src/features/workspaces/dispatch-jobs/JobsPipelinePanel.tsx',
+)
+for (const cmd of [
+  'job_save',
+  'job_transition',
+  'job_update',
+  'job_details',
+  'attachment_add',
+  'reserve_material',
+  'release_material',
+]) {
+  assert.match(jobsPanelSource, new RegExp(`'${cmd}'`), `JobsPipelinePanel must wire '${cmd}'`)
+}
+assert.match(jobsPanelSource, /startsWith\('https:\/\/'\)/)
+
+const dispatchCalendarSource = readRepoFile(
+  'src/features/workspaces/dispatch-jobs/DispatchCalendar.tsx',
+)
+assert.match(dispatchCalendarSource, /'schedule_job'/)
+assert.match(dispatchCalendarSource, /'booking_update'/)
+
+const servicePlansSource = readRepoFile(
+  'src/features/workspaces/dispatch-jobs/ServicePlansPanel.tsx',
+)
+assert.match(servicePlansSource, /'service_plan_save'/)
+assert.match(servicePlansSource, /'service_plan_toggle'/)
+
+const teamPanelSource = readRepoFile(
+  'src/features/workspaces/dispatch-jobs/TeamAvailabilityPanel.tsx',
+)
+assert.match(teamPanelSource, /'employee_save'/)
+assert.match(teamPanelSource, /'availability_save'/)
+assert.match(teamPanelSource, /'availability_remove'/)
+
 console.log(
-  `PASS: src/ SDK, state & Phase 3A contracts verified across ${srcFiles.length} TypeScript modules.`,
+  `PASS: src/ SDK, state, Phase 3A & Phase 3B contracts verified across ${srcFiles.length} TypeScript modules.`,
 )

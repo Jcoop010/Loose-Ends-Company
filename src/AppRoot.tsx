@@ -8,6 +8,8 @@ import { ToastProvider } from './components/ui/Toast'
 import { DemoWorkspacePage } from './features/demo/DemoWorkspacePage'
 import { LandingPage } from './features/landing/LandingPage'
 import { CommandCenterPage } from './features/workspaces/command-center/CommandCenterPage'
+import { DispatchJobsPage } from './features/workspaces/dispatch-jobs/DispatchJobsPage'
+import { PipelineQuotesPage } from './features/workspaces/pipeline-quotes/PipelineQuotesPage'
 import { DemoStoreProvider } from './state/DemoStoreContext'
 import { RouterProvider, useAppRouter } from './state/RouterContext'
 import { SessionProvider } from './state/SessionContext'
@@ -19,17 +21,23 @@ function AuthenticatedWorkspaceSwitch(): React.ReactElement {
     return <CommandCenterPage />
   }
 
-  const sectionLabels: Record<Exclude<typeof section, 'command'>, string> = {
-    pipeline: 'Pipeline & Quotes',
-    dispatch: 'Dispatch & Jobs',
+  if (section === 'pipeline') {
+    return <PipelineQuotesPage />
+  }
+
+  if (section === 'dispatch') {
+    return <DispatchJobsPage />
+  }
+
+  const remainingLabels: Record<'inventory' | 'autopilot', string> = {
     inventory: 'Inventory & POs',
     autopilot: 'Autopilot & Billing',
   }
 
   return (
     <EmptyState
-      title={`${sectionLabels[section]} Workspace`}
-      description="Scheduled for Phase 3B module assembly. Return to Command Center to inspect live KPIs, verified collections, leak scanner signals, and vendor expenses."
+      title={`${remainingLabels[section]} Workspace`}
+      description="Scheduled for Phase 3C module assembly. Command Center, Pipeline & Quotes, and Dispatch & Jobs are live."
       action={
         <button
           type="button"
