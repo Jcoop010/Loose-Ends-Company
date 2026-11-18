@@ -11,44 +11,99 @@
 --            workspace 1dfa4852-9415-446a-b8c2-6d2263f65998.
 -- ============================================================================
 
+-- 0. Workspace owner/admin RLS helper (matches workflow admin role semantics)
+create or replace function public.is_workspace_owner(p_workspace_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.workspace_members wm
+    where wm.workspace_id = p_workspace_id
+      and wm.user_id = (select auth.uid())
+      and wm.role in ('owner', 'admin')
+  );
+$$;
+
 -- 1. public.workspace_mcp_tokens (stores SHA-256 hashes only, never raw tokens)
 create table if not exists public.workspace_mcp_tokens (
-  id           uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references public.workspaces(id) on delete cascade,
-  label        text not null check (length(trim(label)) between 1 and 120),
-  token_hash   text not null unique check (length(token_hash) = 64),
-  token_prefix text not null check (length(token_prefix) between 6 and 24),
-  scopes       text[] not null default array['read_all','stage_actions'],
-  last_used_at timestamptz,
-  revoked_at   timestamptz,
-  created_at   timestamptz not null default now()
+  id            uuid primary key default gen_random_uuid(),
+  workspace_id  uuid not null references public.workspaces(id) on delete cascade,
+  label         text not null check (length(trim(label)) between 1 and 120),
+  token_hash    text not null unique check (length(token_hash) = 64),
+  token_prefix  text not null check (length(token_prefix) between 6 and 24),
+  scopes        text[] not null default array['read_all','stage_actions'],
+  role          text not null default 'owner' check (role in ('owner', 'admin')),
+  owner_user_id uuid default auth.uid() references auth.users(id) on delete set null,
+  last_used_at  timestamptz,
+  revoked_at    timestamptz,
+  created_at    timestamptz not null default now()
 );
+
+alter table public.workspace_mcp_tokens
+  add column if not exists role text not null default 'owner',
+  add column if not exists owner_user_id uuid default auth.uid() references auth.users(id) on delete set null,
+  drop constraint if exists workspace_mcp_tokens_role_check,
+  add constraint workspace_mcp_tokens_role_check check (role in ('owner', 'admin'));
 
 create index if not exists workspace_mcp_tokens_workspace_idx
   on public.workspace_mcp_tokens (workspace_id, created_at desc);
 
 alter table public.workspace_mcp_tokens enable row level security;
 
-grant select, insert, update on table public.workspace_mcp_tokens to authenticated;
+grant select, insert, update, delete on table public.workspace_mcp_tokens to authenticated;
 
 drop policy if exists "workspace members can read mcp tokens" on public.workspace_mcp_tokens;
+drop policy if exists "workspace members can create mcp tokens" on public.workspace_mcp_tokens;
+drop policy if exists "workspace members can revoke mcp tokens" on public.workspace_mcp_tokens;
+drop policy if exists "workspace owners can write mcp tokens insert" on public.workspace_mcp_tokens;
+drop policy if exists "workspace owners can write mcp tokens update" on public.workspace_mcp_tokens;
+drop policy if exists "workspace owners can write mcp tokens delete" on public.workspace_mcp_tokens;
+drop policy if exists "workspace owners can create mcp tokens" on public.workspace_mcp_tokens;
+drop policy if exists "workspace owners can update mcp tokens" on public.workspace_mcp_tokens;
+drop policy if exists "workspace owners can delete mcp tokens" on public.workspace_mcp_tokens;
+
 create policy "workspace members can read mcp tokens"
   on public.workspace_mcp_tokens for select
   to authenticated
   using (public.is_workspace_member(workspace_id));
 
-drop policy if exists "workspace members can create mcp tokens" on public.workspace_mcp_tokens;
-create policy "workspace members can create mcp tokens"
+create policy "workspace owners can create mcp tokens"
   on public.workspace_mcp_tokens for insert
   to authenticated
-  with check (public.is_workspace_member(workspace_id));
+  with check (public.is_workspace_owner(workspace_id));
 
-drop policy if exists "workspace members can revoke mcp tokens" on public.workspace_mcp_tokens;
-create policy "workspace members can revoke mcp tokens"
+create policy "workspace owners can update mcp tokens"
   on public.workspace_mcp_tokens for update
   to authenticated
-  using (public.is_workspace_member(workspace_id))
-  with check (public.is_workspace_member(workspace_id));
+  using (public.is_workspace_owner(workspace_id))
+  with check (public.is_workspace_owner(workspace_id));
+
+create policy "workspace owners can delete mcp tokens"
+  on public.workspace_mcp_tokens for delete
+  to authenticated
+  using (public.is_workspace_owner(workspace_id));
+
+-- 1b. public.public_leads workspace-aware uniqueness (deduplicate safely first)
+with duplicates as (
+  select id,
+    row_number() over (
+      partition by workspace_id, business
+      order by score desc nulls last, created_at desc, id desc
+    ) as rn
+  from public.public_leads
+)
+delete from public.public_leads
+where id in (select id from duplicates where rn > 1);
+
+alter table public.public_leads
+  drop constraint if exists public_leads_business_key;
+
+create unique index if not exists public_leads_workspace_business_idx
+  on public.public_leads (workspace_id, business);
 
 -- 2. public.bot_manuals
 create table if not exists public.bot_manuals (

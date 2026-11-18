@@ -1777,7 +1777,7 @@ async function main(): Promise<void> {
 
     const { error } = await supabase
       .from('public_leads')
-      .upsert(row, { onConflict: 'business', ignoreDuplicates: true });
+      .upsert(row, { onConflict: 'workspace_id,business', ignoreDuplicates: true });
 
     if (error) {
       errorCount += 1;
