@@ -17,7 +17,8 @@ export function validateAudit(report, mode) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const counts = validateAudit(JSON.parse(readFileSync(process.argv[2], 'utf8')), process.argv[3])
+    const raw = readFileSync(process.argv[2], 'utf8').replace(/^\uFEFF/, '')
+    const counts = validateAudit(JSON.parse(raw), process.argv[3])
     console.log('Verified dependency audit:', JSON.stringify(counts))
   } catch (error) {
     console.error('Dependency audit failed:', error.message)
