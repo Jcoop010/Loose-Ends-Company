@@ -1,32 +1,157 @@
-import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import {JSDOM} from 'jsdom';
-const dom=new JSDOM('<!doctype html><head></head><body><nav></nav><main id="content"><div class="page"><h1>Executive Command Center</h1></div></main><div id="toast"></div></body>',{url:'https://loose-ends-os.vercel.app/dashboard',runScripts:'outside-only'});
-const w=dom.window;const queries=[],authListeners=[];
-w.LESupabase={auth:{getUser:async()=>({data:{user:{id:'fixture',email:'fixture@example.invalid'}}}),getSession:async()=>({data:{}}),onAuthStateChange(fn){authListeners.push(fn)}},from(table){const q={select(columns){queries.push({table,columns});q.columns=columns;return q},eq(){return q},limit(){return q},order(){return q},maybeSingle:async()=>q.columns.includes('*')?{error:{message:'permission denied for table workspaces'}}:{data:{workspace_id:'workspace',workspaces:{id:'workspace',name:'Fixture business',slug:'fixture'}}},then(a,b){return Promise.resolve({data:[]}).then(a,b)}};return q}};
-const appState={workspaceId:'workspace',view:'overview'};w.LE={getState:()=>appState,refresh:async()=>{},setView(view){appState.view=view;w.document.getElementById('content').innerHTML='<div class="page"></div>'}};
-const read=p=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
-const tick=()=>new Promise(r=>setTimeout(r,30));
-try{
- w.eval(read('v3.1/auth-live.js').replace('window.LELive={','window.fixtureBoot=bootSession;window.LELive={'));await tick();
- assert.match(w.document.getElementById('le-auth-pill').textContent,/LIVE.*Fixture business/);
- const initialBoot=w.fixtureBoot(),sameBoot=w.fixtureBoot();assert.equal(initialBoot,sameBoot,'concurrent bridge callers must share one bootstrap');authListeners[0]('SIGNED_IN');await initialBoot;await tick();assert.match(w.document.getElementById('le-auth-pill').textContent,/LIVE.*Fixture business/,'auth events during bootstrap must resolve the latest workspace');
- assert.equal(queries[0].columns,'workspace_id,role,workspaces(id,name,slug)');
- w.eval(read('v3.1/workflow-engine.js'));await tick();
- await w.LEWorkflows.load();await tick();
- assert.equal(w.document.querySelectorAll('#workflowCenter').length,0,'background workflow hydration must not append to the dashboard');
- const nav=w.document.querySelector('[data-view="workflows"]');assert.ok(nav);nav.click();await tick();
- assert.equal(w.document.querySelectorAll('[data-workflow-page] #workflowCenter').length,1,'the dedicated workflow screen remains functional');
- w.document.getElementById('content').innerHTML='<div class="page"><h1>Inventory</h1></div>';
- await w.LEWorkflows.load();await tick();assert.equal(w.document.querySelectorAll('#workflowCenter').length,0,'late refresh must not append to another department');
- w.eval(read('v3.1/launch-center.js'));await tick();
- assert.equal(w.document.querySelectorAll('#le-launch-modal,#le-launch-panel').length,0,'setup must never interrupt startup');
- w.LE.setView('settings');await tick();assert.equal(w.document.querySelectorAll('#le-launch-panel').length,1,'setup remains accessible from Settings');
- assert.equal(w.document.querySelectorAll('#le-launch-modal').length,0,'opening Settings must not auto-open a modal');
- const timers=[];w.setInterval=fn=>{timers.push(fn);return timers.length};w.__LELiveData={opps:[],recovery:[],metrics:{}};
- appState.view='customers';w.document.getElementById('content').innerHTML='<div class="page"></div>';
- w.eval(read('v3.1/revenue-engine.js'));w.eval(read('v3.1/revenue-os-layer.js'));timers.forEach(fn=>fn());
- assert.equal(w.document.querySelectorAll('#le-engine-panel,#le-os-layer').length,0,'revenue panels must not append to CRM');
- appState.view='recovery';timers.forEach(fn=>fn());assert.ok(w.document.getElementById('le-engine-panel'));assert.ok(w.document.getElementById('le-os-layer'),'revenue analysis remains available in its department');
- console.log('Authenticated shell regressions passed: restricted workspace columns and workflow screen isolation.');
-}finally{w.close()}
+import assert from 'node:assert/strict'
+import React, { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { installDomGlobals, loadSrcModule, readSrc } from './helpers/load-src-module.mjs'
+import { JSDOM } from 'jsdom'
+
+// 1. Restricted explicit column projection on workspace_members join
+const sessionSrc = readSrc('src/state/SessionContext.tsx')
+assert.match(
+  sessionSrc,
+  /\.from\('workspace_members'\)\s*\.select\('workspace_id,user_id,role,created_at,workspaces\(id,name,slug,owner_user_id,created_at\)'\)/,
+)
+
+// 2. Strict workspace screen isolation in AppRoot: switching sections mounts ONLY the active workspace
+const appRootSrc = readSrc('src/AppRoot.tsx')
+assert.match(appRootSrc, /case 'pipeline':\s*return <PipelineQuotesPage \/>/)
+assert.match(appRootSrc, /case 'dispatch':\s*return <DispatchJobsPage \/>/)
+assert.match(appRootSrc, /case 'inventory':\s*return <InventoryPosPage \/>/)
+assert.match(appRootSrc, /case 'autopilot':\s*return <AutopilotBillingPage \/>/)
+
+// 3. Render RouterProvider + ToastProvider + SessionProvider + AppShell in JSDOM to verify single-screen & zero auto-modal startup
+const dom = new JSDOM('<!doctype html><body><div id="root"></div></body>', {
+  url: 'https://loose-ends-os.vercel.app/dashboard',
+})
+const w = installDomGlobals(dom)
+w.scrollTo = () => {}
+
+const wsUuid = '11111111-1111-4111-8111-111111111111'
+const queriesExecuted = []
+
+const mockSupabase = {
+  isSupabaseConfigured: true,
+  assertSupabaseConfigured() {},
+  supabase: {
+    auth: {
+      async getSession() {
+        return {
+          data: {
+            session: {
+              user: { id: 'user-fixture', email: 'owner@fixture.example' },
+            },
+          },
+          error: null,
+        }
+      },
+      onAuthStateChange() {
+        return { data: { subscription: { unsubscribe() {} } } }
+      },
+      async signOut() {
+        return { error: null }
+      },
+    },
+    from(table) {
+      const chain = {
+        select(cols) {
+          queriesExecuted.push({ table, cols })
+          return chain
+        },
+        eq() { return chain },
+        order() {
+          if (table === 'workspace_members') {
+            return Promise.resolve({
+              data: [
+                {
+                  workspace_id: wsUuid,
+                  user_id: 'user-fixture',
+                  role: 'owner',
+                  workspaces: { id: wsUuid, name: 'Fixture Business', slug: 'fixture' },
+                },
+              ],
+              error: null,
+            })
+          }
+          return chain
+        },
+        limit() { return Promise.resolve({ data: [], error: null }) },
+        range() { return Promise.resolve({ data: [], error: null }) },
+        maybeSingle() {
+          if (table === 'workspace_settings') {
+            return Promise.resolve({
+              data: {
+                workspace_id: wsUuid,
+                business_type: 'HVAC',
+                timezone: 'America/New_York',
+                onboarding_completed: true,
+              },
+              error: null,
+            })
+          }
+          if (table === 'workspace_subscriptions') {
+            return Promise.resolve({
+              data: { workspace_id: wsUuid, status: 'active', plan_key: 'revenue_recovery' },
+              error: null,
+            })
+          }
+          return Promise.resolve({ data: null, error: null })
+        },
+      }
+      return chain
+    },
+  },
+}
+
+const cache = new Map()
+const opts = {
+  moduleOverrides: { 'src/lib/supabase.ts': mockSupabase },
+  globals: { window: w, document: w.document, history: w.history },
+  cache,
+}
+
+const { ToastProvider } = loadSrcModule('src/components/ui/Toast.tsx', opts)
+const { RouterProvider } = loadSrcModule('src/state/RouterContext.tsx', opts)
+const { SessionProvider } = loadSrcModule('src/state/SessionContext.tsx', opts)
+const { AuthGate } = loadSrcModule('src/components/shell/AuthGate.tsx', opts)
+const { AppShell } = loadSrcModule('src/components/shell/AppShell.tsx', opts)
+
+const root = createRoot(w.document.getElementById('root'))
+try {
+  await act(async () => {
+    root.render(
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(
+          RouterProvider,
+          { initialPath: '/dashboard' },
+          React.createElement(
+            SessionProvider,
+            null,
+            React.createElement(
+              AuthGate,
+              null,
+              React.createElement(
+                AppShell,
+                null,
+                React.createElement('div', { id: 'workspace-marker' }, 'Active Workspace Body'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    await new Promise(r => setTimeout(r, 40))
+  })
+
+  assert.ok(w.document.body.textContent.includes('Fixture Business'))
+  assert.ok(w.document.getElementById('workspace-marker'))
+  assert.equal(w.document.querySelectorAll('[role="dialog"]').length, 0, 'Startup must never auto-open blocking modals')
+  assert.ok(queriesExecuted.some(q => q.table === 'workspace_members' && !q.cols.startsWith('*')))
+} finally {
+  await act(async () => {
+    root.unmount()
+  })
+  w.close()
+}
+
+console.log('Authenticated shell regressions passed: restricted workspace columns and screen isolation.')

@@ -1,74 +1,17 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#ff7a1a">
-<meta name="description" content="Loose Ends Co. is a practical operating system for small businesses to organize customers, tasks, sales, schedules, and follow-ups.">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>Loose Ends OS — Your Business. Running Smarter.</title>
-<link rel="stylesheet" href="styles.css?v=20261011-ui-polish-1">
-<link rel="stylesheet" href="/operations-premium.css?v=20261022-desktop-command-center-4">
-</head>
-<body>
-<div class="app-shell">
-  <aside class="sidebar">
-    <div class="brand"><div class="brand-mark">↗</div><div><div class="brand-name">LOOSE ENDS</div><div class="brand-tag">Business Operations OS</div></div></div>
-    <nav>
-      <button type="button" class="nav-item active" data-view="overview"><span>⌂</span>Overview</button>
-      <button type="button" class="nav-item" data-view="loose"><span>☷</span>Loose Ends</button>
-      <button type="button" class="nav-item" data-view="customers"><span>♙</span>Customers</button>
-      <button type="button" class="nav-item" data-view="sales"><span>$</span>Sales</button>
-      <button type="button" class="nav-item" data-view="calendar"><span>▦</span>Calendar</button>
-      <button type="button" class="nav-item" data-view="tasks"><span>✓</span>Tasks</button>
-      <button type="button" class="nav-item" data-view="documents"><span>▤</span>Documents</button>
-      <button type="button" class="nav-item" data-view="recovery"><span>↻</span>Revenue</button>
-      <button type="button" class="nav-item" data-view="intelligence"><span>▥</span>Intelligence</button>
-      <button type="button" class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
-    </nav>
-    <div class="sidebar-callout"><strong>YOUR BUSINESS.<br>RUNNING SMARTER.</strong><div class="line"></div></div>
-    <div class="demo-note">WORKSPACE<br><span>Live business data</span></div>
-  </aside>
-  <main class="main">
-    <header class="topbar"><div class="mobile-brand">LOOSE ENDS</div><div class="search">⌕ <input id="globalSearch" aria-label="Search" placeholder="Search customers, opportunities, orders, or tasks..."></div><div class="top-actions"><button class="icon-btn" aria-label="Notifications">♣</button><button class="shop-btn" id="businessSwitcher">Your Business <small>Owner</small>⌄</button><div class="avatar" id="businessAvatar">YB</div></div></header>
-    <section tabindex="-1" id="content"></section>
-  </main>
-</div>
-<div id="drawer" class="drawer-wrap hidden"><div class="backdrop"></div><aside class="drawer"></aside></div>
-<div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.109.0"></script>
-<script>window.__LOOSE_ENDS_SUPABASE_URL__='https://uehfvpnnoitgybsmdgef.supabase.co';window.__LOOSE_ENDS_SUPABASE_PUBLISHABLE_KEY__='sb_publishable_Lxk1H5zRhlKkx8IVHV7Aiw_EXC4BC2g';</script>
-<script src="v3.1/supabase-client.js?v=20260908-2"></script>
-<script src="v3.1/app.js?v=20261021-customer-profile-4"></script>
-<script src="v3.1/sales-upgrade.js?v=20261021-demo-route-only-3"></script>
-<script src="v3.1/sales-crm.js?v=20261016-production-session-recovery-1"></script>
-<script src="v3.1/nav-fix.js?v=20261011-live-calendar-1"></script>
-<script src="v3.1/mobile-nav.js?v=20261011-mobile-nav-3"></script>
-<script src="v3.1/password-security.js?v=20261022-free-password-safety-1"></script>
-<script src="v3.1/auth-live.js?v=20261025-account-recovery-2"></script>
-<script src="v3.1/account-recovery.js?v=20261025-1"></script>
-<script src="v3.1/live-realtime.js?v=20260908-2"></script>
-<script src="v3.1/live-product-layer.js?v=20261021-coordination-7"></script>
-<script src="v3.1/revenue-engine.js?v=20261021-view-scope-7"></script>
-<script src="v3.1/revenue-os-layer.js?v=20261021-view-scope-2"></script>
-<script src="v3.1/smb-os.js?v=20260908-2"></script>
-<script src="v3.1/workflow-engine.js?v=20261021-workflow-isolation-3"></script>
-<script src="v3.1/quickbooks-recovery.js?v=20261006-1"></script>
-<script src="v3.1/launch-center.js?v=20261021-settings-setup-3"></script>
-<script src="v3.1/launch-readiness.js?v=20261021-settings-only-4"></script>
-<script src="v3.1/launch-control.js?v=20261021-workspace-fields-2"></script>
-<script src="v3.1/calendar-fix.js?v=20261016-production-session-recovery-1"></script>
-<script src="v3.1/sales-live-sync.js?v=20261016-production-session-recovery-1"></script>
-<script src="v3.1/workspace-modules.js?v=20261011-operational-3"></script>
-<script src="v3.1/sales-demo-universal.js?v=20261010-demo-1"></script>
-<script src="v3.1/revenue-leak-scanner.js?v=20261016-evidence-regression-1"></script>
-<script src="v3.1/launch-shell.js?v=20261011-audit-2"></script>
-<script src="v3.1/demo-mode.js?v=20261020-mobile-walkthrough-5"></script>
-<script src="v3.1/demo-entry.js?v=20260917-1"></script>
-<link rel="stylesheet" href="mobile-readability.css?v=20261016-dark3">
-<script src="v3.1/overview-focus.js?v=20261021-mobile-focus-2"></script>
-<script src="v3.1/operations-os.js?v=20261022-policy-status-2"></script>
-<script src="v3.1/ui-accessibility.js?v=20261022-accessibility-1"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1320" />
+    <meta
+      name="description"
+      content="Loose Ends OS — Single-Ledger Operations & Owner-Approved Revenue Recovery for service businesses."
+    />
+    <title>Loose Ends OS — Single-Ledger Operations & Revenue Recovery</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

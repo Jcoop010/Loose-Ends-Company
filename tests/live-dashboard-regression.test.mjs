@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict'
-import {readFileSync} from 'node:fs'
-const launch=readFileSync(new URL('../v3.1/launch-center.js',import.meta.url),'utf8')
-const sales=readFileSync(new URL('../v3.1/sales-upgrade.js',import.meta.url),'utf8')
-const html=readFileSync(new URL('../index.html',import.meta.url),'utf8')
-assert.match(launch,/leLaunchPending/)
-assert.match(launch,/page\.isConnected/)
-assert.match(launch,/document\.getElementById\('le-launch-panel'\)/)
-assert.match(sales,/location\.pathname!=='\/demo'/)
-assert.match(html,/sales-upgrade\.js\?v=20261021-demo-route-only-3/)
-assert.match(html,/launch-center\.js\?v=20261021-settings-setup-3/)
-console.log('Live workspace launch panel and demo isolation guards passed')
+import { loadSrcModule, readSrc } from './helpers/load-src-module.mjs'
 
-assert.match(sales,/function addRibbon\(\)\{\s*if\(location\.pathname!=='\/demo'&&location\.pathname\.indexOf\('\/demo\/'\)!==0\)return;/,'production must never inject the demo revenue ribbon');
+const { parseAppLocation } = loadSrcModule('src/state/RouterContext.tsx')
+const appRoot = readSrc('src/AppRoot.tsx')
+
+// 1. Strict top-level route separation between landing (/), sandbox (/demo), and live workspaces (/dashboard)
+assert.equal(parseAppLocation('/').topRoute, 'landing')
+assert.equal(parseAppLocation('/demo').topRoute, 'demo')
+assert.equal(parseAppLocation('/demo/inventory').topRoute, 'demo')
+assert.equal(parseAppLocation('/demo/inventory').section, 'inventory')
+assert.equal(parseAppLocation('/dashboard').topRoute, 'dashboard')
+assert.equal(parseAppLocation('/dashboard/autopilot').topRoute, 'dashboard')
+assert.equal(parseAppLocation('/dashboard/autopilot').section, 'autopilot')
+
+// 2. DemoStoreProvider mounts exclusively under topRoute === 'demo', never wrapping authenticated /dashboard
+const demoBranchIdx = appRoot.indexOf("if (topRoute === 'demo')")
+const sessionBranchIdx = appRoot.indexOf('<SessionProvider>')
+assert.ok(demoBranchIdx > 0 && sessionBranchIdx > demoBranchIdx)
+assert.ok(
+  !appRoot.slice(sessionBranchIdx).includes('DemoStoreProvider') &&
+    !appRoot.slice(sessionBranchIdx).includes('DemoWorkspacePage'),
+  'Authenticated /dashboard tree must never render DemoStoreProvider or demo ribbons',
+)
+
+console.log('Live workspace launch panel and demo isolation guards passed')

@@ -11,30 +11,11 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": false,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": [
-    "vite-env.d.ts",
-    "App.tsx",
-    "main.tsx",
-    "router.tsx",
-    "store.tsx",
-    "cloud.ts",
-    "data.ts",
-    "types.ts",
-    "utils.ts",
-    "revenueEngine.ts",
-    "seedSales.ts",
-    "supabase.ts",
-    "components/**/*.ts",
-    "components/**/*.tsx",
-    "pages/**/*.ts",
-    "pages/**/*.tsx",
-    "src/**/*.ts",
-    "src/**/*.tsx"
-  ],
-  "exclude": ["node_modules", "dist", "v3.1", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite-env.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }

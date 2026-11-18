@@ -15,11 +15,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # Catch syntax errors across every app module before installing dependencies.
-      - run: find v3.1 -type f -name '*.js' -print0 | xargs -0 -n1 node --check
       # Fail if package.json and the committed lockfile drift apart.
       # This makes CI dependency resolution reproducible.
       - run: npm ci
+      - run: npm run typecheck
+      - run: node scripts/precompile-test-src.mjs
+      - run: node tests/src-sdk-contracts.test.mjs
       - name: Audit dependency vulnerabilities
         run: |
           npm audit --json > dependency-audit.json || true
@@ -42,6 +43,7 @@ jobs:
           name: dependency-audit
           path: dependency-audit.json
           if-no-files-found: warn
+      - run: npm run build
       - run: node tests/account-recovery.test.mjs
       - run: node tests/password-security.test.mjs
       - run: node tests/operations-policy-status.test.mjs
@@ -76,5 +78,3 @@ jobs:
       - run: node tests/operations-premium-ui.test.mjs
       - run: npm run test:runtime
       - run: npm run test:recovery
-      - run: npm run typecheck
-      - run: npm run build

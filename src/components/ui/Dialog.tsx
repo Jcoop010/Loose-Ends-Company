@@ -21,7 +21,7 @@ function lockBodyScroll(): () => void {
 }
 
 const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export interface DialogProps {
   open: boolean
@@ -76,9 +76,11 @@ export function Dialog({
       }
       const panel = panelRef.current
       if (!panel) return
-      const firstFocusable = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
-      if (firstFocusable) {
-        firstFocusable.focus()
+      const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        el => !el.hasAttribute('disabled') && el.offsetParent !== null,
+      )
+      if (focusables[0]) {
+        focusables[0].focus()
       } else {
         panel.focus()
       }

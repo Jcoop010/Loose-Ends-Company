@@ -1,163 +1,211 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { runInNewContext } from 'node:vm'
+import React, { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { installDomGlobals, loadSrcModule, readSrc } from './helpers/load-src-module.mjs'
+import { JSDOM } from 'jsdom'
 
-const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8')
-const tick = () => new Promise(resolve => setImmediate(resolve))
-function runtime(fixtures = {}) {
-  const listeners = [], pending = [], writes = [], updates = [], calls = []
-  let user = { id: 'account-a' }, delay = false, fail = false
-  const S = {
-    rpc: async (name, args) => { calls.push({ name, args }); return { data: true } },
-    auth: { getUser: async () => ({ data: { user } }), onAuthStateChange: fn => listeners.push(fn) },
+const wsA = '11111111-1111-4111-8111-111111111111'
+const wsB = '22222222-2222-4222-8222-222222222222'
+const oppId = '33333333-3333-4333-8333-333333333333'
+const looseId = '44444444-4444-4444-8444-444444444444'
+
+const rpcCalls = []
+const tableUpdates = []
+
+// 1. Verify atomic collectOpportunity & loose_ends stage update constraints
+const mockOpsSupabase = {
+  isSupabaseConfigured: true,
+  assertSupabaseConfigured() {},
+  supabase: {
+    async rpc(name, args) {
+      rpcCalls.push({ name, args })
+      return { data: true, error: null }
+    },
     from(table) {
-      const query = { update(value) { updates.push({ table, value }); return this }, select() { return this }, eq() { return this }, order() { return this }, in() { return this }, limit() { return this },
-        maybeSingle: async () => ({ data: { workspace_id: 'workspace-' + user.id } }),
-        then(resolve, reject) {
-          const result = { data: fixtures[table] || (table === 'customers' ? [{ id: 'private-a', first_name: 'Private fixture' }] : []), error: fail ? new Error('Network unavailable') : null }
-          return (delay ? new Promise(r => pending.push(() => r(result))) : Promise.resolve(result)).then(resolve, reject)
-        }
+      const chain = {
+        update(patch) {
+          tableUpdates.push({ table, patch })
+          return chain
+        },
+        eq() { return chain },
+        select() { return chain },
+        async single() {
+          return { data: { id: looseId, status: 'in_progress', recovery_stage: 'converted' }, error: null }
+        },
       }
-      return query
-    }
-  }
-  const window = { LESupabase: S, scrollTo() {}, prompt: () => '125.50', confirm: () => true }
-  const document = { getElementById: () => null, querySelector: () => null }
-  runInNewContext(read('v3.1/app.js'), { window, document, localStorage: { getItem: () => null, setItem: (k, v) => writes.push([k, v]) }, console: { ...console, error() {} }, setTimeout, Date, Number, FormData })
-  return { window, writes, pending, updates, calls, setUser: value => { user = value }, delay: value => { delay = value }, fail: () => { fail = true }, event: value => listeners.forEach(fn => fn(value)) }
+      return chain
+    },
+  },
 }
 
-const lifecycle = runtime({ loose_ends: [{ id: 'loose-fixture', status: 'in_progress', recovery_stage: 'engaged', amount: 250 }] })
-await lifecycle.window.LE.refresh()
-assert.equal(lifecycle.window.LE.getState().opportunities[0].status, 'responded')
-await lifecycle.window.LE.updateStatus('loose-fixture', 'scheduled')
-assert.equal(lifecycle.updates[0].value.status, 'in_progress', 'UI stage must respect the production database status constraint')
-assert.equal(lifecycle.updates[0].value.recovery_stage, 'converted')
+const opsMod = loadSrcModule('src/lib/opsCommand.ts', {
+  moduleOverrides: { 'src/lib/supabase.ts': mockOpsSupabase },
+})
+const queriesMod = loadSrcModule('src/lib/queries.ts', {
+  moduleOverrides: { 'src/lib/supabase.ts': mockOpsSupabase },
+})
 
-const collection = runtime({ opportunities: [{ id: 'invoice-fixture', status: 'open', amount: 500 }] })
-await collection.window.LE.refresh()
-await collection.window.LE.recover('invoice-fixture')
-assert.equal(collection.calls.length, 1)
-assert.equal(collection.calls[0].name, 'collect_opportunity')
-assert.equal(collection.calls[0].args.p_amount, 125.50, 'record actual partial collection, not the projected amount')
-assert.equal(collection.updates.length, 0, 'collection must use the atomic database operation')
-collection.window.prompt = () => 'Infinity'
-await collection.window.LE.recover('invoice-fixture')
-assert.equal(collection.calls.length, 1, 'invalid collected amount must not reach the database')
-collection.window.prompt = () => null
-await collection.window.LE.recover('invoice-fixture')
-assert.equal(collection.calls.length, 1, 'canceling must not record collection')
+await queriesMod.updateLooseEndStage({
+  workspaceId: wsA,
+  looseEndId: looseId,
+  status: 'in_progress',
+  recoveryStage: 'converted',
+})
+assert.equal(tableUpdates[0].table, 'loose_ends')
+assert.equal(tableUpdates[0].patch.status, 'in_progress')
+assert.equal(tableUpdates[0].patch.recovery_stage, 'converted')
 
-const app = runtime()
-await app.window.LE.refresh()
-assert.equal(app.window.LE.getState().customers.length, 1)
-app.event('SIGNED_OUT')
-assert.equal(app.window.LE.getState().customers.length, 0, 'sign-out must synchronously erase customer state')
-assert.equal(app.window.LE.getState().workspaceId, null)
+await opsMod.collectOpportunity(oppId, 125.5)
+assert.equal(rpcCalls.length, 1)
+assert.equal(rpcCalls[0].name, 'collect_opportunity')
+assert.equal(rpcCalls[0].args.p_amount, 125.5, 'records exact partial collection amount')
+assert.equal(
+  tableUpdates.filter(u => u.table === 'opportunities').length,
+  0,
+  'collection uses atomic RPC, never direct opportunities.update()',
+)
 
-app.setUser({ id: 'account-a' }); app.delay(true)
-const stale = app.window.LE.refresh()
-await tick()
-assert.ok(app.pending.length > 0)
-app.setUser(null); app.event('SIGNED_OUT')
-app.pending.splice(0).forEach(resolve => resolve())
-await stale
-assert.equal(app.window.LE.getState().customers.length, 0, 'late account A response must not repopulate signed-out state')
-assert.equal(app.window.LE.getState().workspaceId, null)
+await assert.rejects(() => opsMod.collectOpportunity(oppId, Number.POSITIVE_INFINITY))
+await assert.rejects(() => opsMod.collectOpportunity(oppId, -10))
+assert.equal(rpcCalls.length, 1, 'invalid amounts never reach database')
 
-app.delay(false); app.setUser({ id: 'account-b' }); await app.window.LE.refresh()
-assert.equal(app.window.LE.getState().workspaceId, 'workspace-account-b')
-app.fail(); await app.window.LE.refresh()
-assert.equal(app.window.LE.getState().loaded, false)
-assert.equal(app.window.LE.getState().customers.length, 0, 'failed refresh must not display stale customer data')
-app.window.LE.setView('customers')
-assert.ok(app.writes.every(([, value]) => !value.includes('Private fixture')))
+// 2. SessionContext synchronous wipe on SIGNED_OUT & monotonic generation guard against stale responses
+const authListeners = []
+const delayedResolvers = []
+let delayMembershipQuery = false
+let currentSessionUser = { id: 'account-a', email: 'a@example.invalid' }
 
-// The auth bridge must only clear legacy customer caches, never replace them.
-assert.doesNotMatch(read('v3.1/auth-live.js'), /localStorage\.setItem/)
-
-let confirmed = 0
-const revenueWindow = { LESupabase: {}, LE: { recover: async id => { assert.equal(id, 'opportunity-fixture'); confirmed++ } } }
-runInNewContext(read('v3.1/revenue-engine.js'), { window: revenueWindow, document: { getElementById: () => null }, setInterval: () => 1, clearInterval() {} })
-await revenueWindow.LERevenueEngine.recover('opportunity-fixture')
-assert.equal(confirmed, 1, 'secondary recovery UI must use the owner-confirmation path')
-
-const productListeners = [], productPending = []
-let productDelay = false
-const productWindow = { LESupabase: {
-  auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), onAuthStateChange: fn => productListeners.push(fn) },
-  from(table) {
-    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this }, range() { return this },
-      maybeSingle: async () => ({ data: { workspaces: { id: 'workspace-fixture', name: 'Fixture' } } }),
-      then(resolve, reject) {
-        const value = { data: table === 'opportunities' ? [{ id: 'fixture', status: 'recovered', amount: 999, recovered_amount: 0 }] : [] }
-        return (productDelay ? new Promise(r => productPending.push(() => r(value))) : Promise.resolve(value)).then(resolve, reject)
+const mockSessionSupabase = {
+  isSupabaseConfigured: true,
+  assertSupabaseConfigured() {},
+  supabase: {
+    auth: {
+      async getSession() {
+        return {
+          data: { session: currentSessionUser ? { user: currentSessionUser } : null },
+          error: null,
+        }
+      },
+      onAuthStateChange(fn) {
+        authListeners.push(fn)
+        return { data: { subscription: { unsubscribe() {} } } }
+      },
+      async signOut() {
+        return { error: null }
+      },
+    },
+    from(table) {
+      const chain = {
+        select() { return chain },
+        eq() { return chain },
+        order() {
+          if (table === 'workspace_members') {
+            const wid = currentSessionUser?.id === 'account-b' ? wsB : wsA
+            const result = {
+              data: [
+                {
+                  workspace_id: wid,
+                  user_id: currentSessionUser?.id ?? 'none',
+                  role: 'owner',
+                  workspaces: { id: wid, name: `Workspace ${wid.slice(0, 4)}` },
+                },
+              ],
+              error: null,
+            }
+            if (delayMembershipQuery) {
+              return new Promise(resolve => {
+                delayedResolvers.push(() => resolve(result))
+              })
+            }
+            return Promise.resolve(result)
+          }
+          return Promise.resolve({ data: [], error: null })
+        },
+        maybeSingle() {
+          return Promise.resolve({ data: null, error: null })
+        },
       }
-    }
-  }
-} }
-runInNewContext(read('v3.1/live-product-layer.js'), { window: productWindow, document: { querySelector: () => null, getElementById: () => null }, setTimeout() {}, setInterval() {}, clearInterval() {}, console })
-await productWindow.LELiveProduct.refresh()
-assert.equal(productWindow.__LELiveData.metrics.recovered, 0, 'estimated opportunity amount must not replace missing collected amount')
-productDelay = true
-const lateProduct = productWindow.LELiveProduct.refresh()
-await tick()
-productListeners.forEach(fn => fn('SIGNED_OUT'))
-assert.equal(productWindow.__LELiveData, null)
-productPending.splice(0).forEach(resolve => resolve())
-await lateProduct
-assert.equal(productWindow.__LELiveData, null, 'late secondary data must not survive sign-out')
+      return chain
+    },
+    functions: {
+      async invoke() {
+        return { data: {}, error: null }
+      },
+    },
+  },
+}
 
-// Exercise the actual sales HTML encoder with hostile customer-supplied text.
-const salesPrefix = read('v3.1/sales-crm.js').split('  function load(){')[0]
-const salesWindow = {}
-runInNewContext(salesPrefix + 'window.encode = esc;})();', { window: salesWindow })
-assert.equal(salesWindow.encode('<img src=x onerror="alert(1)"> &'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp;')
+const dom = new JSDOM('<!doctype html><body><div id="root"></div></body>', {
+  url: 'https://loose-ends-os.vercel.app/dashboard',
+})
+const w = installDomGlobals(dom)
 
-const salesListeners = [], salesPending = [], nativeWrites = [], salesSnapshots = [], scheduled = []
-class FixtureStorage { setItem(k, v) { nativeWrites.push([k, v]) } removeItem() {} }
-const storage = new FixtureStorage()
-const salesSyncWindow = { LESalesCRM: { setData: data => salesSnapshots.push(data) }, LESupabase: {
-  auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), onAuthStateChange: fn => salesListeners.push(fn) },
-  from(table) {
-    return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this }, range() { return this },
-      maybeSingle: async () => ({ data: { workspace_id: 'workspace-fixture' } }),
-      then(resolve, reject) { return new Promise(r => salesPending.push(() => r({ data: table === 'workspace_records' ? [{ record_key: 'fixture', data: { customer: 'Private sales fixture' } }] : [] }))).then(resolve, reject) }
-    }
-  }
-} }
-runInNewContext(read('v3.1/sales-live-sync.js'), { window: salesSyncWindow, location: { pathname: '/dashboard' }, Storage: FixtureStorage, localStorage: storage, document: { getElementById: () => null }, setTimeout: fn => scheduled.push(fn), console })
-await tick()
-salesListeners.forEach(fn => fn('SIGNED_OUT'))
-salesPending.splice(0).forEach(resolve => resolve())
-await tick()
-assert.ok(salesSnapshots.every(s => s.orders.length === 0), 'late sales hydration must not reveal the previous account')
-storage.setItem('loose_ends_sales_crm_v1', JSON.stringify({ orders: [{ customer: 'Private fixture' }], events: [] }))
-assert.equal(nativeWrites.length, 0, 'production sales save signals must not cache customer records')
+const cache = new Map()
+const { SessionProvider, useSession } = loadSrcModule('src/state/SessionContext.tsx', {
+  moduleOverrides: { 'src/lib/supabase.ts': mockSessionSupabase },
+  globals: { window: w, document: w.document },
+  cache,
+})
 
-// Calendar reads/writes the same in-memory CRM data after removing the browser cache.
-const calendarData = { orders: [], events: [{ id: 'calendar-fixture' }] }
-let calendarSaved
-const calendarWindow = { LESalesCRM: { getData: () => calendarData, setData: value => { calendarSaved = value } } }
-runInNewContext(read('v3.1/calendar-fix.js').split('  function key(d)')[0] + 'window.fixture={load:load,save:save};})();', { window: calendarWindow, location: { pathname: '/dashboard' } })
-assert.equal(calendarWindow.fixture.load().events[0].id, 'calendar-fixture')
-calendarWindow.fixture.save(calendarData)
-assert.equal(calendarSaved, calendarData)
+let latestSessionSnapshot = null
+function SessionProbe() {
+  latestSessionSnapshot = useSession()
+  return React.createElement('div', null, latestSessionSnapshot.workspace?.id ?? 'signed-out')
+}
 
-const workflowListeners = [], workflowPending = []
-const workflowWindow = { LESupabase: {
-  auth: { getUser: async () => ({ data: { user: { id: 'fixture' } } }), getSession: async () => ({ data: {} }), onAuthStateChange: fn => workflowListeners.push(fn) },
-  from() { return { select() { return this }, eq() { return this }, order() { return this }, limit() { return this }, range() { return this },
-    maybeSingle: async () => ({ data: { workspace_id: 'workflow-fixture' } }),
-    then(resolve, reject) { return new Promise(r => workflowPending.push(() => r({ data: [{ id: 'private-workflow', name: 'Private fixture' }] }))).then(resolve, reject) }
-  } }
-} }
-const workflowSource = read('v3.1/workflow-engine.js').replace('  window.LEWorkflows=', '  window.fixtureState=function(){return state;};window.LEWorkflows=')
-runInNewContext(workflowSource, { window: workflowWindow, location: { pathname: '/dashboard' }, localStorage: { removeItem() {}, getItem() { throw new Error('Production must not load shared workflow cache') } }, document: { getElementById: () => null, querySelector: () => null, readyState: 'loading', addEventListener() {} }, setTimeout() {}, console })
-const workflowLoad = workflowWindow.LEWorkflows.load()
-await tick()
-workflowListeners.forEach(fn => fn('SIGNED_OUT'))
-workflowPending.splice(0).forEach(resolve => resolve())
-await workflowLoad
-assert.equal(workflowWindow.fixtureState().workflows.length, 0, 'late workflow load must not reveal another account configuration')
-console.log('Production runtime session, stale-response, network failure, cache, and recovery-path tests passed')
+const root = createRoot(w.document.getElementById('root'))
+try {
+  await act(async () => {
+    root.render(React.createElement(SessionProvider, null, React.createElement(SessionProbe)))
+    await new Promise(r => setTimeout(r, 30))
+  })
+  assert.equal(latestSessionSnapshot.workspace?.id, wsA)
+
+  // Trigger delayed hydration for account-a, then fire SIGNED_OUT before it resolves
+  delayMembershipQuery = true
+  let refreshPromise
+  await act(async () => {
+    refreshPromise = latestSessionSnapshot.refreshWorkspaceContext()
+    await new Promise(r => setTimeout(r, 10))
+  })
+  assert.equal(delayedResolvers.length, 1)
+
+  await act(async () => {
+    currentSessionUser = null
+    authListeners.forEach(fn => fn('SIGNED_OUT', null))
+  })
+  assert.equal(latestSessionSnapshot.workspace, null, 'SIGNED_OUT synchronously wipes workspace')
+  assert.equal(latestSessionSnapshot.user, null)
+
+  // Now resolve the stale in-flight account-a query: monotonic generation guard MUST discard it!
+  await act(async () => {
+    delayedResolvers.splice(0).forEach(fn => fn())
+    await refreshPromise
+    await new Promise(r => setTimeout(r, 20))
+  })
+  assert.equal(
+    latestSessionSnapshot.workspace,
+    null,
+    'Stale delayed account-A response must never repopulate signed-out state',
+  )
+
+  // Sign in as account-b cleanly
+  delayMembershipQuery = false
+  await act(async () => {
+    currentSessionUser = { id: 'account-b', email: 'b@example.invalid' }
+    authListeners.forEach(fn => fn('SIGNED_IN', { user: currentSessionUser }))
+    await new Promise(r => setTimeout(r, 30))
+  })
+  assert.equal(latestSessionSnapshot.workspace?.id, wsB)
+} finally {
+  await act(async () => {
+    root.unmount()
+  })
+  w.close()
+}
+
+// 3. Confirm zero localStorage.setItem anywhere in auth.ts or SessionContext.tsx
+assert.doesNotMatch(readSrc('src/lib/auth.ts'), /localStorage\.setItem/)
+assert.doesNotMatch(readSrc('src/state/SessionContext.tsx'), /localStorage\.setItem/)
+
+console.log('Production runtime session, stale-response, cache, and atomic collection tests passed')

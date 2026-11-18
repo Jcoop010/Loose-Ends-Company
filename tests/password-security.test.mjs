@@ -1,27 +1,107 @@
-import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
-import {webcrypto} from 'node:crypto';
-const source=readFileSync(new URL('../v3.1/password-security.js',import.meta.url),'utf8');
-const auth=readFileSync(new URL('../v3.1/auth-live.js',import.meta.url),'utf8');
-let calls=0;
-const context={window:{},crypto:webcrypto,TextEncoder,AbortSignal,fetch:async(url,opts)=>{calls++;assert.match(url,/^https:\/\/api\.pwnedpasswords\.com\/range\/[0-9A-F]{5}$/);assert.equal(opts.headers['Add-Padding'],'true');return {ok:true,text:async()=>''};}};
-vm.runInNewContext(source,context);
-await assert.rejects(()=>context.window.LEPasswordSecurity.check('short'),/at least 12/);
-assert.equal(calls,0);
-assert.equal(await context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),true);
-assert.equal(calls,1);
-context.fetch=async()=>({ok:true,text:async()=>{const p='SufficientlyUniquePassword-2026!',d=new Uint8Array(await webcrypto.subtle.digest('SHA-1',new TextEncoder().encode(p))),hex=Array.from(d,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();return hex.slice(5)+':99';}});
-await assert.rejects(()=>context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),/known breaches/);
-context.fetch=async()=>({ok:true,text:async()=>{const d=new Uint8Array(await webcrypto.subtle.digest('SHA-1',new TextEncoder().encode('SufficientlyUniquePassword-2026!'))),hex=Array.from(d,b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();return hex.slice(5)+':0';}});
-assert.equal(await context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),true,'padding with zero breaches is not a match');
-context.fetch=async()=>{throw new Error('network unavailable')};
-await assert.rejects(()=>context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),/check is unavailable/);
-context.fetch=async()=>({ok:false,status:503,text:async()=>''});
-await assert.rejects(()=>context.window.LEPasswordSecurity.check('SufficientlyUniquePassword-2026!'),/check is unavailable/);
-assert.match(auth,/if\(signup\)\{if\(!window\.LEPasswordSecurity\)/);
-assert.ok(!auth.includes('minlength="12"'),'Existing password sign-in must remain compatible');
-assert.match(auth,/field\.minLength=12/);
-assert.match(auth,/field\.autocomplete='new-password'/);
-assert.match(auth,/must not appear in known breaches/);
-console.log('Free password breach-check regression passed');
+import assert from 'node:assert/strict'
+import { webcrypto } from 'node:crypto'
+import { loadSrcModule, readSrc } from './helpers/load-src-module.mjs'
+
+let hibpCalls = 0
+let signUpCalls = 0
+let currentFetch = async (url, opts) => {
+  hibpCalls += 1
+  assert.match(String(url), /^https:\/\/api\.pwnedpasswords\.com\/range\/[0-9A-F]{5}$/)
+  assert.equal(opts.headers['Add-Padding'], 'true')
+  return { ok: true, text: async () => '' }
+}
+
+const mockSupabase = {
+  isSupabaseConfigured: true,
+  assertSupabaseConfigured() {},
+  supabase: {
+    auth: {
+      async signUp(payload) {
+        signUpCalls += 1
+        return {
+          data: { user: { id: 'u1', email: payload.email }, session: null },
+          error: null,
+        }
+      },
+      onAuthStateChange() {
+        return { data: { subscription: { unsubscribe() {} } } }
+      },
+    },
+  },
+}
+
+const authMod = loadSrcModule('src/lib/auth.ts', {
+  moduleOverrides: { 'src/lib/supabase.ts': mockSupabase },
+  globals: {
+    crypto: webcrypto,
+    fetch: (url, opts) => currentFetch(url, opts),
+  },
+})
+
+// 1. Short passwords rejected locally before any HIBP call
+await assert.rejects(() => authMod.screenPasswordSafety('short'), /at least 12/)
+assert.equal(hibpCalls, 0)
+
+// 2. Clean 12+ char password passes k-anonymity 5-char range check
+assert.equal(await authMod.screenPasswordSafety('SufficientlyUniquePassword-2026!'), true)
+assert.equal(hibpCalls, 1)
+
+// 3. Breached suffix (>0 count) rejected
+currentFetch = async () => {
+  const candidate = 'SufficientlyUniquePassword-2026!'
+  const digest = new Uint8Array(
+    await webcrypto.subtle.digest('SHA-1', new TextEncoder().encode(candidate)),
+  )
+  const hex = Array.from(digest, b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()
+  return { ok: true, text: async () => `${hex.slice(5)}:99` }
+}
+await assert.rejects(
+  () => authMod.screenPasswordSafety('SufficientlyUniquePassword-2026!'),
+  /known breaches/,
+)
+await assert.rejects(
+  () => authMod.signUpWithPassword('owner@example.com', 'SufficientlyUniquePassword-2026!'),
+  /known breaches/,
+)
+assert.equal(signUpCalls, 0, 'signUp must never execute when breach check rejects')
+
+// 4. Zero-count HIBP padding entries are not treated as breaches
+currentFetch = async () => {
+  const candidate = 'SufficientlyUniquePassword-2026!'
+  const digest = new Uint8Array(
+    await webcrypto.subtle.digest('SHA-1', new TextEncoder().encode(candidate)),
+  )
+  const hex = Array.from(digest, b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()
+  return { ok: true, text: async () => `${hex.slice(5)}:0` }
+}
+assert.equal(
+  await authMod.screenPasswordSafety('SufficientlyUniquePassword-2026!'),
+  true,
+  'padding row with count 0 is safe',
+)
+
+// 5. Fails closed when HIBP is unreachable or returns 5xx
+currentFetch = async () => {
+  throw new Error('network unavailable')
+}
+await assert.rejects(
+  () => authMod.screenPasswordSafety('SufficientlyUniquePassword-2026!'),
+  /check is unavailable/,
+)
+
+currentFetch = async () => ({ ok: false, status: 503, text: async () => '' })
+await assert.rejects(
+  () => authMod.screenPasswordSafety('SufficientlyUniquePassword-2026!'),
+  /check is unavailable/,
+)
+
+// 6. AuthGate preserves sign-in compatibility while enforcing minLength=12 + new-password on sign-up
+const authGate = readSrc('src/components/shell/AuthGate.tsx')
+assert.match(authGate, /minLength=\{tab === 'signup' \? 12 : 1\}/)
+assert.match(authGate, /autoComplete=\{tab === 'signup' \? 'new-password' : 'current-password'\}/)
+
+console.log('Free password breach-check regression passed')
