@@ -467,6 +467,11 @@ export interface OpsCommunicationDraft {
   id: string
   workspace_id: string
   customer_id: string
+  lead_id?: string | null
+  recipient_email?: string | null
+  recipient_name?: string | null
+  company_name?: string | null
+  requires_approval?: boolean
   source_event_id: string | null
   channel: CommunicationDraftChannel
   subject: string

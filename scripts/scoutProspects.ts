@@ -4,25 +4,18 @@
  *
  * Universal SMB Prospect Scouting Agent for Loose Ends.
  *
- * Usage:
- *   npx tsx scripts/scoutProspects.ts              # rotate today's vertical & market
- *   npx tsx scripts/scoutProspects.ts --seed        # load 20 vetted prospects into DB
- *   TARGET_MARKET="Dallas, TX" npx tsx scripts/scoutProspects.ts
- *
- * Required env vars for DB upsert:
- *   VITE_SUPABASE_URL          Supabase project URL
- *   SUPABASE_SERVICE_ROLE_KEY  Service-role key (bypasses RLS; never expose client-side)
- *
- * Live Discovery API keys (at least one for live directory discovery):
- *   GOOGLE_PLACES_API_KEY      Google Places API (New) Text Search (`places:searchText`)
- *   SERPER_API_KEY             Serper.dev Places Search fallback (`google.serper.dev/places`)
- *
- * Optional env vars:
- *   DEFAULT_WORKSPACE_ID       Workspace UUID to associate discovered leads
- *   TARGET_MARKET              Override location string (rotates top US SMB metros by default)
+ * Authoritative Repository: Jcoop010/Loose-Ends-Company
+ * Authoritative Supabase  : https://uehfvpnnoitgybsmdgef.supabase.co
+ * Authoritative App       : https://loose-ends-os.vercel.app/
  */
 
 import { createClient } from '@supabase/supabase-js';
+import {
+  isPlaceholderValue,
+  resolveServiceRoleKey,
+  resolveSupabaseUrl,
+  verifyDatabaseAndWorkspace,
+} from './envValidation';
 
 // ---------------------------------------------------------------------------
 // Types (Strict TypeScript — zero `any`)
@@ -484,7 +477,7 @@ export async function discoverViaGooglePlaces(
   market: string
 ): Promise<ScoutedProspect[]> {
   const apiKey = (process.env.GOOGLE_PLACES_API_KEY ?? '').trim();
-  if (!apiKey) {
+  if (!apiKey || isPlaceholderValue(apiKey)) {
     return [];
   }
 
@@ -557,7 +550,7 @@ export async function discoverViaSerper(
   market: string
 ): Promise<ScoutedProspect[]> {
   const apiKey = (process.env.SERPER_API_KEY ?? '').trim();
-  if (!apiKey) {
+  if (!apiKey || isPlaceholderValue(apiKey)) {
     return [];
   }
 
@@ -646,34 +639,50 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isSeed = args.includes('--seed');
 
-  const supabaseUrl = (process.env.VITE_SUPABASE_URL ?? '').trim();
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
-  const hasGoogleKey = Boolean((process.env.GOOGLE_PLACES_API_KEY ?? '').trim());
-  const hasSerperKey = Boolean((process.env.SERPER_API_KEY ?? '').trim());
+  const supabaseUrl = resolveSupabaseUrl();
+  const serviceKeyCheck = resolveServiceRoleKey();
+  const rawGoogleKey = (process.env.GOOGLE_PLACES_API_KEY ?? '').trim();
+  const rawSerperKey = (process.env.SERPER_API_KEY ?? '').trim();
+  const hasGoogleKey = Boolean(rawGoogleKey) && !isPlaceholderValue(rawGoogleKey);
+  const hasSerperKey = Boolean(rawSerperKey) && !isPlaceholderValue(rawSerperKey);
 
   if (!isSeed && !hasGoogleKey && !hasSerperKey) {
     console.log(
-      'ℹ️  Neither GOOGLE_PLACES_API_KEY nor SERPER_API_KEY is configured. ' +
+      'ℹ️  Neither GOOGLE_PLACES_API_KEY nor SERPER_API_KEY is configured (or contains placeholder). ' +
       'Skipping live directory query and exiting 0 cleanly.'
     );
     return;
   }
 
-  if (!supabaseUrl || !serviceKey) {
-    console.log(
-      'ℹ️  VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured. ' +
-      'Exiting 0 cleanly.'
-    );
+  if (!serviceKeyCheck.valid) {
+    if (isSeed) {
+      console.error(`❌  Cannot seed prospects: ${serviceKeyCheck.reason}`);
+      process.exit(1);
+    }
+    console.log(`ℹ️  ${serviceKeyCheck.reason} Exiting 0 cleanly.`);
     return;
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey, {
+  const supabase = createClient(supabaseUrl, serviceKeyCheck.key, {
     auth: { persistSession: false },
   });
 
-  const upsertProspect = async (p: ScoutedProspect): Promise<void> => {
-    const workspaceId = (process.env.DEFAULT_WORKSPACE_ID ?? '').trim() || null;
+  // Verify database connection and workspace ID before seeding/scouting
+  const { workspaceId, workspaceName } = await verifyDatabaseAndWorkspace(
+    supabase,
+    isSeed
+  );
 
+  console.log(
+    `🔗  Connected to ${supabaseUrl} | Workspace: ${
+      workspaceId ? `${workspaceId} (${workspaceName ?? 'verified'})` : '(unassigned)'
+    }`
+  );
+
+  let upsertedCount = 0;
+  let errorCount = 0;
+
+  const upsertProspect = async (p: ScoutedProspect): Promise<void> => {
     const row = {
       workspace_id:    workspaceId,
       business:        p.business,
@@ -697,8 +706,10 @@ async function main(): Promise<void> {
       .upsert(row, { onConflict: 'business', ignoreDuplicates: true });
 
     if (error) {
+      errorCount += 1;
       console.error(`❌  Error saving "${p.business}":`, error.message);
     } else {
+      upsertedCount += 1;
       console.log(`✅  Queued prospect: ${p.business} (${p.industry}) — score ${p.score}`);
     }
   };
@@ -708,19 +719,26 @@ async function main(): Promise<void> {
     for (const p of VETTED_PROSPECTS) {
       await upsertProspect(p);
     }
-    console.log(`\n🎯  Seed complete. ${VETTED_PROSPECTS.length} prospects queued at DRAFT_READY.`);
+    if (errorCount > 0) {
+      console.error(`\n❌  Seed finished with ${errorCount} error(s) and ${upsertedCount} success(es).`);
+      process.exit(1);
+    }
+    console.log(`\n🎯  Seed complete. ${upsertedCount} prospects queued at DRAFT_READY.`);
     return;
   }
 
   const dayOfYear = Math.floor(Date.now() / 86_400_000);
   const dailyVertical = SMB_VERTICALS[dayOfYear % SMB_VERTICALS.length];
   const rotatedMarket = DEFAULT_MARKETS[dayOfYear % DEFAULT_MARKETS.length];
-  const targetMarket = (process.env.TARGET_MARKET ?? '').trim() || rotatedMarket;
+  const rawTargetMarket = (process.env.TARGET_MARKET ?? '').trim();
+  const targetMarket =
+    rawTargetMarket && !isPlaceholderValue(rawTargetMarket)
+      ? rawTargetMarket
+      : rotatedMarket;
 
   console.log(`\n🤖  Universal SMB Scout`);
   console.log(`    Vertical : ${dailyVertical}`);
-  console.log(`    Market   : ${targetMarket}`);
-  console.log(`    Workspace: ${(process.env.DEFAULT_WORKSPACE_ID ?? '').trim() || '(global)'}\n`);
+  console.log(`    Market   : ${targetMarket}\n`);
 
   const businesses = await discoverLiveBusinesses(dailyVertical, targetMarket);
 
@@ -733,7 +751,12 @@ async function main(): Promise<void> {
     await upsertProspect(biz);
   }
 
-  console.log(`\n✅  Scout run complete. ${businesses.length} prospects processed.`);
+  if (errorCount > 0) {
+    console.error(`\n❌  Scout run finished with ${errorCount} error(s).`);
+    process.exit(1);
+  }
+
+  console.log(`\n✅  Scout run complete. ${upsertedCount} prospects processed.`);
 }
 
 main().catch((err: unknown) => {

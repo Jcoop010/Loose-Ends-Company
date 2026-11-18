@@ -9,6 +9,7 @@ declare namespace NodeJS {
   interface Process {
     env: ProcessEnv;
     argv: string[];
+    cwd(): string;
     exit(code?: number): never;
   }
   type Timeout = ReturnType<typeof setTimeout>;

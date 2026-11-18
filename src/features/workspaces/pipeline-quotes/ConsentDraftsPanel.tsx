@@ -391,8 +391,10 @@ export function ConsentDraftsPanel({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                          {cust ? customerDisplayName(cust) : 'Customer'} ·{' '}
-                          {draft.channel.toUpperCase()}
+                          {cust
+                            ? customerDisplayName(cust)
+                            : draft.company_name ?? draft.recipient_name ?? 'Customer'}{' '}
+                          · {draft.channel.toUpperCase()}
                         </span>
                         <Badge
                           tone={
