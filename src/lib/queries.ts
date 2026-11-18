@@ -482,3 +482,77 @@ export async function submitPublicLead(lead: PublicLeadInput): Promise<void> {
   })
   if (error) throw error
 }
+
+/**
+ * Creates an idempotent/deduplicated follow-up task in `public.tasks` for an actionable
+ * revenue leak item. If an open or in-progress task with the same title and customer/opportunity
+ * already exists in the workspace, returns `{ task: existing, duplicate: true }`.
+ */
+export async function createFollowUpTask(params: {
+  workspaceId: string
+  title: string
+  customerId?: string | null
+  opportunityId?: string | null
+  priority?: number
+  dueInHours?: number
+}): Promise<{ task: Task; duplicate: boolean }> {
+  assertSupabaseConfigured()
+  const { workspaceId } = params
+  const cleanTitle = params.title.trim().slice(0, 200)
+  const customerId = params.customerId ?? null
+  const opportunityId = params.opportunityId ?? null
+
+  if (!UUID_PATTERN.test(workspaceId)) {
+    throw new Error('Valid workspace UUID is required.')
+  }
+  if (!cleanTitle) {
+    throw new Error('Task title is required.')
+  }
+
+  let existingQuery = supabase
+    .from('tasks')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .in('status', ['open', 'in_progress'])
+    .ilike('title', cleanTitle)
+    .limit(5)
+
+  if (opportunityId) {
+    existingQuery = existingQuery.eq('opportunity_id', opportunityId)
+  } else if (customerId) {
+    existingQuery = existingQuery.eq('customer_id', customerId)
+  }
+
+  const { data: existingRows, error: checkError } = await existingQuery
+  if (checkError) throw checkError
+
+  const exactMatch = ((existingRows ?? []) as Task[]).find(
+    row =>
+      row.title.trim().toLowerCase() === cleanTitle.toLowerCase() &&
+      (row.customer_id ?? null) === customerId &&
+      (row.opportunity_id ?? null) === opportunityId,
+  )
+  if (exactMatch) {
+    return { task: exactMatch, duplicate: true }
+  }
+
+  const dueHours = Number.isFinite(params.dueInHours) ? Math.max(1, Number(params.dueInHours)) : 24
+  const safePriority = Number.isFinite(params.priority) ? Math.trunc(Number(params.priority)) : 3
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('tasks')
+    .insert({
+      workspace_id: workspaceId,
+      customer_id: customerId,
+      opportunity_id: opportunityId,
+      title: cleanTitle,
+      status: 'open',
+      priority: safePriority,
+      due_at: new Date(Date.now() + dueHours * 3_600_000).toISOString(),
+    })
+    .select('*')
+    .single()
+
+  if (insertError) throw insertError
+  return { task: inserted as Task, duplicate: false }
+}

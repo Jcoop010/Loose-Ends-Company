@@ -1074,6 +1074,25 @@ export interface DemoStoreContextValue {
     reason: string,
   ) => void
   completeTask: (taskId: string) => void
+  createDemoFollowUpTask: (params: {
+    title: string
+    customerId?: string | null
+    opportunityId?: string | null
+    priority?: number
+  }) => { task: Task; duplicate: boolean }
+  scheduleDemoJob: (params: {
+    jobId: string
+    startsAt: string
+    endsAt: string
+    assignedWorker?: string | null
+  }) => Appointment
+  saveDemoExpense: (params: {
+    vendor: string
+    description?: string
+    amount: number
+    dueAt?: string | null
+  }) => OpsExpense
+  toggleDemoExpensePaid: (expenseId: string, paid: boolean) => void
   approveWorkflowRun: (runId: string) => void
   updateDemoPolicy: (patch: Partial<OpsPolicy>) => void
   resetDemo: () => void
@@ -1628,6 +1647,148 @@ export function DemoStoreProvider({
     }))
   }, [])
 
+  const createDemoFollowUpTask = useCallback(
+    (params: {
+      title: string
+      customerId?: string | null
+      opportunityId?: string | null
+      priority?: number
+    }): { task: Task; duplicate: boolean } => {
+      const cleanTitle = params.title.trim()
+      if (!cleanTitle) {
+        throw new Error('Task title is required.')
+      }
+      const existing = state.tasks.find(
+        t =>
+          (t.status === 'open' || t.status === 'in_progress') &&
+          t.title.trim().toLowerCase() === cleanTitle.toLowerCase() &&
+          (t.customer_id ?? null) === (params.customerId ?? null) &&
+          (t.opportunity_id ?? null) === (params.opportunityId ?? null),
+      )
+      if (existing) {
+        return { task: existing, duplicate: true }
+      }
+      const created: Task = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        customer_id: params.customerId ?? null,
+        opportunity_id: params.opportunityId ?? null,
+        title: cleanTitle,
+        status: 'open',
+        priority: params.priority ?? 90,
+        due_at: new Date(Date.now() + DAY_MS).toISOString(),
+        created_at: new Date().toISOString(),
+      }
+      setState(prev => ({ ...prev, tasks: [created, ...prev.tasks] }))
+      return { task: created, duplicate: false }
+    },
+    [state.tasks],
+  )
+
+  const scheduleDemoJob = useCallback(
+    (params: {
+      jobId: string
+      startsAt: string
+      endsAt: string
+      assignedWorker?: string | null
+    }): Appointment => {
+      const targetJob = state.jobs.find(j => j.id === params.jobId)
+      if (!targetJob) {
+        throw new Error('Job not found in sandbox.')
+      }
+      const startMs = parseIsoMs(params.startsAt)
+      const endMs = parseIsoMs(params.endsAt)
+      if (startMs === null || endMs === null || endMs <= startMs) {
+        throw new Error('Appointment end time must be after the start time.')
+      }
+      const workerId = params.assignedWorker ?? targetJob.assigned_to ?? DEMO_TECH_TWO_ID
+      const conflict = state.appointments.find(a => {
+        if (a.status === 'cancelled' || a.status === 'canceled') return false
+        if (a.ops_job_id === params.jobId) return false
+        if (a.assigned_worker && workerId && a.assigned_worker !== workerId) return false
+        const aStart = parseIsoMs(a.starts_at) ?? 0
+        const aEnd = parseIsoMs(a.ends_at) ?? aStart + HOUR_MS
+        return aStart < endMs && aEnd > startMs
+      })
+      if (conflict) {
+        throw new Error(`Dispatch conflict: technician already booked on "${conflict.title}".`)
+      }
+
+      const nowIso = new Date().toISOString()
+      const booking: Appointment = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        customer_id: targetJob.customer_id,
+        ops_job_id: targetJob.id,
+        assigned_worker: workerId,
+        title: targetJob.title,
+        starts_at: new Date(startMs).toISOString(),
+        ends_at: new Date(endMs).toISOString(),
+        status: 'scheduled',
+        notes: targetJob.notes,
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        appointments: [
+          booking,
+          ...prev.appointments.filter(a => a.ops_job_id !== targetJob.id),
+        ],
+        jobs: prev.jobs.map(j =>
+          j.id === targetJob.id
+            ? {
+                ...j,
+                assigned_to: workerId,
+                status: j.status === 'draft' || j.status === 'quoted' || j.status === 'approved' ? 'scheduled' : j.status,
+                approved_at: j.approved_at ?? nowIso,
+                approval_evidence: j.approval_evidence ?? 'Scheduled by owner in sandbox',
+                updated_at: nowIso,
+              }
+            : j,
+        ),
+      }))
+      return booking
+    },
+    [state.appointments, state.jobs],
+  )
+
+  const saveDemoExpense = useCallback(
+    (params: {
+      vendor: string
+      description?: string
+      amount: number
+      dueAt?: string | null
+    }): OpsExpense => {
+      const vendor = params.vendor.trim()
+      if (!vendor) throw new Error('Vendor name is required.')
+      if (!Number.isFinite(params.amount) || params.amount <= 0) {
+        throw new Error('Bill amount must be greater than $0.')
+      }
+      const expense: OpsExpense = {
+        id: crypto.randomUUID(),
+        workspace_id: DEMO_WORKSPACE_ID,
+        job_id: null,
+        vendor,
+        description: params.description?.trim() || null,
+        amount: Math.round(params.amount * 100) / 100,
+        due_at: params.dueAt || null,
+        paid: false,
+        created_at: new Date().toISOString(),
+      }
+      setState(prev => ({ ...prev, expenses: [expense, ...prev.expenses] }))
+      return expense
+    },
+    [],
+  )
+
+  const toggleDemoExpensePaid = useCallback((expenseId: string, paid: boolean) => {
+    setState(prev => ({
+      ...prev,
+      expenses: prev.expenses.map(e => (e.id === expenseId ? { ...e, paid } : e)),
+    }))
+  }, [])
+
   const approveWorkflowRun = useCallback((runId: string) => {
     const nowIso = new Date().toISOString()
     setState(prev => {
@@ -1702,6 +1863,10 @@ export function DemoStoreProvider({
       transitionPurchaseOrder,
       adjustInventoryStock,
       completeTask,
+      createDemoFollowUpTask,
+      scheduleDemoJob,
+      saveDemoExpense,
+      toggleDemoExpensePaid,
       approveWorkflowRun,
       updateDemoPolicy,
       resetDemo,
@@ -1724,6 +1889,10 @@ export function DemoStoreProvider({
       transitionPurchaseOrder,
       adjustInventoryStock,
       completeTask,
+      createDemoFollowUpTask,
+      scheduleDemoJob,
+      saveDemoExpense,
+      toggleDemoExpensePaid,
       approveWorkflowRun,
       updateDemoPolicy,
       resetDemo,

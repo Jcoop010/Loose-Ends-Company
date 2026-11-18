@@ -281,4 +281,84 @@ assert.equal(
 )
 assert.match(demoStoreSource, /resetDemo/)
 
-console.log('PASS: src/ SDK & state security contracts verified across all 13 Phase 2 modules.')
+// 7. Phase 3A modules, zero `any` escapes, air-gapped /demo UI, and Command Center contracts
+const phase3AModules = [
+  'src/index.css',
+  'src/AppRoot.tsx',
+  'src/components/ui/ErrorBoundary.tsx',
+  'src/components/ui/Toast.tsx',
+  'src/components/ui/Dialog.tsx',
+  'src/components/ui/MetricCard.tsx',
+  'src/components/shell/AuthGate.tsx',
+  'src/components/shell/GlobalSearch.tsx',
+  'src/components/shell/AppShell.tsx',
+  'src/features/landing/LandingPage.tsx',
+  'src/features/landing/PublicAuditLeadForm.tsx',
+  'src/features/demo/WalkthroughBanner.tsx',
+  'src/features/demo/RoiAuditCalculatorModal.tsx',
+  'src/features/demo/DemoWorkspacePage.tsx',
+  'src/features/workspaces/command-center/CommandCenterPage.tsx',
+  'src/features/workspaces/command-center/VerifiedRevenueCard.tsx',
+  'src/features/workspaces/command-center/LeakScannerPanel.tsx',
+  'src/features/workspaces/command-center/FinanceAgingPanel.tsx',
+]
+
+for (const mod of phase3AModules) {
+  readRepoFile(mod)
+}
+
+for (const filePath of srcFiles) {
+  const rel = path.relative(repoRoot, filePath).replace(/\\/g, '/')
+  const codeOnly = stripComments(fs.readFileSync(filePath, 'utf8'))
+  assert.equal(
+    /(:\s*any\b|\bas\s+any\b|<any>)/.test(codeOnly),
+    false,
+    `${rel} must not contain TypeScript any escapes`,
+  )
+}
+
+for (const demoFile of [
+  'src/features/demo/WalkthroughBanner.tsx',
+  'src/features/demo/RoiAuditCalculatorModal.tsx',
+  'src/features/demo/DemoWorkspacePage.tsx',
+]) {
+  const codeOnly = stripComments(readRepoFile(demoFile))
+  assert.equal(
+    /supabase|edgeFunctions|opsCommand|queries/.test(codeOnly),
+    false,
+    `${demoFile} must remain 100% air-gapped with zero Supabase or live SDK imports`,
+  )
+}
+
+const cssSource = readRepoFile('src/index.css')
+assert.match(cssSource, /font-variant-numeric:\s*tabular-nums/)
+assert.match(cssSource, /min-height:\s*44px/)
+assert.match(cssSource, /:focus-visible/)
+
+const toastSource = readRepoFile('src/components/ui/Toast.tsx')
+assert.match(toastSource, /aria-live="polite"/)
+
+const dialogSource = readRepoFile('src/components/ui/Dialog.tsx')
+assert.match(dialogSource, /aria-modal="true"/)
+assert.match(dialogSource, /event\.key\s*===\s*'Escape'/)
+
+const authGateSource = readRepoFile('src/components/shell/AuthGate.tsx')
+assert.match(authGateSource, /screenPasswordSafety/)
+assert.match(authGateSource, /updateRecoveredPassword/)
+assert.match(authGateSource, /bootstrapWorkspace/)
+
+const verifiedCardSource = readRepoFile(
+  'src/features/workspaces/command-center/VerifiedRevenueCard.tsx',
+)
+assert.match(verifiedCardSource, /verified_recovery_payments/)
+assert.match(verifiedCardSource, /owner_reported_paid/)
+
+const financePanelSource = readRepoFile(
+  'src/features/workspaces/command-center/FinanceAgingPanel.tsx',
+)
+assert.match(financePanelSource, /'expense_save'/)
+assert.match(financePanelSource, /'expense_update'/)
+
+console.log(
+  `PASS: src/ SDK, state & Phase 3A contracts verified across ${srcFiles.length} TypeScript modules.`,
+)
