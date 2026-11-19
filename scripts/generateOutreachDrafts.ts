@@ -6,7 +6,7 @@ import {
   checkOllamaHealth,
   normalizeOllamaBaseUrl,
   type JsonSchemaObject,
-} from './lib/ollamaClient';
+} from './lib/ollamaClient.ts';
 
 try {
   process.loadEnvFile?.('.env.local');
@@ -82,9 +82,14 @@ interface WorkspaceRow {
 
 async function verifyDatabaseAndWorkspace(
   supabase: SupabaseClient,
-  requireWorkspace: boolean
+  requireWorkspace: boolean,
+  overrideWorkspaceId?: string
 ): Promise<{ workspaceId: string | null; workspaceName: string | null }> {
-  const configuredWorkspaceId = (process.env.DEFAULT_WORKSPACE_ID ?? '').trim();
+  const configuredWorkspaceId = (
+    overrideWorkspaceId ??
+    process.env.DEFAULT_WORKSPACE_ID ??
+    ''
+  ).trim();
   if (configuredWorkspaceId && isPlaceholderValue(configuredWorkspaceId)) {
     throw new Error('DEFAULT_WORKSPACE_ID contains a literal placeholder.');
   }
@@ -183,6 +188,78 @@ export interface GeneratedOutreachDraft {
   provider: string;
 }
 
+export interface OutreachCliOptions {
+  upgradeExisting: boolean;
+  limit: number;
+  workspaceId?: string;
+}
+
+export function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function parseLimitFlag(rawValue: string): number {
+  const parsed = Number(rawValue);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 50) {
+    throw new Error(`Invalid --limit value "${rawValue}": must be an integer between 1 and 50.`);
+  }
+  return parsed;
+}
+
+export function parseOutreachCliArgs(argv: readonly string[]): OutreachCliOptions {
+  let upgradeExisting = false;
+  let limit = 25;
+  let workspaceId: string | undefined;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]?.trim() ?? '';
+    if (!arg) continue;
+
+    if (arg === '--upgrade-existing') {
+      upgradeExisting = true;
+      continue;
+    }
+
+    if (arg.startsWith('--limit=')) {
+      limit = parseLimitFlag(arg.slice('--limit='.length).trim());
+      continue;
+    }
+
+    if (arg === '--limit') {
+      const next = argv[i + 1]?.trim() ?? '';
+      if (!next) {
+        throw new Error('Missing integer value after --limit.');
+      }
+      limit = parseLimitFlag(next);
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--workspace=')) {
+      const candidate = arg.slice('--workspace='.length).trim();
+      if (!UUID_REGEX.test(candidate)) {
+        throw new Error(`Invalid --workspace UUID: "${candidate}"`);
+      }
+      workspaceId = candidate;
+      continue;
+    }
+
+    if (arg === '--workspace') {
+      const candidate = argv[i + 1]?.trim() ?? '';
+      if (!candidate || !UUID_REGEX.test(candidate)) {
+        throw new Error(`Invalid --workspace UUID: "${candidate}"`);
+      }
+      workspaceId = candidate;
+      i += 1;
+      continue;
+    }
+
+    throw new Error(`Unknown CLI argument: ${arg}`);
+  }
+
+  return workspaceId ? { upgradeExisting, limit, workspaceId } : { upgradeExisting, limit };
+}
+
 export const LOCAL_OUTREACH_SCHEMA: JsonSchemaObject = {
   type: 'object',
   additionalProperties: false,
@@ -195,7 +272,7 @@ export const LOCAL_OUTREACH_SCHEMA: JsonSchemaObject = {
     body: {
       type: 'string',
       description:
-        'Concise plain-English founder-to-founder email under 110 words referencing the demo link.',
+        'Concise plain-English founder-to-founder email strictly under 100 words (aim for 65-85 words) referencing the demo link verbatim.',
     },
     detected_angle: {
       type: 'string',
@@ -281,6 +358,11 @@ export function validatePersonalizedOutreach(
 
   const demoUrl = `${normalizePublicAppUrl(publicAppUrl)}/demo`;
   if (!body.includes(demoUrl)) {
+    return null;
+  }
+
+  const wordCount = countWords(body);
+  if (wordCount <= 0 || wordCount >= 100) {
     return null;
   }
 
@@ -371,42 +453,53 @@ async function generateLocalOllamaOutreach(
 ): Promise<PersonalizedOutreachOutput | null> {
   const normalizedUrl = normalizePublicAppUrl(params.publicAppUrl);
   const demoUrl = `${normalizedUrl}/demo`;
+  const timeoutMs = config.timeoutMs ?? 60000;
+  const userPayload = JSON.stringify({
+    business: params.companyName,
+    contact_name: params.contactName,
+    vertical: params.industry,
+    city_state: params.location,
+    website: params.website,
+    crawled_notes: params.notes,
+    required_demo_url: demoUrl,
+    sender_name: params.senderName,
+    max_words: 99,
+  });
 
-  return callOllamaStructured<PersonalizedOutreachOutput>(
-    {
-      baseUrl: config.baseUrl,
-      model: config.model,
-      temperature: 0.2,
-      timeoutMs: config.timeoutMs ?? 45000,
-      think: false,
-      schema: LOCAL_OUTREACH_SCHEMA,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You write concise, plain-English founder-to-founder emails (strictly under 110 words) for Loose Ends Operations OS. Never invent dollar amounts, ROI percentages, fake metrics, or spammy formatting (no ALL CAPS, no excessive exclamation marks). You MUST include the exact demo URL verbatim in the email body: ' +
-            demoUrl +
-            '. Sign off warmly as ' +
-            params.senderName +
-            '. Respond strictly as JSON matching the schema.',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            business: params.companyName,
-            contact_name: params.contactName,
-            vertical: params.industry,
-            city_state: params.location,
-            website: params.website,
-            crawled_notes: params.notes,
-            required_demo_url: demoUrl,
-            sender_name: params.senderName,
-          }),
-        },
-      ],
-    },
-    (raw: unknown) => validatePersonalizedOutreach(raw, normalizedUrl)
-  );
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const systemPrompt =
+      attempt === 0
+        ? `You write concise, plain-English founder-to-founder emails strictly under 100 words (target 65-85 words) for Loose Ends Operations OS. Tailor the subject and opening line to the business, vertical, city/state, and notes. Never invent dollar amounts, ROI percentages, fake metrics, or spammy formatting (no ALL CAPS, no excessive exclamation marks). You MUST include the exact demo URL verbatim in the email body: ${demoUrl}. Sign off warmly as ${params.senderName}. Respond strictly as JSON matching the schema.`
+        : `You write concise, plain-English founder-to-founder emails for Loose Ends Operations OS. Keep body strictly under 80 words and include ${demoUrl} verbatim. Do not invent dollar amounts or metrics, use a specific natural subject line tailored to ${params.companyName}, sign off as ${params.senderName}, and respond strictly as JSON matching the schema.`;
+
+    const result = await callOllamaStructured<PersonalizedOutreachOutput>(
+      {
+        baseUrl: config.baseUrl,
+        model: config.model,
+        temperature: attempt === 0 ? 0.2 : 0.15,
+        timeoutMs,
+        think: false,
+        schema: LOCAL_OUTREACH_SCHEMA,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: userPayload,
+          },
+        ],
+      },
+      (raw: unknown) => validatePersonalizedOutreach(raw, normalizedUrl)
+    );
+
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
 }
 
 // Fail-closed suppression lookup
@@ -696,7 +789,19 @@ export async function generateOutreachDraftText(
   };
 }
 
-export async function generateDailyOutreachDrafts(): Promise<void> {
+interface ExistingDraftRow {
+  id: string;
+  status: string;
+  delivery_status: string;
+}
+
+export async function generateDailyOutreachDrafts(
+  cliOptions?: OutreachCliOptions
+): Promise<void> {
+  const options: OutreachCliOptions = cliOptions ?? {
+    upgradeExisting: false,
+    limit: 25,
+  };
   const supabaseUrl = resolveSupabaseUrl();
   const serviceKeyCheck = resolveServiceRoleKey();
 
@@ -711,7 +816,7 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
 
   // Verify database connection and target workspace before querying/mutating
   const { workspaceId: verifiedWorkspaceId, workspaceName } =
-    await verifyDatabaseAndWorkspace(supabase, true);
+    await verifyDatabaseAndWorkspace(supabase, true, options.workspaceId);
 
   if (!verifiedWorkspaceId) {
     console.error(
@@ -724,27 +829,46 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
   console.log(
     `🔗 Connected to ${supabaseUrl} | Workspace: ${verifiedWorkspaceId} (${
       workspaceName ?? 'verified'
+    }) | Mode: ${options.upgradeExisting ? 'upgrade-existing' : 'draft-ready'} (limit ${
+      options.limit
     }) | Draft provider: ${localProvider.modeLabel}${
       localProvider.reason ? ` (${localProvider.reason})` : ''
     }`
   );
 
-  const { data: leads, error: fetchError } = await supabase
+  if (options.upgradeExisting && !localProvider.enabled) {
+    console.log(
+      `⏭️ --upgrade-existing requires local Ollama (${localProvider.model}) to be running; existing drafts were left untouched.`
+    );
+    return;
+  }
+
+  const leadQuery = supabase
     .from('public_leads')
     .select('*')
-    .or(`workspace_id.eq.${verifiedWorkspaceId},workspace_id.is.null`)
-    .eq('status', 'DRAFT_READY')
+    .or(`workspace_id.eq.${verifiedWorkspaceId},workspace_id.is.null`);
+
+  const statusFilteredQuery = options.upgradeExisting
+    ? leadQuery.in('status', ['DRAFT_READY', 'DRAFT_GENERATED'])
+    : leadQuery.eq('status', 'DRAFT_READY');
+
+  const { data: leads, error: fetchError } = await statusFilteredQuery
     .order('score', { ascending: false })
-    .limit(25);
+    .order('id', { ascending: true })
+    .limit(options.limit);
 
   if (fetchError || !leads) {
-    console.error('❌ Failed to fetch DRAFT_READY leads:', fetchError?.message);
+    console.error('❌ Failed to fetch leads for drafting:', fetchError?.message);
     process.exit(1);
   }
 
   const typedLeads = leads as PublicLeadRow[];
   if (typedLeads.length === 0) {
-    console.log('ℹ️ No leads at status DRAFT_READY to process.');
+    console.log(
+      options.upgradeExisting
+        ? 'ℹ️ No leads at status DRAFT_READY or DRAFT_GENERATED to upgrade.'
+        : 'ℹ️ No leads at status DRAFT_READY to process.'
+    );
     return;
   }
 
@@ -752,7 +876,10 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
   const senderName =
     (process.env.SENDER_NAME ?? '').trim() || 'Loose Ends Operations Team';
 
-  let generatedCount = 0;
+  let personalizedCount = 0;
+  let upgradedCount = 0;
+  let insertedCount = 0;
+  let skippedCount = 0;
 
   for (const lead of typedLeads) {
     const companyName = (lead.company_name ?? lead.business ?? 'Your Team').trim();
@@ -771,9 +898,173 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
     if (contactEmail) {
       const suppressed = await isEmailSuppressed(supabase, contactEmail);
       if (suppressed) {
+        skippedCount += 1;
         console.log(`⏭️ Skipping ${companyName} (opt-out or consent check blocked)`);
         continue;
       }
+    }
+
+    if (options.upgradeExisting) {
+      const { data: existingDraftData, error: existingDraftError } = await supabase
+        .from('ops_communication_drafts')
+        .select('id, status, delivery_status')
+        .eq('workspace_id', workspaceId)
+        .eq('lead_id', lead.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingDraftError) {
+        skippedCount += 1;
+        console.error(
+          `❌ Could not inspect existing draft for ${companyName}:`,
+          existingDraftError.message
+        );
+        continue;
+      }
+
+      const existingDraft = existingDraftData as ExistingDraftRow | null;
+      if (
+        existingDraft &&
+        (existingDraft.status !== 'draft' || existingDraft.delivery_status !== 'not_sent')
+      ) {
+        skippedCount += 1;
+        console.log(
+          `⏭️ Skipping ${companyName} (existing draft is ${existingDraft.status}/${existingDraft.delivery_status})`
+        );
+        continue;
+      }
+
+      const draftResult = await generateOutreachDraftText(
+        {
+          companyName,
+          contactName,
+          industry,
+          location: lead.location ?? '',
+          website,
+          notes: lead.notes ?? '',
+          publicAppUrl,
+          senderName,
+        },
+        {
+          localOllama: localProvider,
+          allowXaiFallback: false,
+          timeoutMs: 60000,
+        }
+      );
+
+      if (!draftResult.provider.startsWith('local-ollama:')) {
+        skippedCount += 1;
+        console.warn(
+          `⚠️ Skipping upgrade for ${companyName}: local Ollama returned ${draftResult.provider}; preserving existing draft.`
+        );
+        continue;
+      }
+
+      if (existingDraft) {
+        const { error: upgradeError } = await supabase
+          .from('ops_communication_drafts')
+          .update({
+            subject: draftResult.subject,
+            message: draftResult.body,
+            status: 'draft',
+            delivery_status: 'not_sent',
+            requires_approval: true,
+          })
+          .eq('id', existingDraft.id)
+          .eq('workspace_id', workspaceId);
+
+        if (upgradeError) {
+          skippedCount += 1;
+          console.error(
+            `❌ Could not upgrade draft for ${companyName}:`,
+            upgradeError.message
+          );
+          continue;
+        }
+
+        if (lead.status !== 'DRAFT_GENERATED' || lead.workspace_id !== workspaceId) {
+          const { error: leadLinkError } = await supabase
+            .from('public_leads')
+            .update({
+              status: 'DRAFT_GENERATED',
+              workspace_id: workspaceId,
+            })
+            .eq('id', lead.id);
+
+          if (leadLinkError) {
+            console.warn(
+              `⚠️ Draft upgraded for ${companyName}, but lead link update failed: ${leadLinkError.message}`
+            );
+          }
+        }
+
+        personalizedCount += 1;
+        upgradedCount += 1;
+        console.log(
+          `✨ Upgraded draft (${draftResult.provider}, ${countWords(draftResult.body)} words): ${companyName}`
+        );
+        continue;
+      }
+
+      const customerId = await resolveOrCreateCustomerForProspect({
+        supabase,
+        workspaceId,
+        companyName,
+        contactName,
+        contactEmail,
+        phone,
+        website,
+        notes: lead.notes ?? '',
+      });
+
+      const { error: insertError } = await supabase
+        .from('ops_communication_drafts')
+        .insert({
+          workspace_id: workspaceId,
+          customer_id: customerId,
+          lead_id: lead.id,
+          channel: 'email',
+          recipient_email: contactEmail || null,
+          recipient_name: contactName,
+          company_name: companyName,
+          subject: draftResult.subject,
+          message: draftResult.body,
+          status: 'draft',
+          delivery_status: 'not_sent',
+          requires_approval: true,
+          created_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        skippedCount += 1;
+        console.error(
+          `❌ Could not insert upgraded draft for ${companyName}:`,
+          insertError.message
+        );
+        continue;
+      }
+
+      const { error: updateError } = await supabase
+        .from('public_leads')
+        .update({
+          status: 'DRAFT_GENERATED',
+          workspace_id: workspaceId,
+        })
+        .eq('id', lead.id);
+
+      if (updateError) {
+        console.warn(
+          `⚠️ Inserted draft for ${companyName}, but could not update lead status: ${updateError.message}`
+        );
+      }
+
+      personalizedCount += 1;
+      insertedCount += 1;
+      console.log(
+        `✨ Created personalized draft (${draftResult.provider}, ${countWords(draftResult.body)} words): ${companyName}`
+      );
+      continue;
     }
 
     // 2. Ensure a linked customer record exists in the target workspace so the
@@ -825,6 +1116,7 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
       });
 
     if (draftError) {
+      skippedCount += 1;
       console.error(
         `❌ Could not create draft for ${companyName}:`,
         draftError.message
@@ -842,6 +1134,7 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
       .eq('id', lead.id);
 
     if (updateError) {
+      skippedCount += 1;
       console.error(
         `❌ Could not update status for ${companyName}:`,
         updateError.message
@@ -849,14 +1142,17 @@ export async function generateDailyOutreachDrafts(): Promise<void> {
       continue;
     }
 
-    generatedCount += 1;
+    if (draftResult.provider.startsWith('local-ollama:')) {
+      personalizedCount += 1;
+    }
+    insertedCount += 1;
     console.log(
       `📝 Draft queued for owner review (${draftResult.provider}): ${companyName}`
     );
   }
 
   console.log(
-    `\n✅ Outreach draft generation complete. ${generatedCount} draft(s) queued in ops_communication_drafts.`
+    `\n✅ Outreach draft pass complete. personalized=${personalizedCount} (local-ollama), upgraded=${upgradedCount}, inserted=${insertedCount}, skipped=${skippedCount}`
   );
 }
 
@@ -865,8 +1161,10 @@ if (
   invokedScript.endsWith('/scripts/generateOutreachDrafts.ts') ||
   invokedScript === 'scripts/generateOutreachDrafts.ts'
 ) {
-  generateDailyOutreachDrafts().catch((err: unknown) => {
-    console.error('Fatal error in generateOutreachDrafts:', err);
-    process.exit(1);
-  });
+  generateDailyOutreachDrafts(parseOutreachCliArgs(process.argv.slice(2))).catch(
+    (err: unknown) => {
+      console.error('Fatal error in generateOutreachDrafts:', err);
+      process.exit(1);
+    }
+  );
 }

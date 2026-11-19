@@ -453,6 +453,50 @@ try {
   assert.match(offlineFallback.subject, /Kanawha Mechanical/)
   assert.match(offlineFallback.body, /https:\/\/loose-ends-os\.vercel\.app\/demo/)
 
+  // Enforce strictly under 100 words on personalized Gemma 4 outreach drafts
+  const longBody = `${Array.from({ length: 102 }, (_, i) => `word${i}`).join(' ')} https://loose-ends-os.vercel.app/demo`
+  assert.equal(
+    outreachMod.validatePersonalizedOutreach(
+      {
+        subject: 'Too long draft',
+        body: longBody,
+        detected_angle: 'stale quotes',
+      },
+      'https://loose-ends-os.vercel.app',
+    ),
+    null,
+    'Outreach bodies >= 100 words must be rejected',
+  )
+  const conciseValidated = outreachMod.validatePersonalizedOutreach(
+    {
+      subject: 'Quick note for Kanawha Mechanical',
+      body: 'Hi Sam,\n\nQuick look at how teams close unbilled field add-ons before Friday billing: https://loose-ends-os.vercel.app/demo\n\nBest,\nLoose Ends Team',
+      detected_angle: 'unbilled field add-ons',
+    },
+    'https://loose-ends-os.vercel.app',
+  )
+  assert.ok(conciseValidated)
+  assert.ok(outreachMod.countWords(conciseValidated.body) < 100)
+
+  const parsedOutreachArgs = outreachMod.parseOutreachCliArgs([
+    '--upgrade-existing',
+    '--limit',
+    '10',
+    '--workspace',
+    '1dfa4852-9415-446a-b8c2-6d2263f65998',
+  ])
+  assert.deepEqual(parsedOutreachArgs, {
+    upgradeExisting: true,
+    limit: 10,
+    workspaceId: '1dfa4852-9415-446a-b8c2-6d2263f65998',
+  })
+  assert.throws(() => outreachMod.parseOutreachCliArgs(['--limit', '0']), /between 1 and 50/)
+  assert.throws(() => outreachMod.parseOutreachCliArgs(['--limit', '51']), /between 1 and 50/)
+  assert.throws(
+    () => outreachMod.parseOutreachCliArgs(['--workspace', 'not-a-uuid']),
+    /Invalid --workspace UUID/,
+  )
+
   // =========================================================================
   // 5. Test parseReceiptLocal.ts CLI arg parser
   // =========================================================================
