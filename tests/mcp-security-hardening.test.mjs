@@ -215,6 +215,20 @@ function createMockSupabase() {
 
         if (op === 'insert') {
           const toInsert = Array.isArray(writePayload) ? writePayload : [writePayload]
+          if (table === 'ops_communication_drafts') {
+            for (const item of toInsert) {
+              if (item.lead_id && rows.some(r => r.lead_id === item.lead_id)) {
+                return {
+                  data: null,
+                  error: {
+                    code: '23505',
+                    message: 'duplicate key value violates unique constraint "ops_drafts_lead_id_unique_idx"',
+                  },
+                  count: null,
+                }
+              }
+            }
+          }
           const created = toInsert.map((item, idx) => ({
             id: item.id ?? `${table}-new-${rows.length + idx + 1}`,
             created_at: item.created_at ?? `2026-11-18T12:00:0${rows.length + idx}Z`,
@@ -420,6 +434,11 @@ for (const reqTool of [
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
+const botManualTool = listRes.json.result.tools.find(t => t.name === 'get_bot_manual')
+assert.ok(botManualTool)
+assert.ok(!botManualTool.inputSchema.required || botManualTool.inputSchema.required.length === 0)
+assert.ok(botManualTool.inputSchema.properties.role)
+assert.ok(botManualTool.inputSchema.properties.bot_role)
 
 // C. Scope enforcement: read-only token blocked from staging/write tools with 403
 const roWriteAttempt = await callMcp(rawTokenAReadOnly, 'tools/call', {
@@ -540,6 +559,120 @@ const badAmountStage = await callMcp(rawTokenA, 'tools/call', {
   },
 })
 assert.equal(badAmountStage.status, 400)
+
+// F2. queue_communication_draft lead_id upsert/isolation + get_bot_manual optional role & rubric
+const firstLeadDraft = await callMcp(rawTokenA, 'tools/call', {
+  name: 'queue_communication_draft',
+  arguments: {
+    lead_id: 'lead-a1',
+    company_name: 'Kanawha HVAC',
+    recipient_name: 'Sam',
+    recipient_email: 'owner@kanawha.invalid',
+    subject: 'Initial ops check for Kanawha HVAC',
+    message: 'Hi Sam, check out https://loose-ends-os.vercel.app/demo',
+  },
+})
+assert.equal(firstLeadDraft.status, 200)
+const firstDraftSc = firstLeadDraft.json.result.structuredContent
+assert.equal(firstDraftSc.action, 'created_draft')
+assert.equal(firstDraftSc.lead_id, 'lead-a1')
+assert.equal(firstDraftSc.draft.lead_id, 'lead-a1')
+assert.equal(firstDraftSc.status, 'draft')
+assert.equal(firstDraftSc.delivery_status, 'not_sent')
+assert.equal(state.public_leads.find(l => l.id === 'lead-a1').status, 'DRAFT_GENERATED')
+
+// Re-queuing a draft for the same lead_id updates the unsent draft in place cleanly
+const secondLeadDraft = await callMcp(rawTokenA, 'tools/call', {
+  name: 'queue_communication_draft',
+  arguments: {
+    lead_id: 'lead-a1',
+    company_name: 'Kanawha HVAC',
+    recipient_name: 'Sam',
+    recipient_email: 'owner@kanawha.invalid',
+    subject: 'Updated scorecard note for Kanawha HVAC',
+    message: 'Hi Sam, updated scorecard summary with https://loose-ends-os.vercel.app/demo',
+  },
+})
+assert.equal(secondLeadDraft.status, 200)
+const secondDraftSc = secondLeadDraft.json.result.structuredContent
+assert.equal(secondDraftSc.action, 'updated_existing_draft')
+assert.equal(secondDraftSc.lead_id, 'lead-a1')
+assert.equal(secondDraftSc.draft.id, firstDraftSc.draft.id)
+assert.equal(secondDraftSc.draft.lead_id, 'lead-a1')
+assert.equal(secondDraftSc.draft.subject, 'Updated scorecard note for Kanawha HVAC')
+assert.equal(secondDraftSc.draft.status, 'draft')
+assert.equal(secondDraftSc.draft.delivery_status, 'not_sent')
+assert.equal(state.ops_communication_drafts.filter(d => d.lead_id === 'lead-a1').length, 1)
+
+// Cross-workspace lead_id must be rejected
+const crossWsLeadDraft = await callMcp(rawTokenA, 'tools/call', {
+  name: 'queue_communication_draft',
+  arguments: {
+    lead_id: 'lead-b1',
+    company_name: 'Other Workspace Plumbing',
+    recipient_email: 'owner@other.invalid',
+    subject: 'Cross tenant attempt',
+    message: 'Should fail cleanly',
+  },
+})
+assert.equal(crossWsLeadDraft.status, 400)
+assert.match(crossWsLeadDraft.json.error.message, /lead_id not found in authenticated workspace/)
+
+// Already approved/sent draft linked to lead_id must NOT be overwritten
+const leadDraftRef = state.ops_communication_drafts.find(d => d.lead_id === 'lead-a1')
+leadDraftRef.status = 'approved'
+const lockedDraftAttempt = await callMcp(rawTokenA, 'tools/call', {
+  name: 'queue_communication_draft',
+  arguments: {
+    lead_id: 'lead-a1',
+    company_name: 'Kanawha HVAC',
+    recipient_email: 'owner@kanawha.invalid',
+    subject: 'Overwrite approved attempt',
+    message: 'Should fail cleanly',
+  },
+})
+assert.equal(lockedDraftAttempt.status, 400)
+assert.match(lockedDraftAttempt.json.error.message, /cannot be overwritten/)
+leadDraftRef.status = 'draft'
+
+// get_bot_manual with omitted role returns concise workspace role index without leaking wsB
+const manualIndexRes = await callMcp(rawTokenA, 'tools/call', {
+  name: 'get_bot_manual',
+  arguments: {},
+})
+assert.equal(manualIndexRes.status, 200)
+const manualIndexSc = manualIndexRes.json.result.structuredContent
+assert.equal(manualIndexSc.read_only, true)
+assert.equal(manualIndexSc.available_roles.length, 9)
+assert.equal(JSON.stringify(manualIndexSc).includes('Workspace B SECRET SOP'), false)
+
+// get_bot_manual with role='scout' and legacy bot_role='scout' both embed the 100-pt A-D rubric
+for (const args of [{ role: 'scout' }, { bot_role: 'scout' }]) {
+  const scoutManualRes = await callMcp(rawTokenA, 'tools/call', {
+    name: 'get_bot_manual',
+    arguments: args,
+  })
+  assert.equal(scoutManualRes.status, 200)
+  const scoutSc = scoutManualRes.json.result.structuredContent
+  assert.match(scoutSc.manual.instructions_markdown, /Operations Readiness Grading Rubric/)
+  const totalPoints = scoutSc.grading_rubric.categories.reduce(
+    (sum, category) => sum + category.max_points,
+    0,
+  )
+  assert.equal(totalPoints, 100)
+  assert.deepEqual(scoutSc.grading_rubric.grade_bands, {
+    A: '85-100',
+    B: '70-84',
+    C: '50-69',
+    D: '0-49',
+  })
+}
+
+const badRoleManual = await callMcp(rawTokenA, 'tools/call', {
+  name: 'get_bot_manual',
+  arguments: { role: 'invalid_role' },
+})
+assert.equal(badRoleManual.status, 400)
 
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([

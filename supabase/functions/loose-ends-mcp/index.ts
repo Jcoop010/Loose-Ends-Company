@@ -13,7 +13,9 @@ const ALLOWED_BOT_ROLES = [
   "dispatcher",
   "buyer",
   "billing",
+  "cash_applications",
   "collections",
+  "outreach",
   "qa",
 ] as const;
 
@@ -87,6 +89,42 @@ interface OpsReadinessAuditRow {
   findings: string[];
   report_html: string;
   created_at: string;
+}
+
+interface ExistingLeadDraftRow {
+  id: string;
+  status: string;
+  delivery_status: string;
+}
+
+interface BotManualRow {
+  id?: string;
+  workspace_id: string;
+  bot_role: string;
+  mode: string;
+  instructions_markdown: string;
+  updated_at?: string | null;
+}
+
+interface BotRoleIndexEntry {
+  role: BotRole;
+  mode: string;
+  title: string;
+  summary: string;
+  has_custom_manual: boolean;
+}
+
+interface OpsReadinessRubricCategory {
+  id: string;
+  name: string;
+  max_points: number;
+  criteria: readonly string[];
+}
+
+interface OpsReadinessRubric {
+  total_points: 100;
+  grade_bands: Readonly<Record<AuditGrade, string>>;
+  categories: readonly OpsReadinessRubricCategory[];
 }
 
 interface ConsentCheckResult {
@@ -224,6 +262,194 @@ function normalizeLimit(raw: unknown, fallback = 25): number {
   return Math.min(100, Math.max(1, Math.trunc(numeric)));
 }
 
+const OPS_READINESS_GRADING_RUBRIC: OpsReadinessRubric = {
+  total_points: 100,
+  grade_bands: {
+    A: "85-100",
+    B: "70-84",
+    C: "50-69",
+    D: "0-49",
+  },
+  categories: [
+    {
+      id: "lead_capture_and_booking_friction",
+      name: "Lead Capture & Booking Friction",
+      max_points: 25,
+      criteria: [
+        "Clear primary service CTA above the fold (10 pts)",
+        "Online quote or booking request flow (10 pts)",
+        "Accurate mobile tap-to-call / click-to-email links with zero broken or wrong numbers (5 pts)",
+      ],
+    },
+    {
+      id: "owner_contact_and_trust_clarity",
+      name: "Owner Contact & Trust Clarity",
+      max_points: 25,
+      criteria: [
+        "Verified owner/office email (owner@, office@, service@, billing@, info@) on matching domain (10 pts)",
+        "Visible service area, operating hours, and licensing/insurance proof (10 pts)",
+        "Consistent Name/Address/Phone across pages (5 pts)",
+      ],
+    },
+    {
+      id: "quote_to_cash_workflow_readiness",
+      name: "Quote-to-Cash & Workflow Readiness",
+      max_points: 20,
+      criteria: [
+        "Clear service scope, pricing ranges, or estimate request expectations (10 pts)",
+        "Scheduling/dispatch, invoice/payment portal, or repeat maintenance plan evidence (10 pts)",
+      ],
+    },
+    {
+      id: "digital_hygiene_mobile_ux_speed",
+      name: "Digital Hygiene, Mobile UX & Speed",
+      max_points: 15,
+      criteria: [
+        "Valid HTTPS and responsive mobile layout without broken/clipped UI (8 pts)",
+        "Live pages with no dead links, broken forms, or placeholder copy (7 pts)",
+      ],
+    },
+    {
+      id: "follow_up_reviews_retention",
+      name: "Follow-Up, Reviews & Retention Signals",
+      max_points: 15,
+      criteria: [
+        "Visible customer reviews, ratings, or testimonials (8 pts)",
+        "Follow-up, seasonal reminder, or referral/loyalty capture (7 pts)",
+      ],
+    },
+  ],
+};
+
+const OPS_READINESS_GRADING_RUBRIC_MARKDOWN = [
+  "## Standard 100-Point A–D Operations Readiness Grading Rubric",
+  "- Lead Capture & Booking Friction (25 pts): Clear primary service CTA above the fold (10); online quote/booking request flow (10); accurate mobile tap-to-call / click-to-email links with zero broken or wrong numbers (5).",
+  "- Owner Contact & Trust Clarity (25 pts): Verified owner/office email (`owner@`, `office@`, `service@`, `billing@`, `info@`) on matching domain (10); visible service area, operating hours, and licensing/insurance proof (10); consistent Name/Address/Phone across pages (5).",
+  "- Quote-to-Cash & Workflow Readiness (20 pts): Clear service scope, pricing ranges, or estimate request expectations (10); scheduling/dispatch, invoice/payment portal, or repeat maintenance plan evidence (10).",
+  "- Digital Hygiene, Mobile UX & Speed (15 pts): Valid HTTPS and responsive mobile layout without broken/clipped UI (8); live pages with no dead links, broken forms, or placeholder copy (7).",
+  "- Follow-Up, Reviews & Retention Signals (15 pts): Visible customer reviews, ratings, or testimonials (8); follow-up, seasonal reminder, or referral/loyalty capture (7).",
+  "- Grade Bands: A = 85–100 | B = 70–84 | C = 50–69 | D = 0–49. Sum integer category scores into `score_0_100` (0–100) and pass 3–5 concrete evidence-backed `findings` to `save_ops_readiness_audit`.",
+].join("\n");
+
+const DEFAULT_BOT_ROLE_SUMMARIES: Readonly<
+  Record<BotRole, { title: string; summary: string }>
+> = {
+  chief_of_staff: {
+    title: "Chief of Staff Bot SOP",
+    summary:
+      "Compare workspace state_hash for silent unchanged runs and surface cross-workspace bottlenecks as staged actions.",
+  },
+  scout: {
+    title: "SMB Prospect Scout & Ops Readiness Grader SOP",
+    summary:
+      "Verify real owner/office emails, grade SMBs on the 100-point A-D Operations Readiness Rubric, and stage outreach.",
+  },
+  dispatcher: {
+    title: "Zero-Keyboard Dispatch & SMS/Voicemail Command SOP",
+    summary:
+      "Convert field transcripts into staged dispatch updates and block invoicing on incomplete checklists.",
+  },
+  buyer: {
+    title: "Photo-to-Inventory & Purchasing Buyer SOP",
+    summary:
+      "Parse shelf photos/packing slips and stage purchase_order_draft proposals for low-stock SKUs.",
+  },
+  billing: {
+    title: "Vendor Bill Auditor & Invoice Parser SOP",
+    summary:
+      "Recompute line-item subtotals + tax in integer cents and flag duplicate charges, surcharges, or price hikes.",
+  },
+  cash_applications: {
+    title: "Cash Applications & Receipt Match SOP",
+    summary:
+      "Match incoming vendor bills, POs, and remittance advice deterministically in integer cents.",
+  },
+  collections: {
+    title: "Open-Loop Inbox Recovery & Collections SOP",
+    summary:
+      "Detect unanswered estimates and overdue invoices (>7 days) and verify channel consent before follow-up.",
+  },
+  outreach: {
+    title: "Founder-to-Founder SMB Outreach SOP",
+    summary:
+      "Write concise plain-English outreach referencing the live demo sandbox after fail-closed consent checks.",
+  },
+  qa: {
+    title: "Operations QA & Compliance Guard Bot SOP",
+    summary:
+      "Audit staged drafts, consent evidence, and integer cent math; block any opted-out or revoked recipient.",
+  },
+};
+
+const DEFAULT_SCOUT_MANUAL_MARKDOWN = [
+  "# SMB Prospect Scout & Ops Readiness Grader SOP",
+  "- Prioritize Ohio Valley / Appalachian regional SMBs (WV, OH, PA) alongside growth metros.",
+  "- Crawl business websites to verify real owner/operations emails (`owner@`, `office@`, `billing@`, `service@`, `info@`) and generate a 0-100 (`A`-`D`) Operations Readiness Scorecard via `save_ops_readiness_audit`.",
+  "- Reject non-buyer prefixes (`resumes@`, `careers@`, `jobs@`, `hr@`) and agency footer domains.",
+  "",
+  OPS_READINESS_GRADING_RUBRIC_MARKDOWN,
+].join("\n");
+
+function summarizeManualMarkdown(
+  markdown: string,
+  fallbackRole: BotRole
+): { title: string; summary: string } {
+  const defaults = DEFAULT_BOT_ROLE_SUMMARIES[fallbackRole];
+  const lines = markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  let title = defaults.title;
+  let summary = "";
+
+  for (const line of lines) {
+    if (line.startsWith("#")) {
+      const candidateTitle = line.replace(/^#+\s*/, "").trim();
+      if (candidateTitle && title === defaults.title) {
+        title = candidateTitle;
+      }
+      continue;
+    }
+    const cleanLine = line.replace(/^[-*]\s+/, "").trim();
+    if (cleanLine) {
+      summary = cleanLine;
+      break;
+    }
+  }
+
+  if (!summary) {
+    summary = defaults.summary;
+  } else if (summary.length > 140) {
+    summary = `${summary.slice(0, 137).trimEnd()}...`;
+  }
+
+  return { title, summary };
+}
+
+function enrichScoutManual(
+  manual: BotManualRow | null,
+  workspaceId: string
+): BotManualRow {
+  if (!manual) {
+    return {
+      workspace_id: workspaceId,
+      bot_role: "scout",
+      mode: "propose",
+      instructions_markdown: DEFAULT_SCOUT_MANUAL_MARKDOWN,
+    };
+  }
+  const hasRubric = manual.instructions_markdown.includes(
+    "Operations Readiness Grading Rubric"
+  );
+  return hasRubric
+    ? manual
+    : {
+        ...manual,
+        instructions_markdown: `${manual.instructions_markdown.trimEnd()}\n\n${OPS_READINESS_GRADING_RUBRIC_MARKDOWN}`,
+      };
+}
+
 const TOOL_CATALOG: readonly McpToolDefinition[] = [
   {
     name: "get_workspace_overview",
@@ -338,15 +564,21 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
     name: "get_bot_manual",
     requiredScope: "read_all",
     description:
-      "Read-only access to the authenticated workspace's versioned SOP manual and autonomy mode for one of the 7 bot roles.",
+      "Read-only access to the authenticated workspace's versioned SOP manual and autonomy mode. Omit role/bot_role to receive a concise index of all available roles; pass role=\"scout\" for the embedded 100-point A-D Operations Readiness grading rubric.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["bot_role"],
       properties: {
+        role: {
+          type: "string",
+          enum: [...ALLOWED_BOT_ROLES],
+          description:
+            "Optional bot role name. If omitted, returns a concise index of available roles.",
+        },
         bot_role: {
           type: "string",
           enum: [...ALLOWED_BOT_ROLES],
+          description: "Optional alias for role.",
         },
       },
     },
@@ -400,7 +632,7 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
     name: "queue_communication_draft",
     requiredScope: "stage_actions",
     description:
-      "Write-narrow (staged): Fail-closed consent verification in customer_contact_consent_events followed by owner-gated draft insert in ops_communication_drafts.",
+      "Write-narrow (staged): Fail-closed consent verification in customer_contact_consent_events followed by owner-gated draft upsert in ops_communication_drafts. When lead_id is provided, verifies it belongs to the authenticated workspace and updates an existing unsent draft row in place.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -411,7 +643,11 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
         recipient_email: { type: "string" },
         subject: { type: "string" },
         message: { type: "string" },
-        lead_id: { type: "string" },
+        lead_id: {
+          type: "string",
+          description:
+            "Optional public_leads.id UUID in the authenticated workspace to link and upsert cleanly.",
+        },
         customer_id: { type: "string" },
       },
     },
@@ -658,10 +894,27 @@ function buildSanitizedAuditOutput(
       staged_action_id: staged?.id ?? null,
     };
   }
+  if (toolName === "get_bot_manual") {
+    const manual = toolResult.manual as { bot_role?: string } | null;
+    return {
+      role: manual?.bot_role ?? null,
+      returned_index: Array.isArray(toolResult.available_roles),
+      available_role_count: Array.isArray(toolResult.available_roles)
+        ? toolResult.available_roles.length
+        : null,
+    };
+  }
   if (toolName === "queue_communication_draft") {
-    const draft = toolResult.draft as { id?: string; status?: string; delivery_status?: string } | null;
+    const draft = toolResult.draft as {
+      id?: string;
+      lead_id?: string | null;
+      status?: string;
+      delivery_status?: string;
+    } | null;
     return {
       draft_id: draft?.id ?? null,
+      lead_id: toolResult.lead_id ?? draft?.lead_id ?? null,
+      action: toolResult.action ?? "created_draft",
       status: draft?.status ?? "draft",
       delivery_status: draft?.delivery_status ?? "not_sent",
     };
@@ -753,7 +1006,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "1.4.0",
+        version: "1.5.0",
         workspace_id: workspaceId,
       },
     });
@@ -1123,24 +1376,85 @@ Deno.serve(async (req: Request) => {
         consent_events: consent.consent_events,
       };
     } else if (toolName === "get_bot_manual") {
-      const botRoleRaw = typeof args.bot_role === "string" ? args.bot_role.trim() : "";
-      if (!isOneOf(botRoleRaw, ALLOWED_BOT_ROLES)) {
-        throw new Error(
-          `bot_role must be one of: ${ALLOWED_BOT_ROLES.join(", ")}`
-        );
-      }
-      auditBotRole = botRoleRaw;
-      const { data: manual, error } = await admin
-        .from("bot_manuals")
-        .select("id, workspace_id, bot_role, mode, instructions_markdown, updated_at")
-        .eq("workspace_id", workspaceId)
-        .eq("bot_role", botRoleRaw)
-        .maybeSingle();
+      const rawRole =
+        typeof args.role === "string" && args.role.trim()
+          ? args.role.trim()
+          : typeof args.bot_role === "string"
+            ? args.bot_role.trim()
+            : "";
 
-      if (error) {
-        throw new Error("Failed to load workspace bot manual");
+      if (!rawRole) {
+        const { data: manuals, error } = await admin
+          .from("bot_manuals")
+          .select("id, workspace_id, bot_role, mode, instructions_markdown, updated_at")
+          .eq("workspace_id", workspaceId)
+          .order("bot_role", { ascending: true });
+
+        if (error) {
+          throw new Error("Failed to list workspace bot manuals");
+        }
+
+        const typedManuals = (manuals ?? []) as BotManualRow[];
+        const manualByRole = new Map<string, BotManualRow>();
+        for (const entry of typedManuals) {
+          if (entry.bot_role && !manualByRole.has(entry.bot_role)) {
+            manualByRole.set(entry.bot_role, entry);
+          }
+        }
+
+        const availableRoles: BotRoleIndexEntry[] = ALLOWED_BOT_ROLES.map((role) => {
+          const existing = manualByRole.get(role) ?? null;
+          const summaryMeta = existing
+            ? summarizeManualMarkdown(existing.instructions_markdown, role)
+            : DEFAULT_BOT_ROLE_SUMMARIES[role];
+          return {
+            role,
+            mode: existing?.mode ?? "propose",
+            title: summaryMeta.title,
+            summary: summaryMeta.summary,
+            has_custom_manual: existing !== null,
+          };
+        });
+
+        toolResult = {
+          read_only: true,
+          workspace_id: workspaceId,
+          usage:
+            "Call get_bot_manual with role (or bot_role) set to one of available_roles to load its full SOP manual.",
+          available_roles: availableRoles,
+        };
+      } else {
+        if (!isOneOf(rawRole, ALLOWED_BOT_ROLES)) {
+          throw new Error(
+            `role must be one of: ${ALLOWED_BOT_ROLES.join(", ")}`
+          );
+        }
+        auditBotRole = rawRole;
+        const { data: manual, error } = await admin
+          .from("bot_manuals")
+          .select("id, workspace_id, bot_role, mode, instructions_markdown, updated_at")
+          .eq("workspace_id", workspaceId)
+          .eq("bot_role", rawRole)
+          .maybeSingle();
+
+        if (error) {
+          throw new Error("Failed to load workspace bot manual");
+        }
+
+        if (rawRole === "scout") {
+          const scoutManual = enrichScoutManual(
+            (manual as BotManualRow | null) ?? null,
+            workspaceId
+          );
+          toolResult = {
+            manual: scoutManual,
+            grading_rubric: OPS_READINESS_GRADING_RUBRIC,
+            read_only: true,
+          };
+        } else {
+          toolResult = { manual: manual ?? null, read_only: true };
+        }
       }
-      toolResult = { manual: manual ?? null, read_only: true };
     } else if (toolName === "upsert_public_lead") {
       auditBotRole = "scout";
       const business = typeof args.business === "string" ? args.business.trim() : "";
@@ -1350,6 +1664,9 @@ Deno.serve(async (req: Request) => {
         customerId = (custMatch as CustomerIdRow).id;
       }
 
+      if (args.lead_id !== undefined && args.lead_id !== null && typeof args.lead_id !== "string") {
+        throw new Error("lead_id must be a string");
+      }
       let leadId: string | null = null;
       if (typeof args.lead_id === "string" && args.lead_id.trim()) {
         const candidateLeadId = args.lead_id.trim();
@@ -1413,30 +1730,100 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const { data: draftRow, error: draftErr } = await admin
-        .from("ops_communication_drafts")
-        .insert({
-          workspace_id: workspaceId,
-          customer_id: customerId,
-          lead_id: leadId,
-          channel: "email",
-          recipient_email: recipientEmail,
-          recipient_name: recipientName,
-          company_name: companyName,
-          subject,
-          message,
-          status: "draft",
-          delivery_status: "not_sent",
-          requires_approval: true,
-        })
-        .select("*")
-        .single();
+      let existingDraft: ExistingLeadDraftRow | null = null;
+      if (leadId) {
+        const { data: existingDraftData, error: existingDraftError } = await admin
+          .from("ops_communication_drafts")
+          .select("id, status, delivery_status")
+          .eq("workspace_id", workspaceId)
+          .eq("lead_id", leadId)
+          .maybeSingle();
 
-      if (draftErr || !draftRow) {
-        throw new Error("Failed to queue communication draft");
+        if (existingDraftError) {
+          throw new Error("Failed to check existing communication draft for lead_id");
+        }
+        existingDraft = (existingDraftData as ExistingLeadDraftRow | null) ?? null;
+
+        if (
+          existingDraft &&
+          (existingDraft.status !== "draft" || existingDraft.delivery_status !== "not_sent")
+        ) {
+          throw new Error(
+            `Communication draft for lead_id ${leadId} already exists with status "${existingDraft.status}" (${existingDraft.delivery_status}) and cannot be overwritten.`
+          );
+        }
       }
+
+      let savedDraft: unknown = null;
+      let draftAction: "created_draft" | "updated_existing_draft" = "created_draft";
+
+      if (existingDraft) {
+        const { data: updatedDraft, error: updateErr } = await admin
+          .from("ops_communication_drafts")
+          .update({
+            customer_id: customerId,
+            recipient_email: recipientEmail,
+            recipient_name: recipientName,
+            company_name: companyName,
+            subject,
+            message,
+            status: "draft",
+            delivery_status: "not_sent",
+            requires_approval: true,
+          })
+          .eq("workspace_id", workspaceId)
+          .eq("id", existingDraft.id)
+          .select("*")
+          .single();
+
+        if (updateErr || !updatedDraft) {
+          throw new Error("Failed to update existing communication draft");
+        }
+        savedDraft = updatedDraft;
+        draftAction = "updated_existing_draft";
+      } else {
+        const { data: draftRow, error: draftErr } = await admin
+          .from("ops_communication_drafts")
+          .insert({
+            workspace_id: workspaceId,
+            customer_id: customerId,
+            lead_id: leadId,
+            channel: "email",
+            recipient_email: recipientEmail,
+            recipient_name: recipientName,
+            company_name: companyName,
+            subject,
+            message,
+            status: "draft",
+            delivery_status: "not_sent",
+            requires_approval: true,
+          })
+          .select("*")
+          .single();
+
+        if (draftErr || !draftRow) {
+          throw new Error("Failed to queue communication draft");
+        }
+        savedDraft = draftRow;
+      }
+
+      if (leadId) {
+        const { error: leadStatusErr } = await admin
+          .from("public_leads")
+          .update({ status: "DRAFT_GENERATED" })
+          .eq("workspace_id", workspaceId)
+          .eq("id", leadId)
+          .eq("status", "DRAFT_READY");
+
+        if (leadStatusErr) {
+          throw new Error("Failed to update linked lead status after queuing draft");
+        }
+      }
+
       toolResult = {
-        draft: draftRow,
+        draft: savedDraft,
+        lead_id: leadId,
+        action: draftAction,
         status: "draft",
         delivery_status: "not_sent",
         requires_approval: true,
