@@ -241,7 +241,7 @@ export function OperationsPolicyForm({
                 setEnabled(e.target.checked)
                 coreKeyRef.current = createIdempotencyKey()
               }}
-              className="h-4 w-4 accent-slate-900"
+              className="h-4 w-4 accent-[#ea580c]"
             />
           </label>
 
@@ -304,12 +304,12 @@ export function OperationsPolicyForm({
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Sliders className="h-4 w-4 text-sky-600" aria-hidden="true" />
+              <Sliders className="h-4 w-4 text-[#ea580c]" aria-hidden="true" />
               <h2 className="text-base font-bold text-slate-900">
                 Coordination & Dispatch Hours Guardrails
               </h2>
             </div>
-            <Badge tone={coordinateEnabled ? 'sky' : 'neutral'}>
+            <Badge tone={coordinateEnabled ? 'brand' : 'neutral'}>
               {coordinateEnabled ? 'Coordinating' : 'Manual Only'}
             </Badge>
           </div>
@@ -327,7 +327,7 @@ export function OperationsPolicyForm({
                   setCoordinateEnabled(e.target.checked)
                   coordKeyRef.current = createIdempotencyKey()
                 }}
-                className="h-4 w-4 accent-slate-900"
+                className="h-4 w-4 accent-[#ea580c]"
               />
             </label>
 
@@ -343,7 +343,7 @@ export function OperationsPolicyForm({
                   setEnforceHours(e.target.checked)
                   coordKeyRef.current = createIdempotencyKey()
                 }}
-                className="h-4 w-4 accent-slate-900"
+                className="h-4 w-4 accent-[#ea580c]"
               />
             </label>
           </div>
@@ -422,7 +422,7 @@ export function OperationsPolicyForm({
                       onClick={() => toggleBusinessDay(w.day)}
                       className={`touch-target rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
                         active
-                          ? 'bg-slate-900 text-white'
+                          ? 'bg-[#c2410c] text-white'
                           : 'border border-slate-200 bg-slate-50 text-slate-600'
                       }`}
                     >

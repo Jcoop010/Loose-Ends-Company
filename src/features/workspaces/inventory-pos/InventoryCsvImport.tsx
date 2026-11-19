@@ -193,7 +193,7 @@ export function InventoryCsvImport({
             type="button"
             disabled={importing}
             onClick={() => void analyzeInput(SAMPLE_SKU_CSV)}
-            className="text-xs font-semibold text-sky-700 underline hover:text-sky-900"
+            className="text-xs font-semibold text-[#c2410c] underline hover:text-[#9a3412]"
           >
             Load sample HVAC parts CSV
           </button>
@@ -220,7 +220,7 @@ export function InventoryCsvImport({
               <span className="font-semibold text-slate-900 tabular-nums">
                 Ready: {rows.length} valid SKU row(s)
               </span>
-              <Badge tone="sky">SHA-256 {fileHash.slice(0, 12)}…</Badge>
+              <Badge tone="brand">SHA-256 {fileHash.slice(0, 12)}…</Badge>
             </div>
             <p className="text-slate-600 tabular-nums">
               Preview first row: <strong>{rows[0].sku}</strong> — {rows[0].name} (Cost{' '}
@@ -233,7 +233,7 @@ export function InventoryCsvImport({
                 checked={postInitialStock}
                 disabled={importing}
                 onChange={e => setPostInitialStock(e.target.checked)}
-                className="h-4 w-4 accent-slate-900"
+                className="h-4 w-4 accent-[#ea580c]"
               />
               Post initial stock receipt when CSV <code>quantity &gt; 0</code>
             </label>

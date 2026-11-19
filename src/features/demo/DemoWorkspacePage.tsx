@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   Plus,
+  Printer,
   ShieldCheck,
 } from 'lucide-react'
 import {
@@ -103,31 +104,33 @@ export function DemoWorkspacePage(): React.ReactElement {
 
       {/* Top Sandbox Header */}
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2.5 px-3.5 py-3 sm:px-6">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+              className="exec-btn-secondary whitespace-nowrap shrink-0 !px-2.5 sm:!px-3 !py-1.5 !text-xs touch-target"
             >
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               Overview
             </button>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <h1 className="truncate text-sm sm:text-base font-bold text-slate-950">
                   {demo.state.workspace.name}
                 </h1>
-                <Badge tone="amber">Interactive Demo</Badge>
+                <Badge tone="brand" className="whitespace-nowrap shrink-0">
+                  Demo
+                </Badge>
               </div>
-              <p className="hidden sm:block text-xs text-slate-500">
+              <p className="hidden sm:block truncate text-xs text-slate-500">
                 100% air-gapped browser state · Test real workflows without creating an account
               </p>
             </div>
           </div>
 
           {/* Desktop 5-Pillar Switcher */}
-          <nav aria-label="Sandbox workspaces" className="hidden lg:flex items-center gap-1">
+          <nav aria-label="Sandbox workspaces" className="hidden lg:flex items-center gap-1 shrink-0">
             {DEMO_TABS.map(tab => {
               const Icon = tab.icon
               const active = tab.section === section
@@ -137,14 +140,15 @@ export function DemoWorkspacePage(): React.ReactElement {
                   type="button"
                   aria-current={active ? 'page' : undefined}
                   onClick={() => navigateSection(tab.section, { demo: true })}
-                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                  className={`inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-xl px-2.5 xl:px-3 py-2 text-xs font-semibold transition ${
                     active
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'bg-[#c2410c] text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-[#fff7ed] hover:text-[#9a3412]'
                   }`}
                 >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  {tab.label}
+                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="xl:hidden">{tab.mobileLabel}</span>
+                  <span className="hidden xl:inline">{tab.label}</span>
                 </button>
               )
             })}
@@ -178,7 +182,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                 label="Open Jobs"
                 value={demo.opsSummary.open_jobs}
                 subtitle={`${demo.opsSummary.today_jobs} scheduled within 24h`}
-                accent="sky"
+                accent="brand"
                 onClick={() => navigateSection('dispatch', { demo: true })}
               />
               <MetricCard
@@ -210,57 +214,76 @@ export function DemoWorkspacePage(): React.ReactElement {
               />
             </div>
 
-            {/* Verified vs. Owner-Reported Revenue Card */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-              <div className="exec-surface p-5 sm:p-6 lg:col-span-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-slate-900">
-                    Verified vs. Self-Reported Collections
-                  </h3>
-                  <Badge tone="emerald">Strict Separation</Badge>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-900">
-                      Stripe Webhook Verified
-                    </span>
-                    <p className="mt-1 text-xl font-bold text-emerald-950 tabular-nums">
-                      {formatCurrency(demo.opsSummary.verified_collections)}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-emerald-800">
-                      {demo.state.verifiedPayments.length} provider-settled payment(s)
-                    </p>
+            {/* Verified vs. Owner-Reported Revenue + Balanced Leak Scanner Row */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 items-start">
+              <div className="space-y-4 lg:col-span-5">
+                <div className="exec-surface p-5 sm:p-6 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      Verified vs. Self-Reported Collections
+                    </h3>
+                    <Badge tone="emerald">Strict Separation</Badge>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-                      Owner-Reported Paid
-                    </span>
-                    <p className="mt-1 text-xl font-bold text-slate-900 tabular-nums">
-                      {formatCurrency(demo.opsSummary.owner_reported_paid)}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Marked paid on workspace invoices
-                    </p>
-                  </div>
-                </div>
-                {demo.state.verifiedPayments.map(vp => (
-                  <div
-                    key={vp.id}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs"
-                  >
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {customerNameById(vp.customer_id)} · {vp.payment_provider.toUpperCase()}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-900">
+                        Stripe Webhook Verified
+                      </span>
+                      <p className="mt-1 text-xl font-bold text-emerald-950 tabular-nums">
+                        {formatCurrency(demo.opsSummary.verified_collections)}
                       </p>
-                      <p className="text-slate-500 font-mono text-[11px]">
-                        {vp.provider_payment_id}
+                      <p className="mt-0.5 text-[11px] text-emerald-800">
+                        {demo.state.verifiedPayments.length} provider-settled payment(s)
                       </p>
                     </div>
-                    <span className="font-bold text-emerald-700 tabular-nums">
-                      {formatCents(vp.amount_cents, vp.currency)}
-                    </span>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                        Owner-Reported Paid
+                      </span>
+                      <p className="mt-1 text-xl font-bold text-slate-900 tabular-nums">
+                        {formatCurrency(demo.opsSummary.owner_reported_paid)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        Marked paid on workspace invoices
+                      </p>
+                    </div>
                   </div>
-                ))}
+                  {demo.state.verifiedPayments.map(vp => (
+                    <div
+                      key={vp.id}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-900">
+                          {customerNameById(vp.customer_id)} · {vp.payment_provider.toUpperCase()}
+                        </p>
+                        <p className="text-slate-500 font-mono text-[11px]">
+                          {vp.provider_payment_id}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-bold text-emerald-700 tabular-nums">
+                        {formatCents(vp.amount_cents, vp.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="exec-surface p-5 space-y-3">
+                  <h3 className="text-base font-bold text-slate-900">Invoice Aging Buckets</h3>
+                  <div className="space-y-2">
+                    {demo.invoiceAging.map(bucket => (
+                      <div
+                        key={bucket.key}
+                        className="flex items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs sm:text-sm"
+                      >
+                        <span className="font-medium text-slate-700">{bucket.label}</span>
+                        <span className="font-bold text-slate-950 tabular-nums">
+                          {formatCurrency(bucket.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Interactive Evidence-Backed Leak Scanner */}
@@ -268,13 +291,15 @@ export function DemoWorkspacePage(): React.ReactElement {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h3 className="text-base font-bold text-slate-900">
-                      Live Revenue & Billing Leak Scanner
+                      Live Revenue &amp; Billing Leak Scanner
                     </h3>
                     <p className="text-xs text-slate-600">
                       Every signal links to an actual invoice, quote, completed job, or past booking.
                     </p>
                   </div>
-                  <Badge tone="amber">{demo.leakScan.totalCount} Active Leaks</Badge>
+                  <Badge tone="brand" className="whitespace-nowrap">
+                    {demo.leakScan.totalCount} Active Leaks · {formatCurrency(demo.leakScan.documentedExposureTotal)}
+                  </Badge>
                 </div>
 
                 <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200">
@@ -317,7 +342,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                                 `Billed ${formatCurrency(doc.total)} and cleared unbilled job leak.`,
                               )
                             }}
-                            className="exec-btn-emerald !px-3 !py-1.5 !text-xs touch-target"
+                            className="exec-btn-emerald whitespace-nowrap !px-3 !py-1.5 !text-xs touch-target"
                           >
                             Issue Invoice Now
                           </button>
@@ -337,7 +362,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                                 toast.success('Follow-up task queued', res.task.title)
                               }
                             }}
-                            className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                            className="exec-btn-secondary whitespace-nowrap !px-3 !py-1.5 !text-xs touch-target"
                           >
                             {item.hasOpenTask ? 'Task Queued' : 'Create Task'}
                           </button>
@@ -349,99 +374,180 @@ export function DemoWorkspacePage(): React.ReactElement {
               </div>
             </div>
 
-            {/* Invoice Aging + Vendor Bills & Open Tasks */}
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-              <div className="exec-surface p-5 lg:col-span-6 space-y-3">
-                <h3 className="text-base font-bold text-slate-900">Invoice Aging Buckets</h3>
-                <div className="space-y-2.5">
-                  {demo.invoiceAging.map(bucket => (
-                    <div
-                      key={bucket.key}
-                      className="flex items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs sm:text-sm"
-                    >
-                      <span className="font-medium text-slate-700">{bucket.label}</span>
-                      <span className="font-bold text-slate-950 tabular-nums">
-                        {formatCurrency(bucket.amount)}
-                      </span>
-                    </div>
-                  ))}
+            {/* Zero-Keyboard Ops Showcase & Print Operations Binder (10-second discoverability) */}
+            <section
+              aria-label="Zero-Keyboard Ops and Staged Approvals Preview"
+              className="exec-surface p-5 sm:p-6 space-y-4"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      Zero-Keyboard Ops &amp; Staged Bot Approvals
+                    </h3>
+                    <Badge tone="brand" className="whitespace-nowrap">
+                      12 MCP Tools
+                    </Badge>
+                    <Badge tone="amber" className="whitespace-nowrap">
+                      {demo.state.stagedOpsActions.filter(a => a.status === 'pending_approval').length} pending
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Review truck-cab voicemails, vendor bill duplicate-fee flags, photo shelf counts, and readiness scorecards with 1-click owner approval.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="exec-btn-secondary whitespace-nowrap !px-3 !py-1.5 !text-xs touch-target"
+                  >
+                    <Printer className="h-3.5 w-3.5 shrink-0 text-[#ea580c]" aria-hidden="true" />
+                    Print Operations Binder
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateSection('autopilot', { demo: true })}
+                    className="exec-btn-primary whitespace-nowrap !px-3.5 !py-1.5 !text-xs touch-target"
+                  >
+                    Open Full Bot Queue ({demo.state.stagedOpsActions.length})
+                  </button>
                 </div>
               </div>
 
-              <div className="exec-surface p-5 lg:col-span-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-slate-900">Vendor Bills & Open Tasks</h3>
-                  <span className="text-xs font-semibold text-slate-500 tabular-nums">
-                    Bills due: {formatCurrency(demo.opsSummary.bills_due)}
-                  </span>
-                </div>
-
-                <form
-                  onSubmit={e => {
-                    e.preventDefault()
-                    try {
-                      const bill = demo.saveDemoExpense({
-                        vendor: vendorName,
-                        amount: Number(vendorAmount),
-                        description: vendorDesc,
-                      })
-                      setVendorName('')
-                      setVendorAmount('')
-                      setVendorDesc('')
-                      toast.success('Vendor bill recorded', `${bill.vendor} · ${formatCurrency(bill.amount)}`)
-                    } catch (err) {
-                      toast.error('Invalid bill', err instanceof Error ? err.message : 'Check fields.')
-                    }
-                  }}
-                  className="grid grid-cols-1 sm:grid-cols-3 gap-2"
-                >
-                  <input
-                    type="text"
-                    required
-                    placeholder="Supplier name"
-                    aria-label="Supplier name"
-                    value={vendorName}
-                    onChange={e => setVendorName(e.target.value)}
-                    className="exec-input !text-xs"
-                  />
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    step="0.01"
-                    placeholder="Amount ($)"
-                    aria-label="Bill amount"
-                    value={vendorAmount}
-                    onChange={e => setVendorAmount(e.target.value)}
-                    className="exec-input !text-xs tabular-nums"
-                  />
-                  <button type="submit" className="exec-btn-primary !text-xs touch-target">
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                    Log Vendor Bill
-                  </button>
-                </form>
-
-                <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 text-xs">
-                  {demo.state.expenses.map(exp => (
-                    <li key={exp.id} className="flex items-center justify-between gap-2 px-3.5 py-2.5">
-                      <div>
-                        <p className="font-semibold text-slate-900">{exp.vendor}</p>
-                        <p className="text-slate-500">{exp.description || 'Supplier invoice'}</p>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                {demo.state.stagedOpsActions.slice(0, 3).map(action => (
+                  <div
+                    key={action.id}
+                    className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col justify-between gap-3"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Badge
+                          tone={
+                            action.status === 'approved'
+                              ? 'emerald'
+                              : action.status === 'rejected'
+                                ? 'rose'
+                                : 'amber'
+                          }
+                        >
+                          {action.status}
+                        </Badge>
+                        <span className="text-sm font-bold text-slate-950 tabular-nums">
+                          {formatCents(action.amount_cents)}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold tabular-nums">{formatCurrency(exp.amount)}</span>
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug">
+                        {action.title}
+                      </p>
+                      <p className="text-xs text-slate-600 leading-relaxed">{action.summary}</p>
+                    </div>
+
+                    {action.status === 'pending_approval' ? (
+                      <div className="flex items-center gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => demo.toggleDemoExpensePaid(exp.id, !exp.paid)}
-                          className="exec-btn-secondary !px-2.5 !py-1 !text-xs"
+                          onClick={() => {
+                            demo.reviewDemoStagedOpsAction(action.id, 'approved')
+                            toast.success('Staged action approved', action.title)
+                          }}
+                          className="exec-btn-emerald whitespace-nowrap flex-1 !px-3 !py-1.5 !text-xs touch-target"
                         >
-                          {exp.paid ? 'Paid ✓' : 'Mark Paid'}
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            demo.reviewDemoStagedOpsAction(action.id, 'rejected')
+                            toast.info('Staged action rejected', action.title)
+                          }}
+                          className="exec-btn-secondary whitespace-nowrap !px-3 !py-1.5 !text-xs touch-target"
+                        >
+                          Reject
                         </button>
                       </div>
-                    </li>
-                  ))}
-                </ul>
+                    ) : null}
+                  </div>
+                ))}
               </div>
+            </section>
+
+            {/* Vendor Bills & Open Tasks */}
+            <div className="exec-surface p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-bold text-slate-900">Vendor Bills &amp; Open Tasks</h3>
+                <span className="text-xs font-semibold text-slate-600 tabular-nums">
+                  Bills due: {formatCurrency(demo.opsSummary.bills_due)}
+                </span>
+              </div>
+
+              <form
+                onSubmit={e => {
+                  e.preventDefault()
+                  try {
+                    const bill = demo.saveDemoExpense({
+                      vendor: vendorName,
+                      amount: Number(vendorAmount),
+                      description: vendorDesc,
+                    })
+                    setVendorName('')
+                    setVendorAmount('')
+                    setVendorDesc('')
+                    toast.success('Vendor bill recorded', `${bill.vendor} · ${formatCurrency(bill.amount)}`)
+                  } catch (err) {
+                    toast.error('Invalid bill', err instanceof Error ? err.message : 'Check fields.')
+                  }
+                }}
+                className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+              >
+                <input
+                  type="text"
+                  required
+                  placeholder="Supplier name"
+                  aria-label="Supplier name"
+                  value={vendorName}
+                  onChange={e => setVendorName(e.target.value)}
+                  className="exec-input !text-xs"
+                />
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  step="0.01"
+                  placeholder="Amount ($)"
+                  aria-label="Bill amount"
+                  value={vendorAmount}
+                  onChange={e => setVendorAmount(e.target.value)}
+                  className="exec-input !text-xs tabular-nums"
+                />
+                <button type="submit" className="exec-btn-primary whitespace-nowrap !text-xs touch-target">
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Log Vendor Bill
+                </button>
+              </form>
+
+              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 text-xs">
+                {demo.state.expenses.map(exp => (
+                  <li key={exp.id} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5">
+                    <div>
+                      <p className="font-semibold text-slate-900">{exp.vendor}</p>
+                      <p className="text-slate-500">{exp.description || 'Supplier invoice'}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold tabular-nums">{formatCurrency(exp.amount)}</span>
+                      <button
+                        type="button"
+                        onClick={() => demo.toggleDemoExpensePaid(exp.id, !exp.paid)}
+                        className="exec-btn-secondary whitespace-nowrap !px-2.5 !py-1 !text-xs"
+                      >
+                        {exp.paid ? 'Paid ✓' : 'Mark Paid'}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         ) : null}
@@ -702,7 +808,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                                 ? 'rose'
                                 : job.status === 'completed'
                                   ? 'emerald'
-                                  : 'sky'
+                                  : 'brand'
                             }
                           >
                             {unbilledCompleted ? 'Completed · Unbilled' : job.status}
@@ -864,7 +970,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                       <li key={appt.id} className="p-3 space-y-1">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-semibold text-slate-900">{appt.title}</span>
-                          <Badge tone="sky">{appt.status}</Badge>
+                          <Badge tone="brand">{appt.status}</Badge>
                         </div>
                         <p className="text-slate-600 tabular-nums">
                           {tech?.display_name ?? 'Unassigned'} · {formatDateTime(appt.starts_at)}
@@ -882,7 +988,7 @@ export function DemoWorkspacePage(): React.ReactElement {
             TAB 4: INVENTORY & PURCHASE ORDERS
            ================================================================ */}
         {section === 'inventory' ? (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
             <div className="exec-surface p-5 sm:p-6 lg:col-span-7 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -945,7 +1051,7 @@ export function DemoWorkspacePage(): React.ReactElement {
               </ul>
             </div>
 
-            <div className="exec-surface p-5 sm:p-6 lg:col-span-5 space-y-4">
+            <div className="exec-surface p-5 sm:p-6 lg:col-span-5 space-y-4 lg:sticky lg:top-20">
               <h3 className="text-base font-bold text-slate-900">Supplier Purchase Orders</h3>
               <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200">
                 {demo.state.purchaseOrders.map(po => {
@@ -967,7 +1073,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                             po.status === 'received'
                               ? 'emerald'
                               : po.status === 'approved'
-                                ? 'sky'
+                                ? 'brand'
                                 : 'amber'
                           }
                         >
@@ -1020,7 +1126,7 @@ export function DemoWorkspacePage(): React.ReactElement {
             TAB 5: AUTOPILOT & BILLING
            ================================================================ */}
         {section === 'autopilot' ? (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
             <div className="space-y-6 lg:col-span-7">
               <div className="exec-surface p-5 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between">
@@ -1092,15 +1198,18 @@ export function DemoWorkspacePage(): React.ReactElement {
                       <code>/functions/v1/loose-ends-mcp (sandbox preview)</code>
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => window.print()}
-                      className="exec-btn-secondary !px-2.5 !py-1.5 !text-xs"
+                      className="exec-btn-secondary whitespace-nowrap !px-3 !py-1.5 !text-xs touch-target"
                     >
+                      <Printer className="h-3.5 w-3.5 shrink-0 text-[#ea580c]" aria-hidden="true" />
                       Print Operations Binder
                     </button>
-                    <Badge tone="emerald">grok-4.7 · 11 MCP Tools</Badge>
+                    <Badge tone="brand" className="whitespace-nowrap">
+                      grok-4.7 · 12 MCP Tools
+                    </Badge>
                   </div>
                 </div>
 
@@ -1172,10 +1281,10 @@ export function DemoWorkspacePage(): React.ReactElement {
                   {demo.state.botManuals.map(manual => (
                     <div
                       key={manual.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-2"
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                     >
-                      <span className="font-bold uppercase text-slate-800">
-                        {manual.bot_role.replace('_', ' ')}
+                      <span className="font-bold uppercase text-slate-800 whitespace-nowrap">
+                        {manual.bot_role.replace(/_/g, ' ')}
                       </span>
                       <select
                         aria-label={`${manual.bot_role} autonomy mode`}
@@ -1187,7 +1296,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                             instructionsMarkdown: manual.instructions_markdown,
                           })
                         }
-                        className="exec-input !w-auto !py-1 !px-2 !text-xs font-semibold"
+                        className="exec-input w-full sm:!w-auto !py-1.5 !px-2.5 !text-xs font-semibold"
                       >
                         <option value="observe">Observe</option>
                         <option value="propose">Propose (Owner Gate)</option>
@@ -1309,7 +1418,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                       type="checkbox"
                       checked={demo.state.policy.enabled}
                       onChange={e => demo.updateDemoPolicy({ enabled: e.target.checked })}
-                      className="h-4 w-4 accent-slate-900"
+                      className="h-4 w-4 accent-[#ea580c]"
                     />
                   </label>
                   <label className="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 cursor-pointer">
@@ -1323,14 +1432,14 @@ export function DemoWorkspacePage(): React.ReactElement {
                       onChange={e =>
                         demo.updateDemoPolicy({ enforce_hours: e.target.checked })
                       }
-                      className="h-4 w-4 accent-slate-900"
+                      className="h-4 w-4 accent-[#ea580c]"
                     />
                   </label>
                 </div>
               </div>
             </div>
 
-            <div className="exec-surface p-5 sm:p-6 lg:col-span-5 space-y-4">
+            <div className="exec-surface p-5 sm:p-6 lg:col-span-5 space-y-4 lg:sticky lg:top-20">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-slate-900">Immutable Audit Trail</h3>
                 <Badge tone="neutral">{demo.state.auditEvents.length} events</Badge>
@@ -1371,12 +1480,14 @@ export function DemoWorkspacePage(): React.ReactElement {
                 data-touch="true"
                 aria-current={active ? 'page' : undefined}
                 onClick={() => navigateSection(tab.section, { demo: true })}
-                className={`touch-target flex flex-col items-center justify-center gap-1 py-2 px-1 text-[11px] font-semibold ${
-                  active ? 'text-slate-950 bg-slate-100/80' : 'text-slate-500'
+                className={`touch-target flex flex-col items-center justify-center gap-1 py-2 px-1 text-[11px] font-semibold transition ${
+                  active
+                    ? 'text-[#9a3412] bg-[#fff7ed] border-t-2 border-[#ea580c]'
+                    : 'text-slate-500 border-t-2 border-transparent hover:text-slate-900'
                 }`}
               >
                 <Icon
-                  className={`h-4 w-4 ${active ? 'text-emerald-600' : 'text-slate-400'}`}
+                  className={`h-4 w-4 ${active ? 'text-[#ea580c]' : 'text-slate-400'}`}
                   aria-hidden="true"
                 />
                 <span className="truncate max-w-full">{tab.mobileLabel}</span>

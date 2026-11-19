@@ -196,7 +196,7 @@ export function CommandCenterPage(): React.ReactElement {
       detail: string
       section: DashboardSection
       cta: string
-      tone: 'rose' | 'amber' | 'sky' | 'emerald'
+      tone: 'rose' | 'amber' | 'brand' | 'emerald'
     }> = []
 
     const { summary, coordination } = snapshot
@@ -241,7 +241,7 @@ export function CommandCenterPage(): React.ReactElement {
         detail: 'Verify recorded channel opt-in and approve or reject queued customer drafts.',
         section: 'pipeline',
         cta: 'Review Drafts',
-        tone: 'sky',
+        tone: 'brand',
       })
     }
 
@@ -252,7 +252,7 @@ export function CommandCenterPage(): React.ReactElement {
         detail: 'Follow up on sent quotes and record approval evidence to convert into jobs.',
         section: 'pipeline',
         cta: 'Open Quotes',
-        tone: 'sky',
+        tone: 'brand',
       })
     }
 
@@ -349,7 +349,7 @@ export function CommandCenterPage(): React.ReactElement {
               value={snapshot.summary.open_jobs}
               subtitle={`${snapshot.summary.urgent_tasks} overdue open task(s)`}
               icon={<Wrench className="h-4 w-4" />}
-              accent="sky"
+              accent="brand"
               onClick={() => navigateSection('dispatch')}
             />
             <MetricCard

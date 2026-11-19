@@ -448,7 +448,7 @@ export function JobsPipelinePanel({
                 }}
                 className={`touch-target rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                   statusFilter === key
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#c2410c] text-white'
                     : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                 }`}
               >
@@ -916,7 +916,7 @@ export function JobsPipelinePanel({
                             href={att.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline"
+                            className="inline-flex items-center gap-1 font-semibold text-[#c2410c] hover:text-[#9a3412] hover:underline"
                           >
                             Open
                             <ExternalLink className="h-3 w-3" aria-hidden="true" />

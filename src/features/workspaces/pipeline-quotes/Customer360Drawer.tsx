@@ -337,7 +337,7 @@ export function Customer360Drawer({
                     <span className="text-xs text-slate-500 tabular-nums">
                       Added {formatDate(cust.created_at, timezone)}
                     </span>
-                    <Badge tone="sky">Open 360 →</Badge>
+                    <Badge tone="brand">Open 360 →</Badge>
                   </div>
                 </button>
               </li>

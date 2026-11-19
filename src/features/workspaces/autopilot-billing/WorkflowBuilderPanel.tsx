@@ -249,7 +249,7 @@ export function WorkflowBuilderPanel({
                       <Badge tone={wf.enabled ? 'emerald' : 'neutral'}>
                         {wf.enabled ? 'Enabled' : 'Paused'}
                       </Badge>
-                      <Badge tone="sky">{wf.mode}</Badge>
+                      <Badge tone="brand">{wf.mode}</Badge>
                       <span className="text-sm font-bold text-slate-900">{wf.name}</span>
                     </div>
                     <p className="mt-1 text-xs text-slate-600">

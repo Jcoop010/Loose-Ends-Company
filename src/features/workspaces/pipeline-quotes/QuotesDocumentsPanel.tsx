@@ -280,7 +280,7 @@ export function QuotesDocumentsPanel({
               <code>ops_quote_approvals</code>.
             </p>
           </div>
-          <Badge tone="sky">{quoteRevisions.length} Snapshot(s)</Badge>
+          <Badge tone="brand">{quoteRevisions.length} Snapshot(s)</Badge>
         </div>
 
         {estimateJobs.length === 0 ? (
@@ -305,7 +305,7 @@ export function QuotesDocumentsPanel({
                             job.status === 'approved'
                               ? 'emerald'
                               : job.status === 'quoted'
-                                ? 'sky'
+                                ? 'brand'
                                 : 'neutral'
                           }
                         >
@@ -425,7 +425,7 @@ export function QuotesDocumentsPanel({
                 onClick={() => setDocFilter(key)}
                 className={`touch-target rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                   docFilter === key
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#c2410c] text-white'
                     : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                 }`}
               >

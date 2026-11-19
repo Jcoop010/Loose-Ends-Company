@@ -167,7 +167,7 @@ export function LeakScannerPanel({
                 onClick={() => setActiveFilter(cat)}
                 className={`touch-target rounded-full px-3 py-1.5 text-xs font-semibold transition tabular-nums ${
                   selected
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#c2410c] text-white'
                     : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                 }`}
               >

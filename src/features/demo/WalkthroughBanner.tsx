@@ -1,7 +1,6 @@
 import React from 'react'
 import { ArrowRight, Calculator, Compass, RotateCcw } from 'lucide-react'
 import { useAppRouter, type DashboardSection } from '../../state/RouterContext'
-import { Badge } from '../../components/ui/MetricCard'
 
 interface WalkthroughStep {
   number: number
@@ -67,11 +66,11 @@ export function WalkthroughBanner({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1.5 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="emerald">
-              <Compass className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-2.5 py-0.5 text-xs font-semibold tracking-tight text-[#fdba74]">
+              <Compass className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               Air-Gapped Sandbox · Step {currentStep.number} of 5
-            </Badge>
-            <span className="text-xs text-slate-400">
+            </span>
+            <span className="text-xs text-slate-300">
               In-memory HVAC sample ledger · Zero network or browser storage writes
             </span>
           </div>
@@ -87,15 +86,15 @@ export function WalkthroughBanner({
           <button
             type="button"
             onClick={onOpenCalculator}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-800 touch-target"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 hover:border-[#fb923c]/60 hover:bg-slate-800 touch-target transition"
           >
-            <Calculator className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+            <Calculator className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
             ROI Calculator
           </button>
           <button
             type="button"
             onClick={onReset}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 touch-target"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-[#fb923c]/60 hover:bg-slate-800 touch-target transition"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             Reset Sample Data
@@ -103,7 +102,7 @@ export function WalkthroughBanner({
           <button
             type="button"
             onClick={() => navigate('/dashboard')}
-            className="exec-btn-emerald !px-3.5 !py-2 !text-xs touch-target"
+            className="exec-btn-primary whitespace-nowrap !px-3.5 !py-2 !text-xs touch-target"
           >
             Start Real Workspace
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -123,14 +122,14 @@ export function WalkthroughBanner({
               aria-current={active ? 'step' : undefined}
               className={`touch-target rounded-xl border px-3 py-2 text-left transition ${
                 active
-                  ? 'border-emerald-400/50 bg-emerald-500/15 text-white'
-                  : 'border-slate-800 bg-slate-900/65 text-slate-300 hover:border-slate-700 hover:text-white'
+                  ? 'border-[#fb923c]/70 bg-[rgba(234,88,12,0.14)] text-white shadow-xs'
+                  : 'border-slate-700/80 bg-slate-900/75 text-slate-200 hover:border-[#fb923c]/50 hover:text-white'
               }`}
             >
-              <span className="block font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400 tabular-nums">
+              <span className="block font-mono text-[10px] font-bold uppercase tracking-wider text-[#fdba74] tabular-nums">
                 Step 0{step.number}
               </span>
-              <span className="mt-0.5 block truncate text-xs font-semibold">{step.title}</span>
+              <span className="mt-0.5 block text-xs font-semibold leading-snug">{step.title}</span>
             </button>
           )
         })}

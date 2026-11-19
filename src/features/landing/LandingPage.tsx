@@ -97,52 +97,52 @@ export function LandingPage(): React.ReactElement {
 
       {/* Top Navigation */}
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-emerald-400 font-black text-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-4 px-3.5 py-3 sm:px-6 sm:py-3.5">
+          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#c2410c] border border-[#fb923c]/40 text-white font-black text-sm">
               LE
             </div>
-            <div>
-              <span className="block text-sm font-bold tracking-tight text-slate-950">
+            <div className="min-w-0">
+              <span className="block whitespace-nowrap text-sm font-bold tracking-tight text-slate-950">
                 Loose Ends
               </span>
               <span className="hidden sm:block text-[11px] text-slate-500">
-                Single-Ledger Operations & Revenue Recovery
+                Single-Ledger Operations &amp; Revenue Recovery
               </span>
             </div>
           </div>
 
           <nav aria-label="Public navigation" className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
-            <a href="#architecture" className="hover:text-slate-950">
+            <a href="#architecture" className="hover:text-[#c2410c] transition-colors">
               5-Pillar Platform
             </a>
-            <a href="#comparison" className="hover:text-slate-950">
+            <a href="#comparison" className="hover:text-[#c2410c] transition-colors">
               Stack Comparison
             </a>
-            <a href="#pricing" className="hover:text-slate-950">
+            <a href="#pricing" className="hover:text-[#c2410c] transition-colors">
               $199/mo Flat Pricing
             </a>
-            <a href="#audit" className="hover:text-slate-950">
+            <a href="#audit" className="hover:text-[#c2410c] transition-colors">
               Free Leak Audit
             </a>
           </nav>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => navigate('/demo')}
-              className="exec-btn-secondary !px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
+              className="exec-btn-secondary whitespace-nowrap !px-2.5 sm:!px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
             >
-              <Play className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-              <span>Live Sandbox</span>
+              <Play className="h-3.5 w-3.5 shrink-0 text-[#ea580c]" aria-hidden="true" />
+              <span>Sandbox</span>
             </button>
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="exec-btn-primary !px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
+              className="exec-btn-primary whitespace-nowrap !px-3 sm:!px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
             >
-              <span>Sign In / Start</span>
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Sign In</span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -151,11 +151,11 @@ export function LandingPage(): React.ReactElement {
       <main id="landing-main">
         {/* Executive Hero */}
         <section className="exec-rail border-b border-slate-800">
-          <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20 lg:py-24">
+          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-20 lg:py-24">
             <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-center">
               <div className="lg:col-span-7 space-y-6">
-                <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1 text-xs font-semibold text-emerald-300">
-                  <span>Single-Ledger Operations & Owner-Approved Revenue Recovery</span>
+                <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-3.5 py-1 text-xs font-semibold text-[#fdba74]">
+                  <span>Single-Ledger Operations &amp; Owner-Approved Revenue Recovery</span>
                 </div>
 
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-[1.12]">
@@ -174,18 +174,18 @@ export function LandingPage(): React.ReactElement {
                   <button
                     type="button"
                     onClick={() => navigate('/demo')}
-                    className="exec-btn-emerald !px-5 !py-3 !text-sm sm:!text-base touch-target shadow-lg"
+                    className="exec-btn-primary whitespace-nowrap !px-5 !py-3 !text-sm sm:!text-base touch-target shadow-lg"
                   >
-                    <Play className="h-4 w-4" aria-hidden="true" />
+                    <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
                     Launch Live Sandbox (/demo)
                   </button>
                   <button
                     type="button"
                     onClick={() => navigate('/dashboard')}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-900/90 px-5 py-3 text-sm sm:text-base font-semibold text-white hover:bg-slate-800 touch-target"
+                    className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-600 bg-slate-900/90 px-5 py-3 text-sm sm:text-base font-semibold text-white hover:border-[#fb923c] hover:bg-slate-800 touch-target transition"
                   >
                     Sign In / Start Workspace
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </button>
                 </div>
 
@@ -195,12 +195,12 @@ export function LandingPage(): React.ReactElement {
                     <p className="text-xs text-slate-400">Flat per workspace · unlimited techs</p>
                   </div>
                   <div>
-                    <p className="text-xl sm:text-2xl font-bold text-emerald-400 tabular-nums">$0</p>
+                    <p className="text-xl sm:text-2xl font-bold text-[#fb923c] tabular-nums">$0</p>
                     <p className="text-xs text-slate-400">Setup fees · month-to-month</p>
                   </div>
                   <div>
                     <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">100%</p>
-                    <p className="text-xs text-slate-400">Owner-approved & consent-gated</p>
+                    <p className="text-xs text-slate-400">Owner-approved &amp; consent-gated</p>
                   </div>
                 </div>
               </div>
@@ -208,8 +208,8 @@ export function LandingPage(): React.ReactElement {
               {/* Single-Ledger Chain Diagram Card */}
               <div className="lg:col-span-5">
                 <div className="rounded-2xl border border-slate-700/80 bg-slate-900/90 p-5 sm:p-6 shadow-2xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
                       Connected Operational Chain
                     </span>
                     <Badge tone="emerald">Advisory-Locked Ledger</Badge>
@@ -245,21 +245,21 @@ export function LandingPage(): React.ReactElement {
                     ].map(row => (
                       <li
                         key={row.stage}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/75 px-3.5 py-2.5"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/75 px-3.5 py-2.5"
                       >
                         <div className="min-w-0">
                           <p className="font-semibold text-white">{row.stage}</p>
-                          <p className="truncate text-xs text-slate-400">{row.detail}</p>
+                          <p className="text-xs text-slate-300 leading-snug">{row.detail}</p>
                         </div>
-                        <span className="shrink-0 rounded-md bg-slate-800 px-2 py-1 font-mono text-[11px] text-emerald-300 tabular-nums">
+                        <span className="self-start sm:self-center shrink-0 rounded-md border border-[#fb923c]/30 bg-[rgba(234,88,12,0.14)] px-2 py-1 font-mono text-[11px] text-[#fdba74] tabular-nums">
                           {row.metric}
                         </span>
                       </li>
                     ))}
                   </ol>
 
-                  <div className="flex items-center gap-2 pt-1 text-xs text-slate-400">
-                    <Lock className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden="true" />
+                  <div className="flex items-start gap-2 pt-1 text-xs text-slate-300">
+                    <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#fb923c]" aria-hidden="true" />
                     <span>
                       Provider-verified Stripe collections are never co-mingled with self-reported
                       payments.
@@ -274,7 +274,7 @@ export function LandingPage(): React.ReactElement {
         {/* 5 Unified Workspaces */}
         <section id="architecture" className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20">
           <div className="max-w-2xl">
-            <Badge tone="sky">5 Focused Workspaces · Zero Clutter</Badge>
+            <Badge tone="brand">5 Focused Workspaces · Zero Clutter</Badge>
             <h2 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-slate-950">
               One operational database instead of five disconnected tabs
             </h2>
@@ -291,10 +291,10 @@ export function LandingPage(): React.ReactElement {
                 <div key={pillar.step} className="exec-surface p-5 sm:p-6 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-slate-400 tabular-nums">
+                      <span className="font-mono text-xs font-bold text-slate-500 tabular-nums">
                         WORKSPACE {pillar.step}
                       </span>
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-emerald-400">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#fed7aa] bg-[#fff7ed] text-[#c2410c]">
                         <Icon className="h-4 w-4" aria-hidden="true" />
                       </div>
                     </div>
@@ -309,7 +309,9 @@ export function LandingPage(): React.ReactElement {
 
             <div className="rounded-2xl border border-slate-900 bg-slate-900 p-5 sm:p-6 text-white flex flex-col justify-between">
               <div>
-                <Badge tone="emerald">Interactive Preview</Badge>
+                <span className="inline-flex items-center gap-1 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-2.5 py-0.5 text-xs font-semibold text-[#fdba74]">
+                  Interactive Preview
+                </span>
                 <h3 className="mt-3 text-base font-bold">Test-drive the full HVAC sandbox now</h3>
                 <p className="mt-1.5 text-xs sm:text-sm text-slate-300 leading-relaxed">
                   Inspect stalled quotes, issue an invoice for an unbilled walk-in cooler repair,
@@ -319,9 +321,9 @@ export function LandingPage(): React.ReactElement {
               <button
                 type="button"
                 onClick={() => navigate('/demo')}
-                className="mt-5 exec-btn-emerald w-full touch-target"
+                className="mt-5 exec-btn-primary w-full touch-target"
               >
-                <Play className="h-4 w-4" aria-hidden="true" />
+                <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
                 Explore /demo Sandbox
               </button>
             </div>
@@ -334,7 +336,7 @@ export function LandingPage(): React.ReactElement {
             <div className="max-w-2xl">
               <Badge tone="neutral">Factual Architecture Comparison</Badge>
               <h2 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-slate-950">
-                Built for 3–50 person trade & service operators
+                Built for 3–50 person trade &amp; service operators
               </h2>
               <p className="mt-2 text-sm sm:text-base text-slate-600">
                 Stop paying per-technician enterprise taxes or duct-taping spreadsheets between your
@@ -342,12 +344,36 @@ export function LandingPage(): React.ReactElement {
               </p>
             </div>
 
-            <div className="mt-8 overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full min-w-[680px] border-collapse text-left text-xs sm:text-sm">
+            {/* Mobile Stacked Cards (prevents cramped horizontal clipping at 375px) */}
+            <div className="mt-6 space-y-3 md:hidden">
+              {COMPARISON_ROWS.map(row => (
+                <div
+                  key={row.capability}
+                  className="rounded-xl border border-slate-200 bg-white p-4 space-y-2.5 text-xs"
+                >
+                  <p className="font-bold text-slate-900">{row.capability}</p>
+                  <div className="rounded-lg border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[#9a3412] font-semibold">
+                    <span className="inline-flex items-start gap-1.5">
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden="true" />
+                      <span>Loose Ends ($199/mo): {row.looseEnds}</span>
+                    </span>
+                  </div>
+                  <p className="text-slate-600 flex items-start gap-1.5">
+                    <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+                    <span>Fragmented Stack: {row.fragmented}</span>
+                  </p>
+                  <p className="text-slate-600">Legacy Enterprise: {row.enterprise}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="mt-8 hidden md:block overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full border-collapse text-left text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="py-3.5 px-4 font-semibold text-slate-700">Operational Requirement</th>
-                    <th className="py-3.5 px-4 font-bold text-slate-950 bg-emerald-50/60">
+                    <th className="py-3.5 px-4 font-bold text-[#9a3412] bg-[#fff7ed]">
                       Loose Ends ($199/mo flat)
                     </th>
                     <th className="py-3.5 px-4 font-semibold text-slate-600">
@@ -362,7 +388,7 @@ export function LandingPage(): React.ReactElement {
                   {COMPARISON_ROWS.map(row => (
                     <tr key={row.capability}>
                       <td className="py-3.5 px-4 font-medium text-slate-900">{row.capability}</td>
-                      <td className="py-3.5 px-4 bg-emerald-50/35 font-semibold text-emerald-950">
+                      <td className="py-3.5 px-4 bg-[#fff7ed]/60 font-semibold text-[#9a3412]">
                         <span className="inline-flex items-center gap-1.5">
                           <Check className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
                           {row.looseEnds}
@@ -388,7 +414,7 @@ export function LandingPage(): React.ReactElement {
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-start">
             {/* Flat $199/mo Card */}
             <div className="exec-surface p-6 sm:p-8 lg:col-span-5 border-slate-300">
-              <Badge tone="emerald">Transparent Workspace Pricing</Badge>
+              <Badge tone="brand">Transparent Workspace Pricing</Badge>
               <h2 className="mt-3 text-2xl font-bold text-slate-950">
                 One flat plan. Every operational module included.
               </h2>
@@ -425,14 +451,14 @@ export function LandingPage(): React.ReactElement {
                   className="exec-btn-primary w-full touch-target"
                 >
                   Start Workspace ($199/mo)
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/demo')}
                   className="exec-btn-secondary w-full touch-target"
                 >
-                  <Play className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+                  <Play className="h-4 w-4 shrink-0 text-[#ea580c]" aria-hidden="true" />
                   Try Interactive Sandbox First
                 </button>
               </div>
@@ -453,14 +479,14 @@ export function LandingPage(): React.ReactElement {
             <button
               type="button"
               onClick={() => navigate('/demo')}
-              className="font-semibold text-slate-700 hover:text-slate-950"
+              className="font-semibold text-slate-700 hover:text-[#c2410c]"
             >
               Interactive Sandbox (/demo)
             </button>
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="font-semibold text-slate-700 hover:text-slate-950"
+              className="font-semibold text-slate-700 hover:text-[#c2410c]"
             >
               Workspace Sign In
             </button>

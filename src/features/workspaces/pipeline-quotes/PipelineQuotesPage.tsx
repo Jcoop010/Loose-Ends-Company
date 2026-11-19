@@ -228,7 +228,7 @@ export function PipelineQuotesPage(): React.ReactElement {
                 onClick={() => switchTab(t.id)}
                 className={`touch-target inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold transition ${
                   isSelected
-                    ? 'bg-slate-900 text-white shadow-xs'
+                    ? 'bg-[#c2410c] text-white shadow-xs'
                     : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >

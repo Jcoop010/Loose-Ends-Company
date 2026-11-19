@@ -117,7 +117,7 @@ export function TasksQueuePanel({
               onClick={() => setStatusView(key)}
               className={`touch-target rounded-full px-3 py-1.5 text-xs font-semibold ${
                 statusView === key
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-[#c2410c] text-white'
                   : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
               }`}
             >

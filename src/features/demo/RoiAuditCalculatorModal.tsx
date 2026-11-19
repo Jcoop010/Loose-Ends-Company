@@ -73,7 +73,7 @@ export function RoiAuditCalculatorModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {/* 1. Stalled Quotes */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
-            <Badge tone="sky">1. Stalled Quotes</Badge>
+            <Badge tone="brand">1. Stalled Quotes</Badge>
             <div>
               <label htmlFor="roi-quotes-count" className="exec-label">
                 Unapproved quotes / mo
@@ -114,7 +114,7 @@ export function RoiAuditCalculatorModal({
                 step={1}
                 value={quoteCloseLiftPct}
                 onChange={e => setQuoteCloseLiftPct(Number(e.target.value))}
-                className="w-full accent-slate-900"
+                className="w-full accent-[#ea580c]"
               />
             </div>
           </div>
@@ -148,7 +148,7 @@ export function RoiAuditCalculatorModal({
                 step={5}
                 value={invoiceRecoveryPct}
                 onChange={e => setInvoiceRecoveryPct(Number(e.target.value))}
-                className="w-full accent-slate-900"
+                className="w-full accent-[#ea580c]"
               />
             </div>
           </div>

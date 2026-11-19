@@ -13,7 +13,17 @@
   --ink-primary: #0f172a;
   --ink-secondary: #475569;
   --ink-muted: #64748b;
-  --focus-ring: #0284c7;
+  --accent-primary: #ea580c;
+  --accent-hover: #c2410c;
+  --accent-active: #9a3412;
+  --accent-highlight: #fb923c;
+  --accent-soft-bg: #fff7ed;
+  --accent-soft-border: #fed7aa;
+  --accent-soft-ink: #9a3412;
+  --accent-dark-bg: rgba(234, 88, 12, 0.14);
+  --accent-dark-border: rgba(251, 146, 60, 0.38);
+  --accent-dark-ink: #fdba74;
+  --focus-ring: #fb923c;
   --status-amber-bg: #fef3c7;
   --status-amber-ink: #92400e;
   --status-amber-border: #fcd34d;
@@ -106,16 +116,25 @@
     gap: 0.5rem;
     min-height: 2.625rem;
     border-radius: 0.6875rem;
-    background-color: #0f172a;
+    border: 1px solid var(--accent-primary);
+    background-color: var(--accent-hover);
     color: #ffffff;
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
     font-weight: 600;
-    transition: background-color 140ms ease, transform 120ms ease;
+    box-shadow:
+      inset 0 1px 0 rgba(251, 146, 60, 0.32),
+      0 1px 2px rgba(154, 52, 18, 0.18);
+    transition: background-color 140ms ease, border-color 140ms ease, transform 120ms ease;
   }
 
   .exec-btn-primary:hover:not(:disabled) {
-    background-color: #1e293b;
+    background-color: var(--accent-active);
+    border-color: var(--accent-hover);
+  }
+
+  .exec-btn-primary:active:not(:disabled) {
+    background-color: #7c2d12;
   }
 
   .exec-btn-primary:disabled {
@@ -130,16 +149,18 @@
     gap: 0.5rem;
     min-height: 2.625rem;
     border-radius: 0.6875rem;
-    background-color: #059669;
+    border: 1px solid #059669;
+    background-color: #047857;
     color: #ffffff;
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
     font-weight: 600;
-    transition: background-color 140ms ease;
+    transition: background-color 140ms ease, border-color 140ms ease;
   }
 
   .exec-btn-emerald:hover:not(:disabled) {
-    background-color: #047857;
+    background-color: #065f46;
+    border-color: #047857;
   }
 
   .exec-btn-emerald:disabled {
@@ -164,8 +185,8 @@
   }
 
   .exec-btn-secondary:hover:not(:disabled) {
-    background-color: #f8fafc;
-    border-color: #94a3b8;
+    background-color: var(--accent-soft-bg);
+    border-color: var(--accent-highlight);
   }
 
   .exec-btn-secondary:disabled {
@@ -185,13 +206,18 @@
     transition: border-color 140ms ease, box-shadow 140ms ease;
   }
 
+  .exec-input::placeholder {
+    color: #64748b;
+    opacity: 1;
+  }
+
   .exec-input:hover {
     border-color: #94a3b8;
   }
 
   .exec-input:focus {
-    border-color: var(--focus-ring);
-    box-shadow: 0 0 0 3px rgb(2 132 199 / 16%);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.28);
     outline: none;
   }
 
@@ -201,6 +227,12 @@
     font-size: 0.8125rem;
     font-weight: 600;
     color: #334155;
+  }
+
+  .pill-brand {
+    background-color: var(--accent-soft-bg);
+    color: var(--accent-soft-ink);
+    border: 1px solid var(--accent-soft-border);
   }
 
   .pill-amber {
@@ -241,6 +273,27 @@
   button[data-touch="true"],
   a[data-touch="true"] {
     min-height: 44px;
+  }
+}
+
+@media print {
+  header,
+  aside,
+  nav[aria-label="Mobile workspace navigation"],
+  nav[aria-label="Mobile sandbox navigation"],
+  .skip-link {
+    display: none;
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  .exec-surface {
+    box-shadow: none;
+    border-color: #cbd5e1;
+    break-inside: avoid;
   }
 }
 

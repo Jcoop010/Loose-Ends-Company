@@ -378,7 +378,7 @@ export function FinanceAgingPanel({
               type="checkbox"
               checked={form.paid}
               onChange={e => setForm(prev => ({ ...prev, paid: e.target.checked }))}
-              className="h-4 w-4 accent-slate-900"
+              className="h-4 w-4 accent-[#ea580c]"
             />
             Already paid
           </label>

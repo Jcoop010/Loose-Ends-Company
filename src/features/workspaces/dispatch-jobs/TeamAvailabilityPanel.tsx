@@ -382,7 +382,7 @@ export function TeamAvailabilityPanel({
                 type="checkbox"
                 checked={memberActive}
                 onChange={e => setMemberActive(e.target.checked)}
-                className="h-4 w-4 accent-slate-900"
+                className="h-4 w-4 accent-[#ea580c]"
               />
               Active for dispatch scheduling
             </label>

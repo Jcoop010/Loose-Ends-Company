@@ -111,7 +111,7 @@ export function ToastProvider({
                   ? 'border-rose-300'
                   : isSuccess
                     ? 'border-emerald-300'
-                    : 'border-slate-200'
+                    : 'border-orange-200'
               }`}
             >
               <span
@@ -120,7 +120,7 @@ export function ToastProvider({
                     ? 'text-rose-600'
                     : isSuccess
                       ? 'text-emerald-600'
-                      : 'text-sky-600'
+                      : 'text-[#ea580c]'
                 }`}
                 aria-hidden="true"
               >

@@ -368,7 +368,7 @@ export function DispatchCalendar({
                       key={cell.key}
                       className={`min-h-[96px] bg-white p-2 flex flex-col justify-between ${
                         !cell.inCurrentMonth ? 'bg-slate-50/70 text-slate-400' : ''
-                      } ${isSelected ? 'ring-2 ring-inset ring-sky-500' : ''}`}
+                      } ${isSelected ? 'ring-2 ring-inset ring-[#ea580c]' : ''}`}
                     >
                       <div className="flex items-center justify-between">
                         <button
@@ -382,7 +382,7 @@ export function DispatchCalendar({
                           {cell.date.getDate()}
                         </button>
                         {cell.bookings.length > 0 ? (
-                          <span className="text-[10px] font-bold text-sky-700 tabular-nums">
+                          <span className="text-[10px] font-bold text-[#c2410c] tabular-nums">
                             {cell.bookings.length}
                           </span>
                         ) : null}
@@ -399,7 +399,7 @@ export function DispatchCalendar({
                                 ? 'bg-slate-100 text-slate-400 line-through'
                                 : appt.status === 'completed'
                                   ? 'bg-emerald-50 text-emerald-900'
-                                  : 'bg-sky-50 text-sky-900 hover:bg-sky-100'
+                                  : 'bg-[#fff7ed] text-[#9a3412] hover:bg-orange-100'
                             }`}
                           >
                             {appt.title}

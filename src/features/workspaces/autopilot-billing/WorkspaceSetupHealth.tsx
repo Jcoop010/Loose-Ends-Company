@@ -215,7 +215,7 @@ export function WorkspaceSetupHealth({
               disabled={!isAdminOrOwner || savingSettings}
               checked={onboardingCompleted}
               onChange={e => setOnboardingCompleted(e.target.checked)}
-              className="h-4 w-4 accent-slate-900"
+              className="h-4 w-4 accent-[#ea580c]"
             />
             Workspace onboarding checklist complete
           </label>

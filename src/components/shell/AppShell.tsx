@@ -99,7 +99,7 @@ export function AppShell({
           {/* Brand */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-slate-950 font-black text-sm">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#c2410c] text-white border border-[#fb923c]/40 font-black text-sm">
                 LE
               </div>
               <div className="min-w-0">
@@ -170,11 +170,14 @@ export function AppShell({
                   onClick={() => navigateSection(item.section)}
                   className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
                     isActive
-                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold'
+                      ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
                       : 'text-slate-300 hover:bg-slate-800/70 hover:text-white border border-transparent'
                   }`}
                 >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${isActive ? 'text-[#fb923c]' : ''}`}
+                    aria-hidden="true"
+                  />
                   <span className="truncate">{item.label}</span>
                 </button>
               )
@@ -261,12 +264,12 @@ export function AppShell({
                 onClick={() => navigateSection(item.section)}
                 className={`touch-target flex flex-col items-center justify-center gap-1 py-2 px-1 text-[11px] font-semibold transition ${
                   isActive
-                    ? 'text-slate-950 bg-slate-100/80'
-                    : 'text-slate-500 hover:text-slate-900'
+                    ? 'text-[#9a3412] bg-[#fff7ed] border-t-2 border-[#ea580c]'
+                    : 'text-slate-500 hover:text-slate-900 border-t-2 border-transparent'
                 }`}
               >
                 <Icon
-                  className={`h-4 w-4 ${isActive ? 'text-emerald-600' : 'text-slate-400'}`}
+                  className={`h-4 w-4 ${isActive ? 'text-[#ea580c]' : 'text-slate-400'}`}
                   aria-hidden="true"
                 />
                 <span className="truncate max-w-full">{item.mobileLabel}</span>

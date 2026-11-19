@@ -107,7 +107,7 @@ export function PublicAuditLeadForm(): React.ReactElement {
   return (
     <form onSubmit={handleSubmit} noValidate className="exec-surface p-6 sm:p-8 space-y-4">
       <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-emerald-400">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#fed7aa] bg-[#fff7ed] text-[#c2410c]">
           <ClipboardCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <div>

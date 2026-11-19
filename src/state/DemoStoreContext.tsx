@@ -1078,7 +1078,7 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       customer_id: null,
       title: 'Vendor Bill Duplicate-Fee Audit Flag — Tri-State HVAC Supply #BILL-99204',
       summary:
-        '+bills Auditor detected a $35.00 unapproved " Hazmat & Emergency Dispatch Surcharge" not present on approved PO #PO-1042 ($313.00 PO vs. $348.00 billed).',
+        'Vendor Bill Auditor detected a $35.00 unapproved "Hazmat & Emergency Dispatch Surcharge" not present on approved PO #PO-1042 ($313.00 PO vs. $348.00 billed).',
       amount_cents: 3500,
       payload: { invoice_number: 'BILL-99204', expected_cents: 31300, billed_cents: 34800 },
       confidence_score: 0.95,

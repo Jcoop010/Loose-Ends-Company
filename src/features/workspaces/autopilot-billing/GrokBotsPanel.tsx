@@ -386,7 +386,7 @@ export function GrokBotsPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-slate-900" aria-hidden="true" />
+              <KeyRound className="h-4 w-4 text-[#ea580c]" aria-hidden="true" />
               <h2 className="text-base font-bold text-slate-900">
                 Remote HTTPS MCP Server (Cursor, Claude & Grok Agents)
               </h2>
@@ -396,7 +396,7 @@ export function GrokBotsPanel({
               hashed bearer tokens.
             </p>
           </div>
-          <Badge tone="emerald">9 Scoped Tools Active</Badge>
+          <Badge tone="brand">12 Scoped Tools Active</Badge>
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -539,7 +539,7 @@ export function GrokBotsPanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <Bot className="h-4 w-4 text-slate-900" aria-hidden="true" />
+                <Bot className="h-4 w-4 text-[#ea580c]" aria-hidden="true" />
                 <h2 className="text-base font-bold text-slate-900">
                   7-Role Scoped Bot SOP Manuals
                 </h2>
@@ -549,7 +549,7 @@ export function GrokBotsPanel({
                 read-only policy.
               </p>
             </div>
-            <Badge tone="emerald">grok-4.7</Badge>
+            <Badge tone="brand">grok-4.7</Badge>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
@@ -562,7 +562,7 @@ export function GrokBotsPanel({
                   onClick={() => setSelectedRole(role)}
                   className={`touch-target rounded-xl px-2.5 py-1.5 text-xs font-semibold transition ${
                     active
-                      ? 'bg-slate-900 text-white'
+                      ? 'bg-[#c2410c] text-white'
                       : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -634,7 +634,7 @@ export function GrokBotsPanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <FileSearch className="h-4 w-4 text-slate-900" aria-hidden="true" />
+                <FileSearch className="h-4 w-4 text-[#ea580c]" aria-hidden="true" />
                 <h2 className="text-base font-bold text-slate-900">
                   Receipt & Vendor Bill Verification Parser
                 </h2>
@@ -651,7 +651,7 @@ export function GrokBotsPanel({
               onClick={() => void handleAuditLeaks()}
               className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
             >
-              <Sparkles className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+              <Sparkles className="h-3.5 w-3.5 text-[#ea580c]" aria-hidden="true" />
               {auditingLeaks ? 'Auditing Leaks…' : 'Audit Unbilled Leaks'}
             </button>
           </div>
@@ -692,7 +692,7 @@ export function GrokBotsPanel({
               <button
                 type="submit"
                 disabled={parsingDoc}
-                className="exec-btn-emerald !px-4 !py-2 !text-xs touch-target"
+                className="exec-btn-primary !px-4 !py-2 !text-xs touch-target"
               >
                 <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                 {parsingDoc ? 'Verifying & Staging…' : 'Parse & Stage Ledger Entry'}

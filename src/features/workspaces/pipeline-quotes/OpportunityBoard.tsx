@@ -238,7 +238,7 @@ export function OpportunityBoard({
 
       {/* Highlight Banner when navigated with ?opportunity= */}
       {highlightedOpportunityId ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-300 bg-sky-50 px-4 py-2.5 text-xs font-medium text-sky-950">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-[#fb923c] bg-[#fff7ed] px-4 py-2.5 text-xs font-medium text-[#9a3412]">
           <span>
             Focused on linked opportunity <code>{highlightedOpportunityId.slice(0, 8)}</code>
           </span>
@@ -246,7 +246,7 @@ export function OpportunityBoard({
             <button
               type="button"
               onClick={onClearHighlight}
-              className="inline-flex items-center gap-1 rounded-lg border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-900 hover:bg-sky-100 touch-target"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#fb923c] bg-white px-2.5 py-1 text-xs font-semibold text-[#9a3412] hover:bg-orange-100 touch-target"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
               Show All
@@ -283,7 +283,7 @@ export function OpportunityBoard({
                 onClick={() => setFilter(key)}
                 className={`touch-target rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                   filter === key
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#c2410c] text-white'
                     : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                 }`}
               >
@@ -309,7 +309,7 @@ export function OpportunityBoard({
                 <li
                   key={opp.id}
                   className={`flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between ${
-                    isHighlighted ? 'bg-sky-50/70 ring-2 ring-inset ring-sky-400' : ''
+                    isHighlighted ? 'bg-[#fff7ed]/75 ring-2 ring-inset ring-[#fb923c]' : ''
                   }`}
                 >
                   <div className="min-w-0 space-y-1">

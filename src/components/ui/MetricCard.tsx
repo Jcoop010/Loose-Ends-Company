@@ -1,14 +1,22 @@
 import React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
-export type BadgeTone = 'neutral' | 'emerald' | 'amber' | 'rose' | 'sky' | 'obsidian'
+export type BadgeTone =
+  | 'neutral'
+  | 'brand'
+  | 'emerald'
+  | 'amber'
+  | 'rose'
+  | 'sky'
+  | 'obsidian'
 
 const BADGE_CLASSES: Record<BadgeTone, string> = {
   neutral: 'bg-slate-100 text-slate-700 border border-slate-200',
+  brand: 'pill-brand',
   emerald: 'pill-emerald',
   amber: 'pill-amber',
   rose: 'pill-rose',
-  sky: 'bg-sky-50 text-sky-800 border border-sky-200',
+  sky: 'pill-brand',
   obsidian: 'bg-slate-900 text-white border border-slate-800',
 }
 
@@ -36,16 +44,17 @@ export interface MetricCardProps {
   subtitle?: string
   badge?: { text: string; tone?: BadgeTone }
   icon?: React.ReactNode
-  accent?: 'slate' | 'emerald' | 'amber' | 'rose' | 'sky'
+  accent?: 'slate' | 'brand' | 'emerald' | 'amber' | 'rose' | 'sky'
   onClick?: () => void
 }
 
 const ACCENT_TOP_BAR: Record<NonNullable<MetricCardProps['accent']>, string> = {
   slate: 'bg-slate-800',
+  brand: 'bg-[#ea580c]',
   emerald: 'bg-emerald-600',
   amber: 'bg-amber-500',
   rose: 'bg-rose-600',
-  sky: 'bg-sky-600',
+  sky: 'bg-[#ea580c]',
 }
 
 export function MetricCard({
