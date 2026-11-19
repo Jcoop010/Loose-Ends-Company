@@ -97,9 +97,9 @@ export function LandingPage(): React.ReactElement {
 
       {/* Top Navigation */}
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-4 px-3.5 py-3 sm:px-6 sm:py-3.5">
-          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#c2410c] border border-[#fb923c]/40 text-white font-black text-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-1.5 sm:gap-4 px-3 py-3 sm:px-6 sm:py-3.5">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-[#c2410c] border border-[#fb923c]/40 text-white font-black text-xs sm:text-sm">
               LE
             </div>
             <div className="min-w-0">
@@ -127,22 +127,22 @@ export function LandingPage(): React.ReactElement {
             </a>
           </nav>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate('/demo')}
-              className="exec-btn-secondary whitespace-nowrap !px-2.5 sm:!px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
-            >
-              <Play className="h-3.5 w-3.5 shrink-0 text-[#ea580c]" aria-hidden="true" />
-              <span>Sandbox</span>
-            </button>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="exec-btn-primary whitespace-nowrap !px-3 sm:!px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
+              className="exec-btn-secondary whitespace-nowrap !gap-1.5 !px-2.5 sm:!px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
             >
               <span>Sign In</span>
-              <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <ArrowRight className="hidden sm:inline-block h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/demo')}
+              className="exec-btn-primary whitespace-nowrap !gap-1.5 !px-2.5 sm:!px-3.5 !py-2 !text-xs sm:!text-sm touch-target"
+            >
+              <Play className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" aria-hidden="true" />
+              <span>Try Live Demo</span>
             </button>
           </div>
         </div>
@@ -279,8 +279,8 @@ export function LandingPage(): React.ReactElement {
               One operational database instead of five disconnected tabs
             </h2>
             <p className="mt-2 text-sm sm:text-base text-slate-600">
-              Every mutation runs through idempotent, role-checked PostgreSQL commands so inventory,
-              schedules, invoices, and customer timelines stay in lockstep.
+              When a job finishes in the field, your schedule, parts inventory, invoice, and
+              customer history update together—zero double-entry, zero math errors.
             </p>
           </div>
 
