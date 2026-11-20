@@ -17,6 +17,10 @@
     {
       "source": "/demo/:path*",
       "destination": "/index.html"
+    },
+    {
+      "source": "/portal/:token*",
+      "destination": "/index.html"
     }
   ],
   "headers": [

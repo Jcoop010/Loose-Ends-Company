@@ -5,11 +5,15 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { ToastProvider } from './components/ui/Toast'
 import { DemoWorkspacePage } from './features/demo/DemoWorkspacePage'
 import { LandingPage } from './features/landing/LandingPage'
+import { ClientPortalPage } from './features/portal/ClientPortalPage'
 import { AutopilotBillingPage } from './features/workspaces/autopilot-billing/AutopilotBillingPage'
+import { AutonomyLedgerPage } from './features/workspaces/autonomy-ledger/AutonomyLedgerPage'
 import { CommandCenterPage } from './features/workspaces/command-center/CommandCenterPage'
 import { DispatchJobsPage } from './features/workspaces/dispatch-jobs/DispatchJobsPage'
 import { InventoryPosPage } from './features/workspaces/inventory-pos/InventoryPosPage'
+import { InvoicesArPage } from './features/workspaces/invoices-ar/InvoicesArPage'
 import { PipelineQuotesPage } from './features/workspaces/pipeline-quotes/PipelineQuotesPage'
+import { QuotesESignPage } from './features/workspaces/quotes-esign/QuotesESignPage'
 import { DemoStoreProvider } from './state/DemoStoreContext'
 import { RouterProvider, useAppRouter } from './state/RouterContext'
 import { SessionProvider } from './state/SessionContext'
@@ -20,6 +24,12 @@ function AuthenticatedWorkspaceSwitch(): React.ReactElement {
   switch (section) {
     case 'pipeline':
       return <PipelineQuotesPage />
+    case 'quotes':
+      return <QuotesESignPage />
+    case 'invoices':
+      return <InvoicesArPage />
+    case 'autonomy':
+      return <AutonomyLedgerPage />
     case 'dispatch':
       return <DispatchJobsPage />
     case 'inventory':
@@ -33,10 +43,14 @@ function AuthenticatedWorkspaceSwitch(): React.ReactElement {
 }
 
 function RoutedApplication(): React.ReactElement {
-  const { topRoute } = useAppRouter()
+  const { topRoute, portalToken } = useAppRouter()
 
   if (topRoute === 'landing') {
     return <LandingPage />
+  }
+
+  if (topRoute === 'portal' && portalToken) {
+    return <ClientPortalPage token={portalToken} />
   }
 
   if (topRoute === 'demo') {

@@ -1,4 +1,23 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import {
+  calculateLineTotals,
+  computeArSummary,
+  convertSignedQuoteToInvoice,
+  DEFAULT_AUTONOMY_CONFIG,
+  evaluateAutonomyGate,
+  formatCents as formatOsCents,
+  reverseLedgerAction,
+  type AgentActionLedgerEntry,
+  type ArSummaryMetrics,
+  type AutonomyActionKey,
+  type AutonomyMode,
+  type AutonomousInvoice,
+  type AutonomousInvoiceItem,
+  type AutonomousQuote,
+  type AutonomousQuoteItem,
+  type WorkspaceAutonomyConfig,
+  type WorkspaceModuleKey,
+} from '../lib/autonomousOs'
 import {agingBucketForDays, parseIsoMs} from '../lib/format'
 import {
   calculateJobBillableTotal,
@@ -102,6 +121,12 @@ export interface DemoSandboxState {
   stagedOpsActions: StagedOpsAction[]
   stagedLedgerEntries: StagedLedgerEntry[]
   botRuns: BotRun[]
+  osAutonomyConfig: WorkspaceAutonomyConfig
+  osQuotes: AutonomousQuote[]
+  osQuoteItemsByQuote: Record<string, AutonomousQuoteItem[]>
+  osInvoices: AutonomousInvoice[]
+  osInvoiceItemsByInvoice: Record<string, AutonomousInvoiceItem[]>
+  osAgentLedger: AgentActionLedgerEntry[]
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1213,6 +1238,230 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     },
   ]
 
+  const osAutonomyConfig: WorkspaceAutonomyConfig = {
+    modules_enabled: { ...DEFAULT_AUTONOMY_CONFIG.modules_enabled },
+    autonomy_rules: { ...DEFAULT_AUTONOMY_CONFIG.autonomy_rules },
+    auto_limit_cents: DEFAULT_AUTONOMY_CONFIG.auto_limit_cents,
+  }
+
+  const q3011Totals = calculateLineTotals(
+    [
+      { description: 'CRM & Branded Client Portal Setup', quantity: 1, unit_price_cents: 28000 },
+      { description: 'Monthly Ops & Retainer Billing Automation', quantity: 1, unit_price_cents: 20000 },
+    ],
+    0,
+  )
+  const q3012Totals = calculateLineTotals(
+    [
+      { description: 'Wholesale Account & Portal Migration', quantity: 1, unit_price_cents: 75000 },
+      { description: 'Automated AR Aging & Collection Cadence', quantity: 1, unit_price_cents: 50000 },
+    ],
+    0,
+  )
+  const q3010Totals = calculateLineTotals(
+    [
+      { description: 'Patient Recall & Quote Follow-Up Pack', quantity: 1, unit_price_cents: 65000 },
+    ],
+    0,
+  )
+
+  const quote3011Id = '00000000-0000-4000-8000-00000000q301'
+  const quote3012Id = '00000000-0000-4000-8000-00000000q302'
+  const quote3010Id = '00000000-0000-4000-8000-00000000q300'
+
+  const osQuotes: AutonomousQuote[] = [
+    {
+      id: quote3011Id,
+      workspace_id: DEMO_WORKSPACE_ID,
+      lead_id: null,
+      customer_id: null,
+      quote_number: 'QTE-3011',
+      title: 'Agency Retainer & Client Portal Rollout',
+      customer_name: 'Northstar Creative Agency',
+      customer_email: 'ops@northstaragency.invalid',
+      subtotal_cents: q3011Totals.subtotal_cents,
+      tax_bps: q3011Totals.tax_bps,
+      tax_cents: q3011Totals.tax_cents,
+      total_cents: q3011Totals.total_cents,
+      status: 'sent',
+      portal_token: 'qpt_demo_northstar_3011',
+      signed_by_name: null,
+      signed_at: null,
+      valid_until: isoOffsetFrom(anchorMs, 14 * DAY_MS).slice(0, 10),
+      notes: 'Under $500 Full Auto threshold: auto-converts immediately on signature.',
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: quote3012Id,
+      workspace_id: DEMO_WORKSPACE_ID,
+      lead_id: null,
+      customer_id: null,
+      quote_number: 'QTE-3012',
+      title: 'Wholesale Order & AR Automation',
+      customer_name: 'Harborline Goods Wholesale',
+      customer_email: 'finance@harborline.invalid',
+      subtotal_cents: q3012Totals.subtotal_cents,
+      tax_bps: q3012Totals.tax_bps,
+      tax_cents: q3012Totals.tax_cents,
+      total_cents: q3012Totals.total_cents,
+      status: 'sent',
+      portal_token: 'qpt_demo_harborline_3012',
+      signed_by_name: null,
+      signed_at: null,
+      valid_until: isoOffsetFrom(anchorMs, 21 * DAY_MS).slice(0, 10),
+      notes: 'Over $500 Full Auto cap by default: queues for 1-Tap Approval unless cap is raised.',
+      created_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+    },
+    {
+      id: quote3010Id,
+      workspace_id: DEMO_WORKSPACE_ID,
+      lead_id: null,
+      customer_id: customers[0]?.id ?? null,
+      quote_number: 'QTE-3010',
+      title: 'Clinic Recall & AR Automation Suite',
+      customer_name: 'Summit Dental Group',
+      customer_email: 'office@summitdental.invalid',
+      subtotal_cents: q3010Totals.subtotal_cents,
+      tax_bps: q3010Totals.tax_bps,
+      tax_cents: q3010Totals.tax_cents,
+      total_cents: q3010Totals.total_cents,
+      status: 'signed',
+      portal_token: 'qpt_demo_summit_3010',
+      signed_by_name: 'Dr. Elena Rostova',
+      signed_at: isoOffsetFrom(anchorMs, -18 * DAY_MS),
+      valid_until: isoOffsetFrom(anchorMs, -4 * DAY_MS).slice(0, 10),
+      notes: 'Signed client portal agreement.',
+      created_at: isoOffsetFrom(anchorMs, -20 * DAY_MS),
+    },
+  ]
+
+  const osQuoteItemsByQuote: Record<string, AutonomousQuoteItem[]> = {
+    [quote3011Id]: q3011Totals.items.map((item, idx) => ({
+      id: `qi_3011_${idx + 1}`,
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: quote3011Id,
+      position: item.position,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price_cents: item.unit_price_cents,
+      line_total_cents: item.line_total_cents,
+    })),
+    [quote3012Id]: q3012Totals.items.map((item, idx) => ({
+      id: `qi_3012_${idx + 1}`,
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: quote3012Id,
+      position: item.position,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price_cents: item.unit_price_cents,
+      line_total_cents: item.line_total_cents,
+    })),
+    [quote3010Id]: q3010Totals.items.map((item, idx) => ({
+      id: `qi_3010_${idx + 1}`,
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: quote3010Id,
+      position: item.position,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price_cents: item.unit_price_cents,
+      line_total_cents: item.line_total_cents,
+    })),
+  }
+
+  const osInvoices: AutonomousInvoice[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000i310',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: quote3010Id,
+      lead_id: null,
+      customer_id: customers[0]?.id ?? null,
+      invoice_number: 'INV-3010',
+      title: 'Clinic Recall & AR Automation Suite',
+      customer_name: 'Summit Dental Group',
+      customer_email: 'office@summitdental.invalid',
+      subtotal_cents: 65000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 65000,
+      amount_paid_cents: 0,
+      due_date: isoOffsetFrom(anchorMs, -5 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'overdue',
+      created_at: isoOffsetFrom(anchorMs, -18 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000i309',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: null,
+      lead_id: null,
+      customer_id: customers[1]?.id ?? null,
+      invoice_number: 'INV-3009',
+      title: 'E-Commerce Inventory & AR Sync Sprint',
+      customer_name: 'Redwood Coast Goods',
+      customer_email: 'ap@redwoodgoods.invalid',
+      subtotal_cents: 89000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 89000,
+      amount_paid_cents: 89000,
+      due_date: isoOffsetFrom(anchorMs, -10 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'paid',
+      created_at: isoOffsetFrom(anchorMs, -24 * DAY_MS),
+    },
+  ]
+
+  const osInvoiceItemsByInvoice: Record<string, AutonomousInvoiceItem[]> = {
+    '00000000-0000-4000-8000-00000000i310': [
+      {
+        id: 'ii_3010_1',
+        workspace_id: DEMO_WORKSPACE_ID,
+        invoice_id: '00000000-0000-4000-8000-00000000i310',
+        position: 0,
+        description: 'Patient Recall & Quote Follow-Up Pack',
+        quantity: 1,
+        unit_price_cents: 65000,
+        line_total_cents: 65000,
+      },
+    ],
+    '00000000-0000-4000-8000-00000000i309': [
+      {
+        id: 'ii_3009_1',
+        workspace_id: DEMO_WORKSPACE_ID,
+        invoice_id: '00000000-0000-4000-8000-00000000i309',
+        position: 0,
+        description: 'E-Commerce Inventory & AR Sync Sprint',
+        quantity: 1,
+        unit_price_cents: 89000,
+        line_total_cents: 89000,
+      },
+    ],
+  }
+
+  const osAgentLedger: AgentActionLedgerEntry[] = [
+    {
+      id: '00000000-0000-4000-8000-00000000l301',
+      workspace_id: DEMO_WORKSPACE_ID,
+      agent_name: 'AR Watchdog Agent',
+      module: 'billing',
+      action_type: 'flag_overdue_ar',
+      autonomy_mode: 'full_auto',
+      summary: 'Flagged INV-3010 (Summit Dental Group · $650.00) 5 days past due in AR ledger',
+      impact_cents: 65000,
+      before_state: {
+        invoice_id: '00000000-0000-4000-8000-00000000i310',
+        invoice_status: 'sent',
+      },
+      after_state: {
+        invoice_id: '00000000-0000-4000-8000-00000000i310',
+        invoice_status: 'overdue',
+      },
+      status: 'executed',
+      reversed_at: null,
+      created_at: isoOffsetFrom(anchorMs, -1 * HOUR_MS),
+    },
+  ]
+
   return {
     workspace,
     settings,
@@ -1247,6 +1496,12 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     stagedOpsActions,
     stagedLedgerEntries,
     botRuns,
+    osAutonomyConfig,
+    osQuotes,
+    osQuoteItemsByQuote,
+    osInvoices,
+    osInvoiceItemsByInvoice,
+    osAgentLedger,
   }
 }
 
@@ -1324,6 +1579,18 @@ export interface DemoStoreContextValue {
   reviewDemoStagedOpsAction: (actionId: string, decision: 'approved' | 'rejected') => void
   reviewDemoStagedEntry: (entryId: string, decision: 'approved' | 'rejected') => void
   parseDemoReceiptWithGrokBot: (documentText: string) => StagedLedgerEntry
+  arSummary: ArSummaryMetrics
+  simulateClientESign: (quoteId: string, signerName: string) => {
+    decision: 'execute_now' | 'queue_for_approval' | 'manual_only'
+    invoiceNumber: string | null
+  }
+  approveDemoLedgerAction: (entryId: string) => void
+  undoDemoLedgerAction: (entryId: string) => void
+  setDemoAutonomyRule: (actionKey: AutonomyActionKey, mode: AutonomyMode) => void
+  setDemoAutoLimitCents: (cents: number) => void
+  toggleDemoModule: (key: WorkspaceModuleKey) => void
+  stageDemoCollectionNudge: (invoiceId: string) => void
+  markDemoInvoicePaid: (invoiceId: string) => void
   resetDemo: () => void
 }
 
@@ -2233,6 +2500,358 @@ export function DemoStoreProvider({
     return entry
   }, [])
 
+  const arSummary = useMemo<ArSummaryMetrics>(
+    () => computeArSummary(state.osInvoices),
+    [state.osInvoices],
+  )
+
+  const simulateClientESign = useCallback(
+    (quoteId: string, rawSignerName: string) => {
+      const targetQuote = state.osQuotes.find(q => q.id === quoteId)
+      if (!targetQuote) {
+        throw new Error('Selected demo quote was not found.')
+      }
+      const signer = rawSignerName.trim() || 'Alex Morgan (Client)'
+      const nowIso = new Date().toISOString()
+      const signedQuote: AutonomousQuote = {
+        ...targetQuote,
+        status: 'signed',
+        signed_by_name: signer,
+        signed_at: nowIso,
+        updated_at: nowIso,
+      }
+      const items = state.osQuoteItemsByQuote[quoteId] ?? []
+      const decision = evaluateAutonomyGate(
+        'convert_signed_quote_to_invoice',
+        signedQuote.total_cents,
+        state.osAutonomyConfig,
+      )
+      const mode = state.osAutonomyConfig.autonomy_rules.convert_signed_quote_to_invoice
+      const alreadyInvoiced = state.osInvoices.some(
+        inv => inv.quote_id === quoteId && inv.status !== 'void',
+      )
+
+      if (decision === 'execute_now' && !alreadyInvoiced) {
+        const converted = convertSignedQuoteToInvoice(signedQuote, items, {
+          autonomyMode: mode,
+          statusOverride: 'executed',
+          nowIso,
+          invoiceId: `inv_${quoteId}_${Date.now()}`,
+          ledgerId: `led_${quoteId}_${Date.now()}`,
+        })
+        converted.ledgerEntry.before_state = {
+          quote_id: quoteId,
+          quote_status: targetQuote.status,
+          invoice_id: null,
+        }
+
+        setState(prev => ({
+          ...prev,
+          osQuotes: prev.osQuotes.map(q => (q.id === quoteId ? signedQuote : q)),
+          osInvoices: [converted.invoice, ...prev.osInvoices],
+          osInvoiceItemsByInvoice: {
+            ...prev.osInvoiceItemsByInvoice,
+            [converted.invoice.id]: converted.invoiceItems,
+          },
+          osAgentLedger: [converted.ledgerEntry, ...prev.osAgentLedger],
+        }))
+
+        return {
+          decision: 'execute_now' as const,
+          invoiceNumber: converted.invoice.invoice_number,
+        }
+      }
+
+      if (decision === 'queue_for_approval' && !alreadyInvoiced) {
+        const queuedLedger: AgentActionLedgerEntry = {
+          id: `led_q_${quoteId}_${Date.now()}`,
+          workspace_id: DEMO_WORKSPACE_ID,
+          agent_name: 'Revenue-to-Cash Agent',
+          module: 'quotes',
+          action_type: 'convert_signed_quote_to_invoice',
+          autonomy_mode: mode,
+          summary: `Signed quote ${signedQuote.quote_number} (${formatOsCents(signedQuote.total_cents)}) queued for 1-Tap invoice approval`,
+          impact_cents: signedQuote.total_cents,
+          before_state: {
+            quote_id: quoteId,
+            quote_status: targetQuote.status,
+            invoice_id: null,
+          },
+          after_state: {
+            quote_id: quoteId,
+            pending_action: 'create_invoice',
+            signed_by: signer,
+          },
+          status: 'pending_approval',
+          reversed_at: null,
+          created_at: nowIso,
+        }
+        setState(prev => ({
+          ...prev,
+          osQuotes: prev.osQuotes.map(q => (q.id === quoteId ? signedQuote : q)),
+          osAgentLedger: [queuedLedger, ...prev.osAgentLedger],
+        }))
+        return {
+          decision: 'queue_for_approval' as const,
+          invoiceNumber: null,
+        }
+      }
+
+      setState(prev => ({
+        ...prev,
+        osQuotes: prev.osQuotes.map(q => (q.id === quoteId ? signedQuote : q)),
+      }))
+      return {
+        decision: 'manual_only' as const,
+        invoiceNumber: null,
+      }
+    },
+    [state.osQuotes, state.osQuoteItemsByQuote, state.osAutonomyConfig, state.osInvoices],
+  )
+
+  const approveDemoLedgerAction = useCallback((entryId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => {
+      const target = prev.osAgentLedger.find(e => e.id === entryId)
+      if (!target || target.status !== 'pending_approval') return prev
+
+      const after = target.after_state ?? {}
+      if (
+        target.action_type === 'convert_signed_quote_to_invoice' &&
+        typeof after.quote_id === 'string' &&
+        !after.invoice_id
+      ) {
+        const quote = prev.osQuotes.find(q => q.id === after.quote_id)
+        if (!quote) return prev
+        const items = prev.osQuoteItemsByQuote[quote.id] ?? []
+        const converted = convertSignedQuoteToInvoice(
+          { ...quote, status: 'signed' },
+          items,
+          {
+            autonomyMode: target.autonomy_mode,
+            statusOverride: 'executed',
+            nowIso,
+            invoiceId: `inv_${quote.id}_${Date.now()}`,
+            ledgerId: target.id,
+          },
+        )
+        return {
+          ...prev,
+          osInvoices: [converted.invoice, ...prev.osInvoices],
+          osInvoiceItemsByInvoice: {
+            ...prev.osInvoiceItemsByInvoice,
+            [converted.invoice.id]: converted.invoiceItems,
+          },
+          osAgentLedger: prev.osAgentLedger.map(e =>
+            e.id === entryId
+              ? {
+                  ...e,
+                  status: 'executed',
+                  after_state: {
+                    ...after,
+                    invoice_id: converted.invoice.id,
+                    invoice_number: converted.invoice.invoice_number,
+                  },
+                }
+              : e,
+          ),
+        }
+      }
+
+      return {
+        ...prev,
+        osAgentLedger: prev.osAgentLedger.map(e =>
+          e.id === entryId ? { ...e, status: 'executed' } : e,
+        ),
+      }
+    })
+  }, [])
+
+  const undoDemoLedgerAction = useCallback((entryId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => {
+      const target = prev.osAgentLedger.find(e => e.id === entryId)
+      if (!target || target.status !== 'executed') return prev
+
+      const { updatedEntry, restoredState } = reverseLedgerAction(target, nowIso)
+      const after = target.after_state ?? {}
+      const targetInvoiceId = typeof after.invoice_id === 'string' ? after.invoice_id : null
+      const targetQuoteId =
+        restoredState && typeof restoredState.quote_id === 'string'
+          ? restoredState.quote_id
+          : null
+
+      let nextInvoices = prev.osInvoices
+      if (targetInvoiceId && target.action_type === 'convert_signed_quote_to_invoice') {
+        nextInvoices = prev.osInvoices.map(inv =>
+          inv.id === targetInvoiceId ? { ...inv, status: 'void', updated_at: nowIso } : inv,
+        )
+      } else if (
+        targetInvoiceId &&
+        restoredState &&
+        typeof restoredState.invoice_status === 'string'
+      ) {
+        const restoredStatus = restoredState.invoice_status as AutonomousInvoice['status']
+        const restoredPaid =
+          typeof restoredState.amount_paid_cents === 'number'
+            ? restoredState.amount_paid_cents
+            : undefined
+        nextInvoices = prev.osInvoices.map(inv =>
+          inv.id === targetInvoiceId
+            ? {
+                ...inv,
+                status: restoredStatus,
+                amount_paid_cents: restoredPaid ?? inv.amount_paid_cents,
+                updated_at: nowIso,
+              }
+            : inv,
+        )
+      }
+
+      let nextQuotes = prev.osQuotes
+      if (
+        targetQuoteId &&
+        restoredState &&
+        typeof restoredState.quote_status === 'string'
+      ) {
+        const prevQuoteStatus = restoredState.quote_status as AutonomousQuote['status']
+        nextQuotes = prev.osQuotes.map(q =>
+          q.id === targetQuoteId
+            ? {
+                ...q,
+                status: prevQuoteStatus,
+                signed_by_name: prevQuoteStatus === 'signed' ? q.signed_by_name : null,
+                signed_at: prevQuoteStatus === 'signed' ? q.signed_at : null,
+                updated_at: nowIso,
+              }
+            : q,
+        )
+      }
+
+      return {
+        ...prev,
+        osQuotes: nextQuotes,
+        osInvoices: nextInvoices,
+        osAgentLedger: prev.osAgentLedger.map(e => (e.id === entryId ? updatedEntry : e)),
+      }
+    })
+  }, [])
+
+  const setDemoAutonomyRule = useCallback(
+    (actionKey: AutonomyActionKey, mode: AutonomyMode) => {
+      setState(prev => ({
+        ...prev,
+        osAutonomyConfig: {
+          ...prev.osAutonomyConfig,
+          autonomy_rules: {
+            ...prev.osAutonomyConfig.autonomy_rules,
+            [actionKey]: mode,
+          },
+        },
+      }))
+    },
+    [],
+  )
+
+  const setDemoAutoLimitCents = useCallback((cents: number) => {
+    const safe = Number.isSafeInteger(cents) && cents >= 0 ? cents : 50000
+    setState(prev => ({
+      ...prev,
+      osAutonomyConfig: {
+        ...prev.osAutonomyConfig,
+        auto_limit_cents: safe,
+      },
+    }))
+  }, [])
+
+  const toggleDemoModule = useCallback((key: WorkspaceModuleKey) => {
+    setState(prev => ({
+      ...prev,
+      osAutonomyConfig: {
+        ...prev.osAutonomyConfig,
+        modules_enabled: {
+          ...prev.osAutonomyConfig.modules_enabled,
+          [key]: !prev.osAutonomyConfig.modules_enabled[key],
+        },
+      },
+    }))
+  }, [])
+
+  const stageDemoCollectionNudge = useCallback(
+    (invoiceId: string) => {
+      const target = state.osInvoices.find(i => i.id === invoiceId)
+      if (!target) return
+      const balance = Math.max(0, target.total_cents - target.amount_paid_cents)
+      const gate = evaluateAutonomyGate(
+        'send_invoice_reminder',
+        balance,
+        state.osAutonomyConfig,
+      )
+      const mode = state.osAutonomyConfig.autonomy_rules.send_invoice_reminder
+      const nowIso = new Date().toISOString()
+      const ledger: AgentActionLedgerEntry = {
+        id: `led_ar_${invoiceId}_${Date.now()}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        agent_name: 'AR Collections Agent',
+        module: 'billing',
+        action_type: 'send_invoice_reminder',
+        autonomy_mode: mode,
+        summary: `Staged collection nudge for ${target.invoice_number} (${target.customer_name} · ${formatOsCents(balance)})`,
+        impact_cents: balance,
+        before_state: { invoice_id: invoiceId, nudge_staged: false },
+        after_state: { invoice_id: invoiceId, nudge_staged: true },
+        status: gate === 'execute_now' ? 'executed' : 'pending_approval',
+        reversed_at: null,
+        created_at: nowIso,
+      }
+      setState(prev => ({
+        ...prev,
+        osAgentLedger: [ledger, ...prev.osAgentLedger],
+      }))
+    },
+    [state.osInvoices, state.osAutonomyConfig],
+  )
+
+  const markDemoInvoicePaid = useCallback((invoiceId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => {
+      const target = prev.osInvoices.find(i => i.id === invoiceId)
+      if (!target || target.status === 'paid') return prev
+      const ledger: AgentActionLedgerEntry = {
+        id: `led_paid_${invoiceId}_${Date.now()}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        agent_name: 'AR Collections Agent',
+        module: 'billing',
+        action_type: 'mark_invoice_paid',
+        autonomy_mode: 'manual',
+        summary: `Recorded payment for ${target.invoice_number} (${formatOsCents(target.total_cents)})`,
+        impact_cents: target.total_cents,
+        before_state: {
+          invoice_id: invoiceId,
+          invoice_status: target.status,
+          amount_paid_cents: target.amount_paid_cents,
+        },
+        after_state: {
+          invoice_id: invoiceId,
+          invoice_status: 'paid',
+          amount_paid_cents: target.total_cents,
+        },
+        status: 'executed',
+        reversed_at: null,
+        created_at: nowIso,
+      }
+      return {
+        ...prev,
+        osInvoices: prev.osInvoices.map(i =>
+          i.id === invoiceId
+            ? { ...i, status: 'paid', amount_paid_cents: i.total_cents, updated_at: nowIso }
+            : i,
+        ),
+        osAgentLedger: [ledger, ...prev.osAgentLedger],
+      }
+    })
+  }, [])
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -2266,6 +2885,15 @@ export function DemoStoreProvider({
       reviewDemoStagedOpsAction,
       reviewDemoStagedEntry,
       parseDemoReceiptWithGrokBot,
+      arSummary,
+      simulateClientESign,
+      approveDemoLedgerAction,
+      undoDemoLedgerAction,
+      setDemoAutonomyRule,
+      setDemoAutoLimitCents,
+      toggleDemoModule,
+      stageDemoCollectionNudge,
+      markDemoInvoicePaid,
       resetDemo,
     }),
     [
@@ -2296,6 +2924,15 @@ export function DemoStoreProvider({
       reviewDemoStagedOpsAction,
       reviewDemoStagedEntry,
       parseDemoReceiptWithGrokBot,
+      arSummary,
+      simulateClientESign,
+      approveDemoLedgerAction,
+      undoDemoLedgerAction,
+      setDemoAutonomyRule,
+      setDemoAutoLimitCents,
+      toggleDemoModule,
+      stageDemoCollectionNudge,
+      markDemoInvoicePaid,
       resetDemo,
     ],
   )

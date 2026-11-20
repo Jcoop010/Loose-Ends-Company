@@ -173,6 +173,67 @@ const state = {
     },
   ],
   bot_runs: [],
+  workspace_settings: [
+    {
+      workspace_id: wsA,
+      modules_enabled: { crm: true, quotes: true, billing: true, inventory: false, bookkeeping: false, projects: false, vault: false },
+      autonomy_rules: {
+        send_quote_followup: 'approve_1tap',
+        convert_signed_quote_to_invoice: 'full_auto',
+        send_invoice_reminder: 'approve_1tap',
+        flag_overdue_ar: 'full_auto',
+      },
+      auto_limit_cents: 75000,
+    },
+    {
+      workspace_id: wsB,
+      modules_enabled: { crm: true },
+      autonomy_rules: { convert_signed_quote_to_invoice: 'manual' },
+      auto_limit_cents: 10000,
+    },
+  ],
+  quotes: [],
+  quote_items: [],
+  invoices: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `inv-a-${idx + 1}`,
+      workspace_id: wsA,
+      invoice_number: `INV-A${idx + 1}`,
+      title: `Invoice ${idx + 1}`,
+      customer_name: 'Northstar Agency',
+      total_cents: 25000,
+      amount_paid_cents: 0,
+      due_date: '2026-11-01',
+      status: 'overdue',
+      created_at: `2026-11-18T0${idx % 9}:00:00Z`,
+    })),
+    {
+      id: 'inv-a-paid',
+      workspace_id: wsA,
+      invoice_number: 'INV-A-PAID',
+      title: 'Paid Sprint',
+      customer_name: 'Summit Dental',
+      total_cents: 50000,
+      amount_paid_cents: 50000,
+      due_date: '2026-11-01',
+      status: 'paid',
+      created_at: '2026-11-18T11:00:00Z',
+    },
+    {
+      id: 'inv-b-1',
+      workspace_id: wsB,
+      invoice_number: 'INV-B1',
+      title: 'Other Tenant Invoice',
+      customer_name: 'Secret Co',
+      total_cents: 999900,
+      amount_paid_cents: 0,
+      due_date: '2026-11-01',
+      status: 'overdue',
+      created_at: '2026-11-19T11:00:00Z',
+    },
+  ],
+  invoice_items: [],
+  agent_action_ledger: [],
 }
 
 function createMockSupabase() {
@@ -422,16 +483,20 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. tools/list returns all 13 tools including ops_readiness_audits and dismiss_communication_draft
+// B. tools/list returns all 17 tools including Release 1 Autonomous OS tools
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 13)
+assert.equal(toolNames.length, 17)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
   'list_ops_readiness_audits',
   'dismiss_communication_draft',
+  'create_quote_draft',
+  'list_ar_summary',
+  'get_autonomy_rules',
+  'log_agent_action',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -718,6 +783,98 @@ assert.match(sentDismissAttempt.json.error.message, /Sent communication drafts c
 leadDraftRef.delivery_status = 'not_sent'
 leadDraftRef.status = 'draft'
 
+// F4. Release 1 MCP v2.0.0 tools: create_quote_draft, list_ar_summary (limit<=10), get_autonomy_rules, log_agent_action
+const createdQuote = await callMcp(rawTokenA, 'tools/call', {
+  name: 'create_quote_draft',
+  arguments: {
+    title: 'Northstar Automation Retainer',
+    customer_name: 'Northstar Agency',
+    customer_email: 'ops@northstar.invalid',
+    lead_id: 'lead-a1',
+    tax_bps: 750,
+    items: [
+      { description: 'Portal Onboarding', quantity: 2, unit_price_cents: 15000 },
+      { description: 'AR Automation', quantity: 1, unit_price_cents: 10000 },
+    ],
+  },
+})
+assert.equal(createdQuote.status, 200)
+const quoteSc = createdQuote.json.result.structuredContent
+assert.equal(quoteSc.quote.subtotal_cents, 40000)
+assert.equal(quoteSc.quote.tax_cents, 3000)
+assert.equal(quoteSc.quote.total_cents, 43000)
+assert.equal(quoteSc.items.length, 2)
+assert.match(quoteSc.portal_path, /^\/portal\/qpt_/)
+
+const crossWsQuote = await callMcp(rawTokenA, 'tools/call', {
+  name: 'create_quote_draft',
+  arguments: {
+    title: 'Cross-tenant quote attempt',
+    customer_name: 'Hacker Co',
+    lead_id: 'lead-b1',
+    items: [{ description: 'Item', quantity: 1, unit_price_cents: 100 }],
+  },
+})
+assert.equal(crossWsQuote.status, 400)
+assert.match(crossWsQuote.json.error.message, /lead_id not found in authenticated workspace/)
+
+const arSummaryRes = await callMcp(rawTokenA, 'tools/call', {
+  name: 'list_ar_summary',
+  arguments: { limit: 99 }, // must clamp strictly to 10
+})
+assert.equal(arSummaryRes.status, 200)
+const arSc = arSummaryRes.json.result.structuredContent
+assert.equal(arSc.invoices.length, 10, 'list_ar_summary must cap invoices list at <= 10')
+assert.equal(arSc.total_billed_cents, 11 * 25000 + 50000)
+assert.equal(arSc.total_collected_cents, 50000)
+assert.equal(arSc.overdue_ar_cents, 11 * 25000)
+assert.equal(arSc.overdue_count, 11)
+assert.equal(
+  arSc.invoices.some(i => i.id === 'inv-b-1'),
+  false,
+  'Cross-workspace invoices must never appear in list_ar_summary',
+)
+
+const autonomyRulesRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_autonomy_rules',
+  arguments: {},
+})
+assert.equal(autonomyRulesRes.status, 200)
+assert.equal(autonomyRulesRes.json.result.structuredContent.auto_limit_cents, 75000)
+assert.equal(
+  autonomyRulesRes.json.result.structuredContent.autonomy_rules.convert_signed_quote_to_invoice,
+  'full_auto',
+)
+
+const roLogAttempt = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'log_agent_action',
+  arguments: {
+    agent_name: 'QA Bot',
+    module: 'billing',
+    action_type: 'test',
+    autonomy_mode: 'full_auto',
+    summary: 'Should fail scope check',
+    impact_cents: 100,
+  },
+})
+assert.equal(roLogAttempt.status, 403)
+
+const loggedActionRes = await callMcp(rawTokenA, 'tools/call', {
+  name: 'log_agent_action',
+  arguments: {
+    agent_name: 'Quote Agent',
+    module: 'quotes',
+    action_type: 'create_quote_draft',
+    autonomy_mode: 'approve_1tap',
+    summary: 'Created Northstar Automation Retainer quote',
+    impact_cents: 43000,
+    before_state: { quote_id: null },
+    after_state: { quote_id: quoteSc.quote.id },
+  },
+})
+assert.equal(loggedActionRes.status, 200)
+assert.equal(loggedActionRes.json.result.structuredContent.ledger_entry.impact_cents, 43000)
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -734,6 +891,12 @@ const workspaceTables = new Set([
   'customers',
   'bot_manuals',
   'bot_runs',
+  'workspace_settings',
+  'quotes',
+  'quote_items',
+  'invoices',
+  'invoice_items',
+  'agent_action_ledger',
 ])
 for (const entry of queryLog) {
   if (workspaceTables.has(entry.table) && entry.op !== 'insert' && entry.op !== 'upsert') {

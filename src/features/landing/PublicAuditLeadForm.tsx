@@ -3,13 +3,13 @@ import { CheckCircle2, ClipboardCheck, Send } from 'lucide-react'
 import { submitPublicLead } from '../../lib/queries'
 
 const BUSINESS_TYPES = [
-  'HVAC & Mechanical',
-  'Plumbing & Drain',
-  'Electrical Contracting',
-  'Auto Repair & Fleet',
-  'General Contracting',
-  'Commercial Property Maintenance',
-  'Other Field / Trade Service',
+  'Agency / Consulting',
+  'E-Commerce & Retail',
+  'Wholesale & Distribution',
+  'Medical / Dental / Clinic',
+  'Service & Field Operations',
+  'SaaS / B2B Operations',
+  'Other Business',
 ]
 
 export function PublicAuditLeadForm(): React.ReactElement {

@@ -1,13 +1,19 @@
 import React from 'react'
 import {
+  BookOpenCheck,
   Boxes,
   Building2,
   CalendarClock,
-  FileSpreadsheet,
+  FileSignature,
   LayoutDashboard,
   LogOut,
+  ReceiptText,
+  Settings2,
   ShieldCheck,
+  SlidersHorizontal,
+  Users,
 } from 'lucide-react'
+import { normalizeModulesEnabled } from '../../lib/autonomousOs'
 import { useAppRouter, type DashboardSection } from '../../state/RouterContext'
 import { useSession } from '../../state/SessionContext'
 import { Badge } from '../ui/MetricCard'
@@ -19,6 +25,7 @@ interface NavItemConfig {
   label: string
   mobileLabel: string
   icon: React.ComponentType<{ className?: string }>
+  moduleKey?: 'crm' | 'quotes' | 'billing' | 'inventory' | 'projects'
 }
 
 export const WORKSPACE_NAV_ITEMS: NavItemConfig[] = [
@@ -30,29 +37,43 @@ export const WORKSPACE_NAV_ITEMS: NavItemConfig[] = [
   },
   {
     section: 'pipeline',
-    label: 'Pipeline & Quotes',
-    mobileLabel: 'Pipeline',
-    icon: FileSpreadsheet,
+    label: 'CRM & Pipeline',
+    mobileLabel: 'CRM',
+    icon: Users,
+    moduleKey: 'crm',
   },
   {
-    section: 'dispatch',
-    label: 'Dispatch & Jobs',
-    mobileLabel: 'Dispatch',
-    icon: CalendarClock,
+    section: 'quotes',
+    label: 'Quotes & E-Sign',
+    mobileLabel: 'Quotes',
+    icon: FileSignature,
+    moduleKey: 'quotes',
   },
   {
-    section: 'inventory',
-    label: 'Inventory & POs',
-    mobileLabel: 'Inventory',
-    icon: Boxes,
+    section: 'invoices',
+    label: 'Invoices & AR',
+    mobileLabel: 'Invoices',
+    icon: ReceiptText,
+    moduleKey: 'billing',
   },
   {
-    section: 'autopilot',
-    label: 'Autopilot & Billing',
-    mobileLabel: 'Autopilot',
-    icon: ShieldCheck,
+    section: 'autonomy',
+    label: 'Agent Ledger & Autonomy',
+    mobileLabel: 'Autonomy',
+    icon: SlidersHorizontal,
   },
 ]
+
+const ALL_SECTION_TITLES: Readonly<Record<DashboardSection, string>> = {
+  command: 'Command Center',
+  pipeline: 'CRM & Pipeline',
+  quotes: 'Quotes & E-Sign',
+  invoices: 'Invoices & AR',
+  autonomy: 'Agent Ledger & Autonomy',
+  dispatch: 'Fulfillment & Schedules',
+  inventory: 'Inventory & Procurement',
+  autopilot: 'Billing, Policies & MCP',
+}
 
 export function AppShell({
   children,
@@ -65,14 +86,19 @@ export function AppShell({
     workspace,
     availableWorkspaces,
     role,
+    settings,
     hasActiveSubscription,
     switchWorkspace,
     signOut,
   } = useSession()
   const toast = useToast()
 
-  const activeNav =
-    WORKSPACE_NAV_ITEMS.find(item => item.section === section) ?? WORKSPACE_NAV_ITEMS[0]
+  const modules = normalizeModulesEnabled(settings?.modules_enabled)
+  const activeNavTitle = ALL_SECTION_TITLES[section] ?? 'Command Center'
+
+  const visibleRailItems = WORKSPACE_NAV_ITEMS.filter(item =>
+    item.moduleKey ? modules[item.moduleKey] : true,
+  )
 
   const handleSignOut = async () => {
     try {
@@ -106,7 +132,7 @@ export function AppShell({
                 <p className="truncate text-sm font-bold tracking-tight text-white">
                   Loose Ends OS
                 </p>
-                <p className="truncate text-[11px] text-slate-400">Single-Ledger Operations</p>
+                <p className="truncate text-[11px] text-slate-400">Autonomous Business OS</p>
               </div>
             </div>
             {role ? (
@@ -157,9 +183,9 @@ export function AppShell({
             </div>
           </div>
 
-          {/* 5 Workspace Pillars */}
+          {/* Release 1 Active Modules */}
           <nav aria-label="Workspaces" className="space-y-1">
-            {WORKSPACE_NAV_ITEMS.map(item => {
+            {visibleRailItems.map(item => {
               const Icon = item.icon
               const isActive = item.section === section
               return (
@@ -182,6 +208,96 @@ export function AppShell({
                 </button>
               )
             })}
+
+            {/* Inventory & Procurement (active when toggled ON, otherwise Release 2 slot) */}
+            {modules.inventory ? (
+              <button
+                type="button"
+                aria-current={section === 'inventory' ? 'page' : undefined}
+                onClick={() => navigateSection('inventory')}
+                className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
+                  section === 'inventory'
+                    ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                    : 'text-slate-300 hover:bg-slate-800/70 hover:text-white border border-transparent'
+                }`}
+              >
+                <Boxes
+                  className={`h-4 w-4 shrink-0 ${section === 'inventory' ? 'text-[#fb923c]' : ''}`}
+                  aria-hidden="true"
+                />
+                <span className="truncate">Inventory &amp; Procurement</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard/autonomy')}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-transparent px-3.5 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition"
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <Boxes className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">Inventory &amp; Procurement</span>
+                </span>
+                <span className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                  Release 2
+                </span>
+              </button>
+            )}
+
+            {/* Bookkeeping (Release 2 toggle slot) */}
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/autonomy')}
+              className="flex w-full items-center justify-between gap-2 rounded-xl border border-transparent px-3.5 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition"
+            >
+              <span className="flex items-center gap-2.5 min-w-0">
+                <BookOpenCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">Bookkeeping</span>
+              </span>
+              <span className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                {modules.bookkeeping ? 'Ready' : 'Release 2'}
+              </span>
+            </button>
+
+            <div className="pt-2 mt-2 border-t border-slate-800/80 space-y-1">
+              {modules.projects ? (
+                <button
+                  type="button"
+                  aria-current={section === 'dispatch' ? 'page' : undefined}
+                  onClick={() => navigateSection('dispatch')}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2 text-xs font-medium transition ${
+                    section === 'dispatch'
+                      ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                      : 'text-slate-400 hover:bg-slate-800/70 hover:text-white border border-transparent'
+                  }`}
+                >
+                  <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">Fulfillment &amp; Schedules</span>
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                aria-current={section === 'autopilot' ? 'page' : undefined}
+                onClick={() => navigateSection('autopilot')}
+                className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2 text-xs font-medium transition ${
+                  section === 'autopilot'
+                    ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                    : 'text-slate-400 hover:bg-slate-800/70 hover:text-white border border-transparent'
+                }`}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">Workspace Billing &amp; MCP</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard/autonomy')}
+                className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3.5 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800/70 hover:text-slate-200 transition"
+              >
+                <Settings2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">Module Toggles</span>
+              </button>
+            </div>
           </nav>
         </div>
 
@@ -210,7 +326,7 @@ export function AppShell({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="truncate text-base sm:text-lg font-bold text-slate-900">
-                  {activeNav.label}
+                  {activeNavTitle}
                 </h1>
                 {role ? (
                   <Badge tone="neutral" className="md:hidden uppercase">

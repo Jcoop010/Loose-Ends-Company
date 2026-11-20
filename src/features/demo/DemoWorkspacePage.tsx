@@ -24,6 +24,7 @@ import type { ConsentChannel, ConsentDecision } from '../../types/domain'
 import { Badge, MetricCard } from '../../components/ui/MetricCard'
 import { useToast } from '../../components/ui/Toast'
 import { RoiAuditCalculatorModal } from './RoiAuditCalculatorModal'
+import { AutonomousSandboxPanel } from './AutonomousSandboxPanel'
 import { WalkthroughBanner } from './WalkthroughBanner'
 
 const DEMO_TABS: Array<{
@@ -386,7 +387,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                       Zero-Keyboard Ops &amp; Staged Bot Approvals
                     </h3>
                     <Badge tone="brand" className="whitespace-nowrap">
-                      13 MCP Tools
+                      17 MCP Tools
                     </Badge>
                     <Badge tone="amber" className="whitespace-nowrap">
                       {demo.state.stagedOpsActions.filter(a => a.status === 'pending_approval').length} pending
@@ -473,6 +474,8 @@ export function DemoWorkspacePage(): React.ReactElement {
                 ))}
               </div>
             </section>
+
+            <AutonomousSandboxPanel />
 
             {/* Vendor Bills & Open Tasks */}
             <div className="exec-surface p-5 space-y-4">
@@ -1208,7 +1211,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                       Print Operations Binder
                     </button>
                     <Badge tone="brand" className="whitespace-nowrap">
-                      grok-4.7 · 13 MCP Tools
+                      grok-4.7 · 17 MCP Tools
                     </Badge>
                   </div>
                 </div>
@@ -1461,6 +1464,8 @@ export function DemoWorkspacePage(): React.ReactElement {
               </ul>
             </div>
           </div>
+        ) : section === 'quotes' || section === 'invoices' || section === 'autonomy' ? (
+          <AutonomousSandboxPanel />
         ) : null}
       </main>
 

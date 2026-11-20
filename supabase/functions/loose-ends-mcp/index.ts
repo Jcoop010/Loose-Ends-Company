@@ -44,12 +44,49 @@ const ALLOWED_ACTION_TYPES = [
 ] as const;
 
 const ALLOWED_GRADES = ["A", "B", "C", "D"] as const;
+const ALLOWED_AUTONOMY_MODES = ["manual", "approve_1tap", "full_auto"] as const;
+const ALLOWED_LEDGER_STATUSES = ["executed", "pending_approval", "reversed"] as const;
+const ALLOWED_INVOICE_STATUSES = ["draft", "sent", "paid", "overdue", "void"] as const;
 
 type BotRole = (typeof ALLOWED_BOT_ROLES)[number];
 type WorkspaceDomain = (typeof ALLOWED_DOMAINS)[number];
 type StagedActionType = (typeof ALLOWED_ACTION_TYPES)[number];
 type AuditGrade = (typeof ALLOWED_GRADES)[number];
+type AutonomyMode = (typeof ALLOWED_AUTONOMY_MODES)[number];
+type LedgerStatus = (typeof ALLOWED_LEDGER_STATUSES)[number];
+type InvoiceStatus = (typeof ALLOWED_INVOICE_STATUSES)[number];
 type RequiredScope = "read_all" | "stage_actions";
+
+interface InvoiceRowForAr {
+  id: string;
+  invoice_number: string;
+  title: string;
+  customer_name: string;
+  total_cents: number;
+  amount_paid_cents: number;
+  due_date: string;
+  status: string;
+  created_at: string;
+}
+
+const DEFAULT_MODULES_ENABLED: Readonly<Record<string, boolean>> = {
+  crm: true,
+  quotes: true,
+  billing: true,
+  inventory: false,
+  bookkeeping: false,
+  projects: false,
+  vault: false,
+};
+
+const DEFAULT_AUTONOMY_RULES: Readonly<Record<string, AutonomyMode>> = {
+  send_quote_followup: "approve_1tap",
+  convert_signed_quote_to_invoice: "full_auto",
+  send_invoice_reminder: "approve_1tap",
+  flag_overdue_ar: "full_auto",
+};
+
+const DEFAULT_AUTO_LIMIT_CENTS = 50000;
 
 interface WorkspaceMcpTokenRow {
   id: string;
@@ -675,6 +712,90 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
     },
   },
   {
+    name: "create_quote_draft",
+    requiredScope: "stage_actions",
+    description:
+      "Write-narrow (staged): Create an itemized integer-cent quote and quote_items in public.quotes linked optionally to lead_id, returning a unique shareable /portal/[token] path.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "customer_name", "items"],
+      properties: {
+        title: { type: "string" },
+        customer_name: { type: "string" },
+        customer_email: { type: "string" },
+        lead_id: { type: "string" },
+        customer_id: { type: "string" },
+        tax_bps: { type: "integer", minimum: 0, maximum: 5000 },
+        valid_until: { type: "string" },
+        notes: { type: "string" },
+        status: { type: "string", enum: ["draft", "sent"] },
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["description", "quantity", "unit_price_cents"],
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "integer", minimum: 1 },
+              unit_price_cents: { type: "integer", minimum: 0 },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: "list_ar_summary",
+    requiredScope: "read_all",
+    description:
+      "Read-only summary of open and overdue accounts receivable (invoices) in integer cents for the authenticated workspace, capped strictly at limit <= 10 invoices.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        status: { type: "string", enum: [...ALLOWED_INVOICE_STATUSES] },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: "get_autonomy_rules",
+    requiredScope: "read_all",
+    description:
+      "Read-only lookup of workspace_settings module toggles, Autonomy Dial modes (manual, approve_1tap, full_auto), and auto_limit_cents for the authenticated workspace.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+  {
+    name: "log_agent_action",
+    requiredScope: "stage_actions",
+    description:
+      "Write-narrow (staged): Record an autonomous bot action with integer-cent impact and before/after state snapshots in public.agent_action_ledger.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["agent_name", "module", "action_type", "autonomy_mode", "summary", "impact_cents"],
+      properties: {
+        agent_name: { type: "string" },
+        module: { type: "string" },
+        action_type: { type: "string" },
+        autonomy_mode: { type: "string", enum: [...ALLOWED_AUTONOMY_MODES] },
+        summary: { type: "string" },
+        impact_cents: { type: "integer" },
+        before_state: { type: "object" },
+        after_state: { type: "object" },
+        status: { type: "string", enum: [...ALLOWED_LEDGER_STATUSES] },
+      },
+    },
+  },
+  {
     name: "stage_ops_action",
     requiredScope: "stage_actions",
     description:
@@ -950,6 +1071,37 @@ function buildSanitizedAuditOutput(
       reason: toolResult.reason ?? null,
     };
   }
+  if (toolName === "create_quote_draft") {
+    const quote = toolResult.quote as { id?: string; quote_number?: string; total_cents?: number } | null;
+    return {
+      quote_id: quote?.id ?? null,
+      quote_number: quote?.quote_number ?? null,
+      total_cents: quote?.total_cents ?? null,
+      portal_path: toolResult.portal_path ?? null,
+    };
+  }
+  if (toolName === "list_ar_summary") {
+    return {
+      total_billed_cents: toolResult.total_billed_cents ?? 0,
+      open_ar_cents: toolResult.open_ar_cents ?? 0,
+      overdue_ar_cents: toolResult.overdue_ar_cents ?? 0,
+      invoice_count: Array.isArray(toolResult.invoices) ? toolResult.invoices.length : 0,
+    };
+  }
+  if (toolName === "get_autonomy_rules") {
+    return {
+      auto_limit_cents: toolResult.auto_limit_cents ?? DEFAULT_AUTO_LIMIT_CENTS,
+      rules: toolResult.autonomy_rules ?? null,
+    };
+  }
+  if (toolName === "log_agent_action") {
+    const entry = toolResult.ledger_entry as { id?: string; status?: string; impact_cents?: number } | null;
+    return {
+      ledger_entry_id: entry?.id ?? null,
+      status: entry?.status ?? "executed",
+      impact_cents: entry?.impact_cents ?? 0,
+    };
+  }
   if (toolName === "stage_ops_action") {
     const staged = toolResult.staged_action as {
       id?: string;
@@ -1037,7 +1189,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "1.6.0",
+        version: "2.0.0",
         workspace_id: workspaceId,
       },
     });
@@ -2024,6 +2176,358 @@ Deno.serve(async (req: Request) => {
           reason,
         };
       }
+    } else if (toolName === "create_quote_draft") {
+      auditBotRole = "scout";
+      const title = typeof args.title === "string" ? args.title.trim() : "";
+      const customerName =
+        typeof args.customer_name === "string" ? args.customer_name.trim() : "";
+      if (!title || !customerName) {
+        throw new Error("title and customer_name are required");
+      }
+
+      if (!Array.isArray(args.items) || args.items.length === 0 || args.items.length > 50) {
+        throw new Error("items must contain between 1 and 50 line items");
+      }
+
+      let taxBps = 0;
+      if (args.tax_bps !== undefined) {
+        if (
+          typeof args.tax_bps !== "number" ||
+          !Number.isSafeInteger(args.tax_bps) ||
+          args.tax_bps < 0 ||
+          args.tax_bps > 5000
+        ) {
+          throw new Error("tax_bps must be an integer between 0 and 5000");
+        }
+        taxBps = args.tax_bps;
+      }
+
+      let subtotalCents = 0;
+      const computedItems: Array<{
+        position: number;
+        description: string;
+        quantity: number;
+        unit_price_cents: number;
+        line_total_cents: number;
+      }> = [];
+
+      for (let i = 0; i < args.items.length; i += 1) {
+        const rawItem = args.items[i] as Record<string, unknown> | null;
+        if (!rawItem || typeof rawItem !== "object") {
+          throw new Error(`items[${i}] must be an object`);
+        }
+        const description =
+          typeof rawItem.description === "string" ? rawItem.description.trim() : "";
+        const quantity = rawItem.quantity;
+        const unitPriceCents = rawItem.unit_price_cents;
+        if (!description) {
+          throw new Error(`items[${i}].description is required`);
+        }
+        if (
+          typeof quantity !== "number" ||
+          !Number.isSafeInteger(quantity) ||
+          quantity < 1
+        ) {
+          throw new Error(`items[${i}].quantity must be a positive safe integer`);
+        }
+        if (
+          typeof unitPriceCents !== "number" ||
+          !Number.isSafeInteger(unitPriceCents) ||
+          unitPriceCents < 0
+        ) {
+          throw new Error(`items[${i}].unit_price_cents must be a non-negative safe integer`);
+        }
+        const lineTotalCents = quantity * unitPriceCents;
+        if (!Number.isSafeInteger(lineTotalCents)) {
+          throw new Error("Line total exceeds safe integer bounds");
+        }
+        subtotalCents += lineTotalCents;
+        computedItems.push({
+          position: i,
+          description,
+          quantity,
+          unit_price_cents: unitPriceCents,
+          line_total_cents: lineTotalCents,
+        });
+      }
+
+      const taxCents = Math.floor((subtotalCents * taxBps + 5000) / 10000);
+      const totalCents = subtotalCents + taxCents;
+
+      let leadId: string | null = null;
+      if (typeof args.lead_id === "string" && args.lead_id.trim()) {
+        const { data: leadMatch, error: leadErr } = await admin
+          .from("public_leads")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("id", args.lead_id.trim())
+          .maybeSingle();
+        if (leadErr || !leadMatch) {
+          throw new Error("lead_id not found in authenticated workspace");
+        }
+        leadId = (leadMatch as { id: string }).id;
+      }
+
+      let customerId: string | null = null;
+      if (typeof args.customer_id === "string" && args.customer_id.trim()) {
+        const { data: custMatch, error: custErr } = await admin
+          .from("customers")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("id", args.customer_id.trim())
+          .maybeSingle();
+        if (custErr || !custMatch) {
+          throw new Error("customer_id not found in authenticated workspace");
+        }
+        customerId = (custMatch as CustomerIdRow).id;
+      }
+
+      const quoteStatus: "draft" | "sent" = args.status === "draft" ? "draft" : "sent";
+      const customerEmail =
+        typeof args.customer_email === "string" && args.customer_email.trim()
+          ? args.customer_email.trim().toLowerCase()
+          : null;
+      const validUntil =
+        typeof args.valid_until === "string" && args.valid_until.trim()
+          ? args.valid_until.trim()
+          : null;
+      const notes =
+        typeof args.notes === "string" && args.notes.trim() ? args.notes.trim() : null;
+
+      const portalToken = `qpt_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+      const quoteNumber = `QTE-${portalToken.slice(4, 10).toUpperCase()}`;
+
+      const { data: quoteRow, error: quoteErr } = await admin
+        .from("quotes")
+        .insert({
+          workspace_id: workspaceId,
+          lead_id: leadId,
+          customer_id: customerId,
+          quote_number: quoteNumber,
+          title,
+          customer_name: customerName,
+          customer_email: customerEmail,
+          subtotal_cents: subtotalCents,
+          tax_bps: taxBps,
+          tax_cents: taxCents,
+          total_cents: totalCents,
+          status: quoteStatus,
+          portal_token: portalToken,
+          valid_until: validUntil,
+          notes,
+        })
+        .select("*")
+        .single();
+
+      if (quoteErr || !quoteRow) {
+        throw new Error("Failed to create quote draft");
+      }
+
+      const createdQuoteId = (quoteRow as { id: string }).id;
+      const { data: itemRows, error: itemErr } = await admin
+        .from("quote_items")
+        .insert(
+          computedItems.map((item) => ({
+            workspace_id: workspaceId,
+            quote_id: createdQuoteId,
+            position: item.position,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price_cents: item.unit_price_cents,
+            line_total_cents: item.line_total_cents,
+          }))
+        )
+        .select("*");
+
+      if (itemErr) {
+        throw new Error("Quote created, but saving quote items failed");
+      }
+
+      toolResult = {
+        quote: quoteRow,
+        items: itemRows ?? [],
+        portal_path: `/portal/${portalToken}`,
+      };
+    } else if (toolName === "list_ar_summary") {
+      auditBotRole = "collections";
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+
+      if (args.status !== undefined && !isOneOf(args.status, ALLOWED_INVOICE_STATUSES)) {
+        throw new Error(
+          `status must be one of: ${ALLOWED_INVOICE_STATUSES.join(", ")}`
+        );
+      }
+
+      const { data: rawInvoices, error: invErr } = await admin
+        .from("invoices")
+        .select(
+          "id, invoice_number, title, customer_name, total_cents, amount_paid_cents, due_date, status, created_at"
+        )
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (invErr) {
+        throw new Error("Failed to query workspace AR invoices");
+      }
+
+      const allInvoices = (rawInvoices ?? []) as InvoiceRowForAr[];
+      const todayIso = new Date().toISOString().slice(0, 10);
+      let totalBilledCents = 0;
+      let totalCollectedCents = 0;
+      let openArCents = 0;
+      let overdueArCents = 0;
+      let overdueCount = 0;
+
+      for (const inv of allInvoices) {
+        if (inv.status === "void") continue;
+        const total = Number.isSafeInteger(inv.total_cents) ? Math.max(0, inv.total_cents) : 0;
+        const paid = Number.isSafeInteger(inv.amount_paid_cents)
+          ? Math.min(total, Math.max(0, inv.amount_paid_cents))
+          : 0;
+        totalBilledCents += total;
+        if (inv.status === "paid") {
+          totalCollectedCents += Math.max(paid, total);
+        } else {
+          totalCollectedCents += paid;
+          const balance = Math.max(0, total - paid);
+          openArCents += balance;
+          if ((inv.status === "overdue" || inv.due_date < todayIso) && balance > 0) {
+            overdueArCents += balance;
+            overdueCount += 1;
+          }
+        }
+      }
+
+      const filtered =
+        typeof args.status === "string"
+          ? allInvoices.filter((inv) => inv.status === args.status)
+          : allInvoices.filter((inv) => inv.status !== "paid" && inv.status !== "void");
+
+      toolResult = {
+        workspace_id: workspaceId,
+        total_billed_cents: totalBilledCents,
+        total_collected_cents: totalCollectedCents,
+        open_ar_cents: openArCents,
+        overdue_ar_cents: overdueArCents,
+        overdue_count: overdueCount,
+        invoices: filtered.slice(0, limit),
+      };
+    } else if (toolName === "get_autonomy_rules") {
+      auditBotRole = "chief_of_staff";
+      const { data: settingsRow, error: settingsErr } = await admin
+        .from("workspace_settings")
+        .select("workspace_id, modules_enabled, autonomy_rules, auto_limit_cents")
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+
+      if (settingsErr) {
+        throw new Error("Failed to load workspace autonomy rules");
+      }
+
+      const typedSettings = settingsRow as {
+        modules_enabled?: Record<string, unknown> | null;
+        autonomy_rules?: Record<string, unknown> | null;
+        auto_limit_cents?: number | null;
+      } | null;
+
+      const modulesEnabled: Record<string, boolean> = { ...DEFAULT_MODULES_ENABLED };
+      if (typedSettings?.modules_enabled && typeof typedSettings.modules_enabled === "object") {
+        for (const [k, v] of Object.entries(typedSettings.modules_enabled)) {
+          if (typeof v === "boolean") {
+            modulesEnabled[k] = v;
+          }
+        }
+      }
+
+      const autonomyRules: Record<string, AutonomyMode> = { ...DEFAULT_AUTONOMY_RULES };
+      if (typedSettings?.autonomy_rules && typeof typedSettings.autonomy_rules === "object") {
+        for (const [k, v] of Object.entries(typedSettings.autonomy_rules)) {
+          if (isOneOf(v, ALLOWED_AUTONOMY_MODES)) {
+            autonomyRules[k] = v;
+          }
+        }
+      }
+
+      const autoLimitCents =
+        typeof typedSettings?.auto_limit_cents === "number" &&
+        Number.isSafeInteger(typedSettings.auto_limit_cents) &&
+        typedSettings.auto_limit_cents >= 0
+          ? typedSettings.auto_limit_cents
+          : DEFAULT_AUTO_LIMIT_CENTS;
+
+      toolResult = {
+        workspace_id: workspaceId,
+        modules_enabled: modulesEnabled,
+        autonomy_rules: autonomyRules,
+        auto_limit_cents: autoLimitCents,
+      };
+    } else if (toolName === "log_agent_action") {
+      const agentName = typeof args.agent_name === "string" ? args.agent_name.trim() : "";
+      const moduleName = typeof args.module === "string" ? args.module.trim() : "";
+      const actionType = typeof args.action_type === "string" ? args.action_type.trim() : "";
+      const summary = typeof args.summary === "string" ? args.summary.trim() : "";
+      if (!agentName || !moduleName || !actionType || !summary) {
+        throw new Error("agent_name, module, action_type, and summary are required");
+      }
+      if (!isOneOf(args.autonomy_mode, ALLOWED_AUTONOMY_MODES)) {
+        throw new Error(
+          `autonomy_mode must be one of: ${ALLOWED_AUTONOMY_MODES.join(", ")}`
+        );
+      }
+      const autonomyMode: AutonomyMode = args.autonomy_mode;
+
+      if (typeof args.impact_cents !== "number" || !Number.isSafeInteger(args.impact_cents)) {
+        throw new Error("impact_cents must be a safe integer");
+      }
+      const impactCents = args.impact_cents;
+
+      let status: LedgerStatus = "executed";
+      if (args.status !== undefined) {
+        if (!isOneOf(args.status, ALLOWED_LEDGER_STATUSES)) {
+          throw new Error(
+            `status must be one of: ${ALLOWED_LEDGER_STATUSES.join(", ")}`
+          );
+        }
+        status = args.status;
+      }
+
+      const beforeState =
+        args.before_state && typeof args.before_state === "object" && !Array.isArray(args.before_state)
+          ? (args.before_state as Record<string, unknown>)
+          : null;
+      const afterState =
+        args.after_state && typeof args.after_state === "object" && !Array.isArray(args.after_state)
+          ? (args.after_state as Record<string, unknown>)
+          : null;
+
+      auditBotRole = isOneOf(moduleName, ALLOWED_BOT_ROLES) ? moduleName : "chief_of_staff";
+
+      const { data: ledgerRow, error: ledgerErr } = await admin
+        .from("agent_action_ledger")
+        .insert({
+          workspace_id: workspaceId,
+          agent_name: agentName,
+          module: moduleName,
+          action_type: actionType,
+          autonomy_mode: autonomyMode,
+          summary,
+          impact_cents: impactCents,
+          before_state: beforeState,
+          after_state: afterState,
+          status,
+        })
+        .select("*")
+        .single();
+
+      if (ledgerErr || !ledgerRow) {
+        throw new Error("Failed to log action into agent_action_ledger");
+      }
+
+      toolResult = {
+        ledger_entry: ledgerRow,
+      };
     }
 
     await admin.from("bot_runs").insert({

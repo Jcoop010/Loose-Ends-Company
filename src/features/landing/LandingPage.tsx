@@ -21,56 +21,56 @@ const FIVE_PILLARS = [
     title: 'Command Center',
     icon: LayoutDashboard,
     summary:
-      'Evidence-backed leak scanner across overdue invoices, unbilled completed jobs, stalled quotes, and past appointments—paired with strict separation between Stripe-verified collections and owner-reported payments.',
+      'Evidence-backed leak scanner across overdue invoices, unbilled delivered work, stalled quotes, and open commitments—paired with strict separation between Stripe-verified settlements and owner-reported payments.',
   },
   {
     step: '02',
-    title: 'Pipeline & Quotes',
+    title: 'CRM & Pipeline',
     icon: FileSpreadsheet,
     summary:
-      'Revision-tracked estimates, recorded customer approval evidence, Customer 360 history, and follow-up drafts gated by explicit channel consent.',
+      'Customer 360 timelines, qualified lead discovery, revision-tracked quotes, and follow-up drafts gated by explicit channel consent.',
   },
   {
     step: '03',
-    title: 'Dispatch & Jobs',
-    icon: CalendarClock,
+    title: 'Quotes & E-Sign Portal',
+    icon: ShieldCheck,
     summary:
-      'Conflict-checked technician scheduling, field checklists, reserved truck/warehouse materials, and recurring preventive maintenance plans.',
+      'Itemized quotes with unique /portal/[token] links where clients e-sign online and trigger automatic invoice conversion under your Autonomy Dial.',
   },
   {
     step: '04',
-    title: 'Inventory & POs',
-    icon: Boxes,
+    title: 'Invoices & AR Ledger',
+    icon: CalendarClock,
     summary:
-      'Live on-hand vs. reserved part balances, automatic low-stock detection, and owner-approved supplier Purchase Orders that post stock receipts on arrival.',
+      'Real-time billed, collected, and overdue AR metrics paired with 1-click collection nudges and exact integer-cent accounting.',
   },
   {
     step: '05',
-    title: 'Autopilot & Billing',
-    icon: ShieldCheck,
+    title: 'Agent Ledger & Autonomy',
+    icon: Boxes,
     summary:
-      'Business-hours coordination rules, human-in-the-loop workflow approvals, QuickBooks sync, and flat $199/month workspace billing.',
+      'Dial every workflow between Manual, 1-Tap Approve, and Full Auto with dollar caps, modular feature toggles, and 1-Click Undo/Reverse.',
   },
 ]
 
 const COMPARISON_ROWS = [
   {
-    capability: 'Quotes, Parts, Dispatch, Invoices & Follow-Up in One Database',
+    capability: 'CRM, Quotes, E-Sign, Invoices & Agents in One Database',
     looseEnds: 'Included in single Postgres ledger',
     fragmented: '3–4 disconnected apps + Zapier sync lag',
     enterprise: 'Requires 6–12 month custom implementation',
   },
   {
-    capability: 'Technician & Office Seat Pricing',
-    looseEnds: 'Unlimited workspace members ($0/seat)',
+    capability: 'Team & Collaborator Seat Pricing',
+    looseEnds: 'Unlimited workspace seats ($0/seat)',
     fragmented: '$49–$129/user across multiple tools',
-    enterprise: '$245–$398+ per technician/month',
+    enterprise: '$195–$350+ per seat/month',
   },
   {
-    capability: 'Unbilled Completed Job Detection',
-    looseEnds: 'Built-in deterministic ops_jobs vs. invoice check',
-    fragmented: 'Manual Friday spreadsheet reconciliation',
-    enterprise: 'Add-on reporting module',
+    capability: 'Autonomous Audit Trail & Reversible Actions',
+    looseEnds: 'Manual / 1-Tap / Full Auto dial + 1-Click Undo',
+    fragmented: 'Silent background automations with no rollback',
+    enterprise: 'Opaque enterprise workflow add-on',
   },
   {
     capability: 'Outbound Follow-Up Safety & TCPA/Email Consent',
@@ -107,14 +107,14 @@ export function LandingPage(): React.ReactElement {
                 Loose Ends
               </span>
               <span className="hidden sm:block text-[11px] text-slate-500">
-                Single-Ledger Operations &amp; Revenue Recovery
+                All-in-One Autonomous Business OS
               </span>
             </div>
           </div>
 
           <nav aria-label="Public navigation" className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
             <a href="#architecture" className="hover:text-[#c2410c] transition-colors">
-              5-Pillar Platform
+              Modular OS
             </a>
             <a href="#comparison" className="hover:text-[#c2410c] transition-colors">
               Stack Comparison
@@ -155,17 +155,18 @@ export function LandingPage(): React.ReactElement {
             <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-center">
               <div className="lg:col-span-7 space-y-6">
                 <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-3.5 py-1 text-xs font-semibold text-[#fdba74]">
-                  <span>Single-Ledger Operations &amp; Owner-Approved Revenue Recovery</span>
+                  <span>All-in-One Autonomous Business OS · Agencies, E-Commerce, Wholesale, Clinics &amp; Services</span>
                 </div>
 
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-[1.12]">
-                  Every quote, part, dispatch job, invoice, and follow-up in one ledger.
+                  CRM, quotes &amp; e-sign, invoices &amp; autonomous agents in one ledger.
                 </h1>
 
                 <p className="max-w-2xl text-base sm:text-lg text-slate-300 leading-relaxed">
-                  Service businesses lose margin when completed jobs never get billed, high-value
-                  quotes stall without follow-up, and parts run out mid-dispatch. Loose Ends unifies
-                  day-to-day operations and consent-verified revenue recovery for a flat{' '}
+                  Growing agencies, e-commerce brands, wholesalers, clinics, and service teams lose
+                  margin when quotes stall, invoices sit uncollected, and tools don&apos;t talk.
+                  Loose Ends OS runs your revenue-to-cash workflow autonomously—with Manual, 1-Tap,
+                  or Full Auto controls and 1-Click Undo—for a flat{' '}
                   <strong className="text-white font-semibold tabular-nums">$199/month</strong> per
                   workspace.
                 </p>
@@ -192,7 +193,7 @@ export function LandingPage(): React.ReactElement {
                 <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-800/90 max-w-xl">
                   <div>
                     <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">$199/mo</p>
-                    <p className="text-xs text-slate-400">Flat per workspace · unlimited techs</p>
+                    <p className="text-xs text-slate-400">Flat per workspace · unlimited seats</p>
                   </div>
                   <div>
                     <p className="text-xl sm:text-2xl font-bold text-[#fb923c] tabular-nums">$0</p>
@@ -200,7 +201,7 @@ export function LandingPage(): React.ReactElement {
                   </div>
                   <div>
                     <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">100%</p>
-                    <p className="text-xs text-slate-400">Owner-approved &amp; consent-gated</p>
+                    <p className="text-xs text-slate-400">Reversible &amp; consent-gated</p>
                   </div>
                 </div>
               </div>
@@ -210,36 +211,36 @@ export function LandingPage(): React.ReactElement {
                 <div className="rounded-2xl border border-slate-700/80 bg-slate-900/90 p-5 sm:p-6 shadow-2xl space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                      Connected Operational Chain
+                      Autonomous Revenue-to-Cash Chain
                     </span>
-                    <Badge tone="emerald">Advisory-Locked Ledger</Badge>
+                    <Badge tone="emerald">Deterministic Cent Math</Badge>
                   </div>
 
                   <ol className="space-y-2.5 text-xs sm:text-sm">
                     {[
                       {
-                        stage: '1. Quote & Approval',
-                        detail: 'Revision snapshot + recorded customer approval evidence',
+                        stage: '1. Quote & Branded E-Sign',
+                        detail: 'Send itemized quotes with instant /portal/[token] signature',
                         metric: 'QTE-2041 · $6,450',
                       },
                       {
-                        stage: '2. Stock & Purchase Orders',
-                        detail: 'Reserve parts on the job or draft low-stock supplier PO',
-                        metric: 'REF-410A · 2 reserved',
+                        stage: '2. Autonomy Dial Gate',
+                        detail: 'Choose Manual, 1-Tap Approve, or Full Auto by dollar cap',
+                        metric: 'Full Auto <= $500',
                       },
                       {
-                        stage: '3. Conflict-Checked Dispatch',
-                        detail: 'Assign technician window with travel buffer & checklist',
-                        metric: '07:30–18:00 enforced',
+                        stage: '3. Auto-Generated Invoice',
+                        detail: 'Signed quote converts immediately to tracked AR with due date',
+                        metric: 'INV-2041 · Issued',
                       },
                       {
-                        stage: '4. Completion & Invoicing',
-                        detail: 'Flags completed jobs missing an invoice automatically',
-                        metric: '0 unbilled leaks',
+                        stage: '4. Agent Action Ledger + Undo',
+                        detail: 'Every bot action logs before/after state with 1-Click Reverse',
+                        metric: '1-Click Undo Ready',
                       },
                       {
-                        stage: '5. Consent-Gated Recovery',
-                        detail: 'Verifies channel opt-in before queueing any reminder draft',
+                        stage: '5. Consent-Gated AR Nudges',
+                        detail: 'Verifies channel opt-in before staging any payment reminder',
                         metric: 'Audit trail logged',
                       },
                     ].map(row => (
@@ -312,10 +313,11 @@ export function LandingPage(): React.ReactElement {
                 <span className="inline-flex items-center gap-1 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-2.5 py-0.5 text-xs font-semibold text-[#fdba74]">
                   Interactive Preview
                 </span>
-                <h3 className="mt-3 text-base font-bold">Test-drive the full HVAC sandbox now</h3>
+                <h3 className="mt-3 text-base font-bold">Test-drive the Autonomous OS sandbox now</h3>
                 <p className="mt-1.5 text-xs sm:text-sm text-slate-300 leading-relaxed">
-                  Inspect stalled quotes, issue an invoice for an unbilled walk-in cooler repair,
-                  receive a refrigerant PO, and test consent-blocked SMS safety live in your browser.
+                  Simulate a client e-signature in <code>/portal</code>, watch the agent
+                  auto-generate the invoice, test the Autonomy Dial, and try 1-Click Undo live in
+                  your browser.
                 </p>
               </div>
               <button
@@ -336,11 +338,11 @@ export function LandingPage(): React.ReactElement {
             <div className="max-w-2xl">
               <Badge tone="neutral">Factual Architecture Comparison</Badge>
               <h2 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-slate-950">
-                Built for 3–50 person trade &amp; service operators
+                Built for growing agencies, e-commerce, wholesale, clinics &amp; service teams
               </h2>
               <p className="mt-2 text-sm sm:text-base text-slate-600">
-                Stop paying per-technician enterprise taxes or duct-taping spreadsheets between your
-                CRM, QuickBooks, and messaging app.
+                Stop paying per-seat SaaS taxes or duct-taping spreadsheets between your CRM,
+                quoting tool, invoicing, and accounting.
               </p>
             </div>
 
@@ -374,13 +376,13 @@ export function LandingPage(): React.ReactElement {
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="py-3.5 px-4 font-semibold text-slate-700">Operational Requirement</th>
                     <th className="py-3.5 px-4 font-bold text-[#9a3412] bg-[#fff7ed]">
-                      Loose Ends ($199/mo flat)
+                      Loose Ends OS ($199/mo flat)
                     </th>
                     <th className="py-3.5 px-4 font-semibold text-slate-600">
-                      Fragmented CRM + QBO + Podium
+                      Fragmented CRM + Quoting + Invoicing
                     </th>
                     <th className="py-3.5 px-4 font-semibold text-slate-600">
-                      Legacy Per-Tech Enterprise Suites
+                      Legacy Per-Seat Enterprise Suites
                     </th>
                   </tr>
                 </thead>
@@ -417,7 +419,7 @@ export function LandingPage(): React.ReactElement {
               <div className="exec-surface p-6 sm:p-8 border-slate-300">
                 <Badge tone="brand">Transparent Workspace Pricing</Badge>
                 <h2 className="mt-3 text-2xl font-bold text-slate-950">
-                  One flat plan. Every operational module included.
+                  One flat plan. Every module included.
                 </h2>
                 <div className="mt-4 flex items-baseline gap-2">
                   <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-950 tabular-nums">
@@ -431,10 +433,10 @@ export function LandingPage(): React.ReactElement {
 
                 <ul className="mt-6 space-y-2.5 text-xs sm:text-sm text-slate-700">
                   {[
-                    'Unlimited technicians, dispatchers, and office admins',
-                    'All 5 workspaces: Command, Pipeline, Dispatch, Inventory & Autopilot',
-                    'Deterministic Revenue & Unbilled-Job Leak Scanner',
-                    'Resumable CSV Customer & Inventory SKU Bulk Imports',
+                    'Unlimited seats across your entire team ($0/seat)',
+                    'All Release 1 modules: Command Center, CRM, Quotes & E-Sign, Invoices & AR, Autonomy Ledger',
+                    'Branded Client /portal/[token] e-sign + payment handoff',
+                    'Manual, 1-Tap Approve & Full Auto dial with 1-Click Undo',
                     'Consent-Gated Outbound Drafts + Full Audit Trail',
                     'QuickBooks Online Sync + Stripe Verified Collections Ledger',
                   ].map(feature => (

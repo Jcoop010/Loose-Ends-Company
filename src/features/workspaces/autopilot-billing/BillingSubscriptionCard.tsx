@@ -24,8 +24,8 @@ export interface BillingSubscriptionCardProps {
 }
 
 const INCLUDED_FEATURES = [
-  'All 5 Operational Workspaces (Command, Pipeline, Dispatch, Inventory, Autopilot)',
-  'Unlimited workspace technicians, dispatchers, and office staff ($0 per-seat tax)',
+  'All 5 Autonomous Business OS Workspaces (Command, CRM, Quotes & E-Sign, Invoices & AR, Autonomy)',
+  'Unlimited workspace seats across your entire team ($0 per-seat tax)',
   'Deterministic Revenue & Unbilled-Job Leak Scanner',
   'Advisory-locked le_ops PostgreSQL mutations with UUID idempotency receipts',
   'Consent-gated recovery preflight & Stripe webhook-verified collections separation',

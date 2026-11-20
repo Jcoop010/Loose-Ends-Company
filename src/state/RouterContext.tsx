@@ -3,15 +3,21 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 export type DashboardSection =
   | 'command'
   | 'pipeline'
+  | 'quotes'
+  | 'invoices'
+  | 'autonomy'
   | 'dispatch'
   | 'inventory'
   | 'autopilot'
 
-export type AppTopRoute = 'landing' | 'demo' | 'dashboard'
+export type AppTopRoute = 'landing' | 'demo' | 'dashboard' | 'portal'
 
 export const DASHBOARD_ROUTES: Record<DashboardSection, string> = {
   command: '/dashboard',
   pipeline: '/dashboard/pipeline',
+  quotes: '/dashboard/quotes',
+  invoices: '/dashboard/invoices',
+  autonomy: '/dashboard/autonomy',
   dispatch: '/dashboard/dispatch',
   inventory: '/dashboard/inventory',
   autopilot: '/dashboard/autopilot',
@@ -22,6 +28,7 @@ export interface ParsedRoute {
   search: string
   topRoute: AppTopRoute
   section: DashboardSection
+  portalToken: string | null
 }
 
 export function normalizePathname(rawPathname: string): string {
@@ -32,6 +39,20 @@ export function normalizePathname(rawPathname: string): string {
 export function parseAppLocation(pathname: string, search = ''): ParsedRoute {
   const cleanPath = normalizePathname(pathname)
 
+  if (cleanPath.startsWith('/portal/')) {
+    const rawToken = cleanPath.slice('/portal/'.length).split('/')[0] ?? ''
+    const portalToken = decodeURIComponent(rawToken).trim() || null
+    if (portalToken) {
+      return {
+        pathname: cleanPath,
+        search,
+        topRoute: 'portal',
+        section: 'command',
+        portalToken,
+      }
+    }
+  }
+
   if (cleanPath === '/demo' || cleanPath.startsWith('/demo/')) {
     const sub = cleanPath.slice('/demo'.length).replace(/^\/+/, '').split('/')[0]
     const section = isDashboardSection(sub) ? sub : 'command'
@@ -40,6 +61,7 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRoute {
       search,
       topRoute: 'demo',
       section,
+      portalToken: null,
     }
   }
 
@@ -51,6 +73,7 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRoute {
       search,
       topRoute: 'dashboard',
       section,
+      portalToken: null,
     }
   }
 
@@ -59,6 +82,7 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRoute {
     search,
     topRoute: 'landing',
     section: 'command',
+    portalToken: null,
   }
 }
 
@@ -66,6 +90,9 @@ function isDashboardSection(candidate: string): candidate is DashboardSection {
   return (
     candidate === 'command' ||
     candidate === 'pipeline' ||
+    candidate === 'quotes' ||
+    candidate === 'invoices' ||
+    candidate === 'autonomy' ||
     candidate === 'dispatch' ||
     candidate === 'inventory' ||
     candidate === 'autopilot'

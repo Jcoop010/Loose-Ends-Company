@@ -1,5 +1,7 @@
 // Comprehensive domain model for Loose Ends OS (Auth, CRM/Recovery, Operations OS, Workflows)
 
+import type { AutonomyRulesMap, WorkspaceModulesEnabled } from '../lib/autonomousOs/types'
+
 export type MemberRole = 'owner' | 'admin' | 'member' | 'staff' | 'viewer'
 
 export interface Workspace {
@@ -25,6 +27,9 @@ export interface WorkspaceSettings {
   timezone: string
   onboarding_completed: boolean
   onboarding_completed_at?: string | null
+  modules_enabled?: Partial<WorkspaceModulesEnabled> | null
+  autonomy_rules?: Partial<AutonomyRulesMap> | null
+  auto_limit_cents?: number | null
   created_at?: string
   updated_at?: string
 }
