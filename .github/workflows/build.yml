@@ -82,3 +82,4 @@ jobs:
       - run: node tests/mcp-security-hardening.test.mjs
       - run: node tests/autonomous-os-engine.test.mjs
       - run: node tests/release2-inventory-bookkeeping.test.mjs
+      - run: node tests/release3-enterprise-vault-sops.test.mjs

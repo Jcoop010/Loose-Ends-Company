@@ -270,7 +270,9 @@ export function AutonomyLedgerPage(): React.ReactElement {
                       <span className="text-xs sm:text-sm font-bold text-slate-900">
                         {mod.label}
                       </span>
-                      {mod.release === 'release_2' ? (
+                      {mod.release === 'release_3' ? (
+                        <Badge tone="brand">Release 3</Badge>
+                      ) : mod.release === 'release_2' ? (
                         <Badge tone="neutral">Release 2</Badge>
                       ) : (
                         <Badge tone="brand">Core</Badge>

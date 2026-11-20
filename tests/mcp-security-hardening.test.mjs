@@ -293,7 +293,7 @@ const state = {
   workspace_settings: [
     {
       workspace_id: wsA,
-      modules_enabled: { crm: true, quotes: true, billing: true, inventory: false, bookkeeping: false, projects: false, vault: false },
+      modules_enabled: { crm: true, quotes: true, billing: true, inventory: false, bookkeeping: false, projects: false, vault: true },
       autonomy_rules: {
         send_quote_followup: 'approve_1tap',
         convert_signed_quote_to_invoice: 'full_auto',
@@ -311,6 +311,47 @@ const state = {
   ],
   quotes: [],
   quote_items: [],
+  compliance_vault_items: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `cv-a-${idx + 1}`,
+      workspace_id: wsA,
+      doc_type: 'saas_renewal',
+      title: `Vendor Contract ${idx + 1}`,
+      counterparty: 'CloudRoute Inc.',
+      expires_on: '2026-12-10',
+      notice_window_days: 45,
+      annual_value_cents: 120000,
+      status: 'active',
+      notes: null,
+      created_at: '2026-11-18T08:00:00Z',
+    })),
+    {
+      id: 'cv-b-1',
+      workspace_id: wsB,
+      doc_type: 'coi',
+      title: 'Other Workspace Secret COI',
+      counterparty: 'Secret Insurer',
+      expires_on: '2026-11-25',
+      notice_window_days: 45,
+      annual_value_cents: 9999900,
+      status: 'active',
+      notes: null,
+      created_at: '2026-11-18T08:00:00Z',
+    },
+  ],
+  living_sops: [
+    {
+      id: 'sop-b-1',
+      workspace_id: wsB,
+      module_key: 'vault',
+      title: 'Secret B SOP',
+      trigger_event: 'secret.event',
+      steps_json: ['Secret Step'],
+      version: 1,
+      auto_generated: true,
+      last_observed_at: '2026-11-18T08:00:00Z',
+    },
+  ],
   invoices: [
     ...Array.from({ length: 11 }, (_, idx) => ({
       id: `inv-a-${idx + 1}`,
@@ -418,8 +459,12 @@ function createMockSupabase() {
 
         if (op === 'upsert') {
           const item = { ...writePayload }
-          const existingIdx = rows.findIndex(
-            r => r.workspace_id === item.workspace_id && r.business === item.business,
+          const conflictCols = String(upsertOpts?.onConflict ?? 'workspace_id,business')
+            .split(',')
+            .map(c => c.trim())
+            .filter(Boolean)
+          const existingIdx = rows.findIndex(r =>
+            conflictCols.every(col => r[col] === item[col]),
           )
           let saved
           if (existingIdx >= 0) {
@@ -600,19 +645,19 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. initialize returns v2.1.0 and tools/list returns all 21 tools including Release 2 tools
+// B. initialize returns v2.2.0 and tools/list returns all 24 tools including Release 3 tools
 const initRes = await callMcp(rawTokenA, 'initialize', {
   protocolVersion: '2024-11-05',
   capabilities: {},
   clientInfo: { name: 'qa-client', version: '1.0.0' },
 })
 assert.equal(initRes.status, 200)
-assert.equal(initRes.json.result.serverInfo.version, '2.1.0')
+assert.equal(initRes.json.result.serverInfo.version, '2.2.0')
 
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 21)
+assert.equal(toolNames.length, 24)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
@@ -626,6 +671,9 @@ for (const reqTool of [
   'stage_purchase_order',
   'run_three_way_match',
   'get_cashflow_summary',
+  'list_expiring_compliance',
+  'stage_compliance_notice',
+  'upsert_living_sop',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -1067,6 +1115,71 @@ assert.equal(cashflowSc.held_disputed_ap_cents, 460000)
 assert.equal(cashflowSc.total_scheduled_ap_cents, 150000)
 assert.equal(cashflowSc.windows.length, 3)
 
+// F6. Release 3 MCP v2.2.0 tools: list_expiring_compliance (<=10), stage_compliance_notice, upsert_living_sop
+const complianceRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'list_expiring_compliance',
+  arguments: { reference_date: '2026-11-20', limit: 99 },
+})
+assert.equal(complianceRes.status, 200)
+const compSc = complianceRes.json.result.structuredContent
+assert.equal(compSc.expiring_count, 11)
+assert.equal(compSc.items.length, 10, 'list_expiring_compliance must clamp strictly <= 10')
+assert.equal(compSc.items.some(i => i.id === 'cv-b-1'), false)
+
+const roNoticeAttempt = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'stage_compliance_notice',
+  arguments: { vault_item_id: 'cv-a-1' },
+})
+assert.equal(roNoticeAttempt.status, 403)
+
+const crossWsNoticeAttempt = await callMcp(rawTokenA, 'tools/call', {
+  name: 'stage_compliance_notice',
+  arguments: { vault_item_id: 'cv-b-1' },
+})
+assert.equal(crossWsNoticeAttempt.status, 400)
+assert.match(crossWsNoticeAttempt.json.error.message, /vault_item_id not found/)
+
+const noticeRes = await callMcp(rawTokenA, 'tools/call', {
+  name: 'stage_compliance_notice',
+  arguments: {
+    vault_item_id: 'cv-a-1',
+    notice_kind: 'cancellation',
+    recipient_email: 'renewals@cloudroute.invalid',
+  },
+})
+assert.equal(noticeRes.status, 200)
+const noticeSc = noticeRes.json.result.structuredContent
+assert.equal(noticeSc.vault_item.status, 'notice_staged')
+assert.equal(noticeSc.communication_draft.requires_approval, true)
+assert.equal(noticeSc.communication_draft.status, 'draft')
+assert.match(noticeSc.communication_draft.message, /421 Hill Street, Parkersburg, WV 26104/)
+
+const sop1Res = await callMcp(rawTokenA, 'tools/call', {
+  name: 'upsert_living_sop',
+  arguments: {
+    module_key: 'quotes',
+    title: 'Portal Auto Conversion SOP',
+    trigger_event: 'quote.portal_signed',
+    steps: ['Validate token', 'Convert to invoice'],
+  },
+})
+assert.equal(sop1Res.status, 200)
+assert.equal(sop1Res.json.result.structuredContent.version, 1)
+assert.equal(sop1Res.json.result.structuredContent.created, true)
+
+const sop2Res = await callMcp(rawTokenA, 'tools/call', {
+  name: 'upsert_living_sop',
+  arguments: {
+    module_key: 'quotes',
+    title: 'Portal Auto Conversion SOP',
+    trigger_event: 'quote.portal_signed',
+    steps: ['Validate token', 'Check Autonomy Cap', 'Convert to invoice'],
+  },
+})
+assert.equal(sop2Res.status, 200)
+assert.equal(sop2Res.json.result.structuredContent.version, 2)
+assert.equal(sop2Res.json.result.structuredContent.created, false)
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -1081,6 +1194,8 @@ const workspaceTables = new Set([
   'goods_receipts',
   'vendor_bills',
   'ledger_entries',
+  'compliance_vault_items',
+  'living_sops',
   'ops_readiness_audits',
   'staged_ops_actions',
   'staged_ledger_entries',

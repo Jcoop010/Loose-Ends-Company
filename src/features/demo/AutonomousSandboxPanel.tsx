@@ -1,15 +1,19 @@
 import React, { useState } from 'react'
 import {
   AlertTriangle,
+  BellRing,
   CheckCircle2,
   FileCheck2,
   FileSignature,
+  FileText,
+  Lock,
   ReceiptText,
   RotateCcw,
   SlidersHorizontal,
 } from 'lucide-react'
 import {
   AUTONOMY_ACTION_META,
+  evaluateComplianceDeadlines,
   WORKSPACE_MODULE_META,
   type AutonomyMode,
 } from '../../lib/autonomousOs'
@@ -34,6 +38,8 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const ledger = demo.state.osAgentLedger
   const config = demo.state.osAutonomyConfig
   const threeWaySim = demo.state.osThreeWaySimulation
+  const complianceEval = evaluateComplianceDeadlines(demo.state.osComplianceItems)
+  const livingSops = demo.state.osLivingSops
 
   return (
     <section
@@ -472,6 +478,112 @@ export function AutonomousSandboxPanel(): React.ReactElement {
             ) : null}
           </div>
         ) : null}
+      </div>
+
+      {/* Release 3: Air-Gapped Compliance Vault & Living SOPs Preview */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start">
+        <div className="lg:col-span-6 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
+              <Lock className="h-3.5 w-3.5 text-[#ea580c]" aria-hidden="true" />
+              Compliance &amp; COI Vault ({complianceEval.total_docs_count})
+            </span>
+            <Badge tone="rose">
+              {complianceEval.expiring_within_window_count} Entering Notice Window
+            </Badge>
+          </div>
+
+          <ul className="space-y-2.5">
+            {complianceEval.evaluated_items.map(entry => (
+              <li
+                key={entry.item.id}
+                className="rounded-xl border border-slate-200 bg-white p-3 space-y-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge tone="neutral">{entry.item.doc_type}</Badge>
+                    <Badge
+                      tone={
+                        entry.item.status === 'notice_staged'
+                          ? 'emerald'
+                          : entry.within_notice_window
+                            ? 'rose'
+                            : 'neutral'
+                      }
+                    >
+                      {entry.item.status}
+                    </Badge>
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 tabular-nums">
+                    {formatCents(entry.item.annual_value_cents)}/yr
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-slate-900">
+                  {entry.item.title} · {entry.item.counterparty}
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600 tabular-nums">
+                  <span>
+                    Expires {entry.item.expires_on} ({entry.days_remaining}d left ·{' '}
+                    {entry.item.notice_window_days}d notice)
+                  </span>
+                  {entry.item.status === 'notice_staged' ? (
+                    <span className="font-semibold text-emerald-700">Notice Staged</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const res = demo.stageDemoComplianceNotice(entry.item.id)
+                        if (res) {
+                          toast.success(
+                            'Compliance Notice staged in sandbox',
+                            res.subject,
+                          )
+                        }
+                      }}
+                      className="exec-btn-primary !px-2.5 !py-1 !text-[11px]"
+                    >
+                      <BellRing className="h-3 w-3" aria-hidden="true" />
+                      Stage Notice
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="lg:col-span-6 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700">
+              <FileText className="h-3.5 w-3.5 text-[#ea580c]" aria-hidden="true" />
+              Living Operational SOPs ({livingSops.length})
+            </span>
+            <Badge tone="brand">Auto-Compiled</Badge>
+          </div>
+
+          <ul className="space-y-2.5">
+            {livingSops.map(sop => (
+              <li
+                key={sop.id}
+                className="rounded-xl border border-slate-200 bg-white p-3 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge tone="neutral">{sop.module_key.toUpperCase()}</Badge>
+                    <span className="text-xs font-bold text-slate-900">{sop.title}</span>
+                  </div>
+                  <Badge tone="emerald">v{sop.version}</Badge>
+                </div>
+                <p className="text-[11px] font-mono text-slate-500">Trigger: {sop.trigger_event}</p>
+                <ol className="list-decimal pl-4 space-y-0.5 text-[11px] text-slate-700">
+                  {sop.steps_json.map((step, idx) => (
+                    <li key={`${sop.id}-${idx}`}>{step}</li>
+                  ))}
+                </ol>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </section>
   )

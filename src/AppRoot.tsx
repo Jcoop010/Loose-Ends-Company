@@ -10,9 +10,11 @@ import { AutopilotBillingPage } from './features/workspaces/autopilot-billing/Au
 import { AutonomyLedgerPage } from './features/workspaces/autonomy-ledger/AutonomyLedgerPage'
 import { BookkeepingApPage } from './features/workspaces/bookkeeping-ap/BookkeepingApPage'
 import { CommandCenterPage } from './features/workspaces/command-center/CommandCenterPage'
+import { ComplianceVaultPage } from './features/workspaces/compliance-vault/ComplianceVaultPage'
 import { DispatchJobsPage } from './features/workspaces/dispatch-jobs/DispatchJobsPage'
 import { InventoryPosPage } from './features/workspaces/inventory-pos/InventoryPosPage'
 import { InvoicesArPage } from './features/workspaces/invoices-ar/InvoicesArPage'
+import { LivingSopsPage } from './features/workspaces/living-sops/LivingSopsPage'
 import { PipelineQuotesPage } from './features/workspaces/pipeline-quotes/PipelineQuotesPage'
 import { QuotesESignPage } from './features/workspaces/quotes-esign/QuotesESignPage'
 import { DemoStoreProvider } from './state/DemoStoreContext'
@@ -37,6 +39,10 @@ function AuthenticatedWorkspaceSwitch(): React.ReactElement {
       return <InventoryPosPage />
     case 'bookkeeping':
       return <BookkeepingApPage />
+    case 'vault':
+      return <ComplianceVaultPage />
+    case 'sops':
+      return <LivingSopsPage />
     case 'autopilot':
       return <AutopilotBillingPage />
     case 'command':

@@ -647,6 +647,22 @@ export async function reverseLedgerEntryInDb(params: {
       .eq('id', after.bill_id)
   }
 
+  if (
+    entry.action_type === 'stage_compliance_notice' &&
+    typeof after.vault_item_id === 'string' &&
+    restoredState &&
+    typeof restoredState.vault_status === 'string'
+  ) {
+    await supabase
+      .from('compliance_vault_items')
+      .update({
+        status: restoredState.vault_status,
+        updated_at: updatedEntry.reversed_at,
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('id', after.vault_item_id)
+  }
+
   const { data, error } = await supabase
     .from('agent_action_ledger')
     .update({

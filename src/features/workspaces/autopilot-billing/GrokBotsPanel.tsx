@@ -396,7 +396,7 @@ export function GrokBotsPanel({
               hashed bearer tokens.
             </p>
           </div>
-          <Badge tone="brand">21 Scoped Tools Active</Badge>
+          <Badge tone="brand">24 Scoped Tools Active</Badge>
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">

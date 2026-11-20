@@ -76,7 +76,7 @@ const DEFAULT_MODULES_ENABLED: Readonly<Record<string, boolean>> = {
   inventory: false,
   bookkeeping: false,
   projects: false,
-  vault: false,
+  vault: true,
 };
 
 const DEFAULT_AUTONOMY_RULES: Readonly<Record<string, AutonomyMode>> = {
@@ -86,6 +86,7 @@ const DEFAULT_AUTONOMY_RULES: Readonly<Record<string, AutonomyMode>> = {
   flag_overdue_ar: "full_auto",
   stage_auto_po: "approve_1tap",
   approve_clean_vendor_bill: "full_auto",
+  stage_compliance_notice: "approve_1tap",
 };
 
 const DEFAULT_AUTO_LIMIT_CENTS = 50000;
@@ -1218,6 +1219,62 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "list_expiring_compliance",
+    requiredScope: "read_all",
+    description:
+      "Read-only list of workspace compliance_vault_items entering or past their notice_window_days deadline, capped strictly at limit <= 10.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        reference_date: { type: "string" },
+        include_all_active: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: "stage_compliance_notice",
+    requiredScope: "stage_actions",
+    description:
+      "Write-narrow (staged): Mark a workspace compliance_vault_item notice_staged, enforce fail-closed consent + CAN-SPAM draft staging when counterparty contact is supplied, and log to agent_action_ledger.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["vault_item_id"],
+      properties: {
+        vault_item_id: { type: "string" },
+        notice_kind: { type: "string", enum: ["renewal", "cancellation"] },
+        recipient_email: { type: "string" },
+        recipient_name: { type: "string" },
+        customer_id: { type: "string" },
+        custom_note: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "upsert_living_sop",
+    requiredScope: "stage_actions",
+    description:
+      "Write-narrow (staged): Create or auto-increment version of a Living Operational SOP playbook in public.living_sops for the authenticated workspace.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["module_key", "title", "trigger_event", "steps"],
+      properties: {
+        module_key: { type: "string" },
+        title: { type: "string" },
+        trigger_event: { type: "string" },
+        steps: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string" },
+        },
+        auto_generated: { type: "boolean" },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1574,7 +1631,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "2.1.0",
+        version: "2.2.0",
         workspace_id: workspaceId,
       },
     });
@@ -3488,6 +3545,313 @@ Deno.serve(async (req: Request) => {
         any_buffer_breach: firstBreachHorizonDays !== null,
         first_breach_horizon_days: firstBreachHorizonDays,
         windows,
+      };
+    } else if (toolName === "list_expiring_compliance") {
+      auditBotRole = "qa";
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+      const refDate =
+        typeof args.reference_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.reference_date.trim())
+          ? args.reference_date.trim()
+          : new Date().toISOString().slice(0, 10);
+      const includeAllActive = args.include_all_active === true;
+
+      const { data: vaultRows, error: vaultErr } = await admin
+        .from("compliance_vault_items")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("expires_on", { ascending: true })
+        .limit(500);
+
+      if (vaultErr) {
+        throw new Error("Failed to query compliance_vault_items");
+      }
+
+      const refMs = Date.parse(`${refDate}T00:00:00Z`);
+      const evaluated = ((vaultRows ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        doc_type: string;
+        title: string;
+        counterparty: string;
+        expires_on: string;
+        notice_window_days: number;
+        annual_value_cents: number;
+        status: string;
+      }>)
+        .filter((doc) => doc.status !== "cancelled")
+        .map((doc) => {
+          const expMs = Date.parse(`${(doc.expires_on || refDate).slice(0, 10)}T00:00:00Z`);
+          const daysRemaining = Number.isFinite(expMs)
+            ? Math.round((expMs - refMs) / 86_400_000)
+            : 0;
+          const noticeDays = Math.max(0, Math.trunc(doc.notice_window_days ?? 45));
+          const withinNoticeWindow = daysRemaining <= noticeDays;
+          return {
+            ...doc,
+            days_remaining: daysRemaining,
+            within_notice_window: withinNoticeWindow,
+          };
+        })
+        .filter(
+          (doc) =>
+            includeAllActive ||
+            (doc.status !== "notice_staged" && doc.within_notice_window)
+        )
+        .sort((a, b) => a.days_remaining - b.days_remaining);
+
+      const annualSpendAtRiskCents = evaluated.reduce(
+        (sum, doc) => sum + (doc.within_notice_window ? Math.max(0, doc.annual_value_cents ?? 0) : 0),
+        0
+      );
+
+      toolResult = {
+        workspace_id: workspaceId,
+        reference_date: refDate,
+        expiring_count: evaluated.length,
+        annual_spend_at_risk_cents: annualSpendAtRiskCents,
+        items: evaluated.slice(0, limit),
+      };
+    } else if (toolName === "stage_compliance_notice") {
+      auditBotRole = "chief_of_staff";
+      const vaultItemId =
+        typeof args.vault_item_id === "string" ? args.vault_item_id.trim() : "";
+      if (!vaultItemId) {
+        throw new Error("vault_item_id is required");
+      }
+
+      const { data: vaultRow, error: vaultLookupErr } = await admin
+        .from("compliance_vault_items")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .eq("id", vaultItemId)
+        .maybeSingle();
+
+      if (vaultLookupErr || !vaultRow) {
+        throw new Error("vault_item_id not found in authenticated workspace");
+      }
+
+      const item = vaultRow as {
+        id: string;
+        doc_type: string;
+        title: string;
+        counterparty: string;
+        expires_on: string;
+        notice_window_days: number;
+        annual_value_cents: number;
+        status: string;
+      };
+
+      const noticeKind = args.notice_kind === "cancellation" ? "Non-Renewal / Cancellation Notice" : "Renewal Notice";
+      const recipientEmail =
+        typeof args.recipient_email === "string"
+          ? args.recipient_email.trim().toLowerCase()
+          : "";
+      const recipientName =
+        typeof args.recipient_name === "string" && args.recipient_name.trim()
+          ? args.recipient_name.trim()
+          : item.counterparty;
+      const customNote = typeof args.custom_note === "string" ? args.custom_note.trim() : "";
+
+      const subject = `${noticeKind}: ${item.title} (${item.counterparty} · expires ${item.expires_on})`;
+      const messageBody = [
+        `Hello ${recipientName},`,
+        ``,
+        `This communication serves as ${noticeKind.toLowerCase()} regarding ${item.title} (${item.doc_type.toUpperCase()}) scheduled to expire on ${item.expires_on} (${item.notice_window_days}-day notice window, annual commitment ${formatCentsUsd(item.annual_value_cents ?? 0)}).`,
+        ...(customNote ? [``, customNote] : []),
+        ``,
+        `Please acknowledge receipt before the notice cutoff date.`,
+        ``,
+        `---`,
+        `Loose Ends OS Compliance Desk · 421 Hill Street, Parkersburg, WV 26104`,
+        `Reply UNSUBSCRIBE to opt out of future automated notices.`,
+      ].join("\n");
+
+      let stagedDraft: unknown = null;
+      const rawCustomerId =
+        typeof args.customer_id === "string" ? args.customer_id.trim() : "";
+
+      if (recipientEmail || rawCustomerId) {
+        const consent = await checkCustomerConsentFailClosed(
+          admin,
+          workspaceId,
+          recipientEmail,
+          rawCustomerId
+        );
+        if (consent.suppressed) {
+          throw new Error(
+            `Consent Guard (${consent.reason}): ${recipientEmail || rawCustomerId} cannot be drafted.`
+          );
+        }
+
+        let resolvedCustomerId: string | null = null;
+        if (rawCustomerId) {
+          const { data: custMatch } = await admin
+            .from("customers")
+            .select("id")
+            .eq("workspace_id", workspaceId)
+            .eq("id", rawCustomerId)
+            .maybeSingle();
+          if (!custMatch) {
+            throw new Error("customer_id not found in authenticated workspace");
+          }
+          resolvedCustomerId = (custMatch as CustomerIdRow).id;
+        }
+
+        const { data: draftRow, error: draftErr } = await admin
+          .from("ops_communication_drafts")
+          .insert({
+            workspace_id: workspaceId,
+            customer_id: resolvedCustomerId,
+            channel: "email",
+            recipient_email: recipientEmail || null,
+            recipient_name: recipientName,
+            company_name: item.counterparty,
+            subject,
+            message: messageBody,
+            status: "draft",
+            delivery_status: "not_sent",
+            requires_approval: true,
+          })
+          .select("*")
+          .single();
+
+        if (draftErr) {
+          throw new Error("Failed to stage compliance notice draft");
+        }
+        stagedDraft = draftRow ?? null;
+      }
+
+      const { data: updatedVault, error: updateErr } = await admin
+        .from("compliance_vault_items")
+        .update({
+          status: "notice_staged",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", item.id)
+        .select("*")
+        .single();
+
+      if (updateErr || !updatedVault) {
+        throw new Error("Failed to update compliance_vault_items status");
+      }
+
+      const { data: ledgerRow, error: ledgerErr } = await admin
+        .from("agent_action_ledger")
+        .insert({
+          workspace_id: workspaceId,
+          agent_name: "Compliance Vault Guardian",
+          module: "vault",
+          action_type: "stage_compliance_notice",
+          autonomy_mode: "approve_1tap",
+          summary: `Staged ${noticeKind} for ${item.title} (${item.counterparty} · ${formatCentsUsd(item.annual_value_cents ?? 0)}/yr)`,
+          impact_cents: item.annual_value_cents ?? 0,
+          before_state: { vault_item_id: item.id, vault_status: item.status },
+          after_state: {
+            vault_item_id: item.id,
+            vault_status: "notice_staged",
+            subject,
+          },
+          status: "executed",
+        })
+        .select("*")
+        .single();
+
+      if (ledgerErr || !ledgerRow) {
+        throw new Error("Notice staged, but Agent Action Ledger logging failed");
+      }
+
+      toolResult = {
+        vault_item: updatedVault,
+        communication_draft: stagedDraft,
+        notice_preview: {
+          requires_approval: true,
+          subject,
+          message: messageBody,
+        },
+        ledger_entry: ledgerRow,
+      };
+    } else if (toolName === "upsert_living_sop") {
+      auditBotRole = "qa";
+      const moduleKey =
+        typeof args.module_key === "string" ? args.module_key.trim().toLowerCase() : "";
+      const title = typeof args.title === "string" ? args.title.trim() : "";
+      const triggerEvent =
+        typeof args.trigger_event === "string" ? args.trigger_event.trim() : "";
+      const rawSteps = Array.isArray(args.steps)
+        ? args.steps.filter((s): s is string => typeof s === "string").map((s) => s.trim()).filter(Boolean)
+        : [];
+      const autoGenerated = args.auto_generated !== false;
+
+      if (!moduleKey || !title || !triggerEvent || rawSteps.length === 0) {
+        throw new Error("module_key, title, trigger_event, and non-empty steps are required");
+      }
+
+      const { data: existingSop, error: lookupErr } = await admin
+        .from("living_sops")
+        .select("id, version")
+        .eq("workspace_id", workspaceId)
+        .eq("module_key", moduleKey)
+        .eq("title", title)
+        .maybeSingle();
+
+      if (lookupErr) {
+        throw new Error("Failed to inspect existing living_sops");
+      }
+
+      const typedExisting = existingSop as { id?: string; version?: number } | null;
+      const nextVersion =
+        typedExisting && typeof typedExisting.version === "number"
+          ? typedExisting.version + 1
+          : 1;
+      const nowIso = new Date().toISOString();
+
+      const { data: sopRow, error: upsertErr } = await admin
+        .from("living_sops")
+        .upsert(
+          {
+            workspace_id: workspaceId,
+            module_key: moduleKey,
+            title,
+            trigger_event: triggerEvent,
+            steps_json: rawSteps,
+            version: nextVersion,
+            auto_generated: autoGenerated,
+            last_observed_at: nowIso,
+            updated_at: nowIso,
+          },
+          { onConflict: "workspace_id,module_key,title" }
+        )
+        .select("*")
+        .single();
+
+      if (upsertErr || !sopRow) {
+        throw new Error("Failed to upsert living_sops playbook");
+      }
+
+      await admin.from("agent_action_ledger").insert({
+        workspace_id: workspaceId,
+        agent_name: "Living SOP Compiler",
+        module: "vault",
+        action_type: "upsert_living_sop",
+        autonomy_mode: "full_auto",
+        summary: `Compiled Living SOP "${title}" v${nextVersion} (${moduleKey})`,
+        impact_cents: 0,
+        before_state: { sop_version: nextVersion > 1 ? nextVersion - 1 : null },
+        after_state: {
+          sop_id: (sopRow as { id: string }).id,
+          module_key: moduleKey,
+          title,
+          version: nextVersion,
+        },
+        status: "executed",
+      });
+
+      toolResult = {
+        sop: sopRow,
+        created: nextVersion === 1,
+        version: nextVersion,
       };
     }
 

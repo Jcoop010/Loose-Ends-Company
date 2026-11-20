@@ -9,6 +9,8 @@ export type DashboardSection =
   | 'dispatch'
   | 'inventory'
   | 'bookkeeping'
+  | 'vault'
+  | 'sops'
   | 'autopilot'
 
 export type AppTopRoute = 'landing' | 'demo' | 'dashboard' | 'portal'
@@ -22,6 +24,8 @@ export const DASHBOARD_ROUTES: Record<DashboardSection, string> = {
   dispatch: '/dashboard/dispatch',
   inventory: '/dashboard/inventory',
   bookkeeping: '/dashboard/bookkeeping',
+  vault: '/dashboard/vault',
+  sops: '/dashboard/sops',
   autopilot: '/dashboard/autopilot',
 }
 
@@ -98,6 +102,8 @@ function isDashboardSection(candidate: string): candidate is DashboardSection {
     candidate === 'dispatch' ||
     candidate === 'inventory' ||
     candidate === 'bookkeeping' ||
+    candidate === 'vault' ||
+    candidate === 'sops' ||
     candidate === 'autopilot'
   )
 }

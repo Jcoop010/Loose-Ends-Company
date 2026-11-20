@@ -76,6 +76,7 @@ export function normalizeAutonomyRules(
     'flag_overdue_ar',
     'stage_auto_po',
     'approve_clean_vendor_bill',
+    'stage_compliance_notice',
   ]
   for (const key of keys) {
     if (isValidAutonomyMode(raw[key])) {

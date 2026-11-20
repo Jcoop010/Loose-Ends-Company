@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Plus,
   Printer,
+  Search,
   ShieldCheck,
 } from 'lucide-react'
 import {
@@ -22,6 +23,7 @@ import { useDemoStore } from '../../state/DemoStoreContext'
 import { useAppRouter, type DashboardSection } from '../../state/RouterContext'
 import type { ConsentChannel, ConsentDecision } from '../../types/domain'
 import { Badge, MetricCard } from '../../components/ui/MetricCard'
+import { CommandBarModal } from '../../components/shell/CommandBarModal'
 import { useToast } from '../../components/ui/Toast'
 import { RoiAuditCalculatorModal } from './RoiAuditCalculatorModal'
 import { AutonomousSandboxPanel } from './AutonomousSandboxPanel'
@@ -58,6 +60,20 @@ export function DemoWorkspacePage(): React.ReactElement {
   const toast = useToast()
 
   const [roiOpen, setRoiOpen] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [commandQuery, setCommandQuery] = useState('')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // Consent form state (Pipeline tab)
   const [consentCustomerId, setConsentCustomerId] = useState(
@@ -130,8 +146,22 @@ export function DemoWorkspacePage(): React.ReactElement {
             </div>
           </div>
 
-          {/* Desktop 5-Pillar Switcher */}
-          <nav aria-label="Sandbox workspaces" className="hidden lg:flex items-center gap-1 shrink-0">
+          {/* Desktop 5-Pillar Switcher + Cmd+K Command Bar Trigger */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setCommandOpen(true)}
+              aria-label="Open sandbox command bar (Command or Control + K)"
+              className="touch-target inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-[#fb923c] hover:text-slate-950"
+            >
+              <Search className="h-3.5 w-3.5 text-[#ea580c]" aria-hidden="true" />
+              <span className="hidden sm:inline">Command Bar</span>
+              <kbd className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
+                ⌘K
+              </kbd>
+            </button>
+
+            <nav aria-label="Sandbox workspaces" className="hidden lg:flex items-center gap-1 shrink-0">
             {DEMO_TABS.map(tab => {
               const Icon = tab.icon
               const active = tab.section === section
@@ -153,7 +183,8 @@ export function DemoWorkspacePage(): React.ReactElement {
                 </button>
               )
             })}
-          </nav>
+            </nav>
+          </div>
         </div>
       </header>
 
@@ -1464,7 +1495,12 @@ export function DemoWorkspacePage(): React.ReactElement {
               </ul>
             </div>
           </div>
-        ) : section === 'quotes' || section === 'invoices' || section === 'autonomy' ? (
+        ) : section === 'quotes' ||
+          section === 'invoices' ||
+          section === 'autonomy' ||
+          section === 'bookkeeping' ||
+          section === 'vault' ||
+          section === 'sops' ? (
           <AutonomousSandboxPanel />
         ) : null}
       </main>
@@ -1503,6 +1539,23 @@ export function DemoWorkspacePage(): React.ReactElement {
       </nav>
 
       <RoiAuditCalculatorModal open={roiOpen} onClose={() => setRoiOpen(false)} />
+      <CommandBarModal
+        open={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        snapshot={demo.commandSnapshot}
+        isDemo
+        query={commandQuery}
+        onQueryChange={setCommandQuery}
+        onNavigateRoute={route => {
+          const demoTarget =
+            route === '/dashboard' ? '/demo' : route.replace(/^\/dashboard\b/, '/demo')
+          navigate(demoTarget)
+        }}
+        onUndoLedgerAction={entryId => {
+          demo.undoDemoLedgerAction(entryId)
+          toast.info('1-Click Undo executed in sandbox', 'Reverted latest ledger action.')
+        }}
+      />
     </div>
   )
 }

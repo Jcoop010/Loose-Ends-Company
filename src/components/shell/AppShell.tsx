@@ -5,7 +5,9 @@ import {
   Building2,
   CalendarClock,
   FileSignature,
+  FileText,
   LayoutDashboard,
+  Lock,
   LogOut,
   ReceiptText,
   Settings2,
@@ -25,7 +27,7 @@ interface NavItemConfig {
   label: string
   mobileLabel: string
   icon: React.ComponentType<{ className?: string }>
-  moduleKey?: 'crm' | 'quotes' | 'billing' | 'inventory' | 'bookkeeping' | 'projects'
+  moduleKey?: 'crm' | 'quotes' | 'billing' | 'inventory' | 'bookkeeping' | 'vault' | 'projects'
 }
 
 export const WORKSPACE_NAV_ITEMS: NavItemConfig[] = [
@@ -73,6 +75,8 @@ const ALL_SECTION_TITLES: Readonly<Record<DashboardSection, string>> = {
   dispatch: 'Fulfillment & Schedules',
   inventory: 'Inventory & Procurement',
   bookkeeping: 'Bookkeeping & AP',
+  vault: 'Compliance Vault',
+  sops: 'Living SOPs',
   autopilot: 'Billing, Policies & MCP',
 }
 
@@ -249,6 +253,45 @@ export function AppShell({
               </button>
             ) : null}
 
+            {/* Release 3 Enterprise Modules: gated cleanly by modules.vault (default true) */}
+            {modules.vault ? (
+              <>
+                <button
+                  type="button"
+                  aria-current={section === 'vault' ? 'page' : undefined}
+                  onClick={() => navigateSection('vault')}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
+                    section === 'vault'
+                      ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white border border-transparent'
+                  }`}
+                >
+                  <Lock
+                    className={`h-4 w-4 shrink-0 ${section === 'vault' ? 'text-[#fb923c]' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">Compliance Vault</span>
+                </button>
+
+                <button
+                  type="button"
+                  aria-current={section === 'sops' ? 'page' : undefined}
+                  onClick={() => navigateSection('sops')}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
+                    section === 'sops'
+                      ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white border border-transparent'
+                  }`}
+                >
+                  <FileText
+                    className={`h-4 w-4 shrink-0 ${section === 'sops' ? 'text-[#fb923c]' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">Living SOPs</span>
+                </button>
+              </>
+            ) : null}
+
             <div className="pt-2 mt-2 border-t border-slate-800/80 space-y-1">
               {modules.projects ? (
                 <button
@@ -344,7 +387,7 @@ export function AppShell({
           </div>
         </header>
 
-        {modules.inventory || modules.bookkeeping ? (
+        {modules.inventory || modules.bookkeeping || modules.vault ? (
           <div className="md:hidden border-b border-slate-200 bg-slate-50 px-4 py-2 flex flex-wrap gap-2">
             {modules.inventory ? (
               <button
@@ -373,6 +416,34 @@ export function AppShell({
                 <BookOpenCheck className="h-3.5 w-3.5" aria-hidden="true" />
                 Bookkeeping &amp; AP
               </button>
+            ) : null}
+            {modules.vault ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => navigateSection('vault')}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                    section === 'vault'
+                      ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
+                      : 'border-slate-300 bg-white text-slate-700'
+                  }`}
+                >
+                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                  Vault
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateSection('sops')}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                    section === 'sops'
+                      ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
+                      : 'border-slate-300 bg-white text-slate-700'
+                  }`}
+                >
+                  <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                  Living SOPs
+                </button>
+              </>
             ) : null}
           </div>
         ) : null}

@@ -9,6 +9,7 @@ export type AutonomyActionKey =
   | 'flag_overdue_ar'
   | 'stage_auto_po'
   | 'approve_clean_vendor_bill'
+  | 'stage_compliance_notice'
 
 export type WorkspaceModuleKey =
   | 'crm'
@@ -35,7 +36,7 @@ export const DEFAULT_MODULES_ENABLED: WorkspaceModulesEnabled = {
   inventory: false,
   bookkeeping: false,
   projects: false,
-  vault: false,
+  vault: true,
 }
 
 export const DEFAULT_AUTONOMY_RULES: AutonomyRulesMap = {
@@ -45,6 +46,7 @@ export const DEFAULT_AUTONOMY_RULES: AutonomyRulesMap = {
   flag_overdue_ar: 'full_auto',
   stage_auto_po: 'approve_1tap',
   approve_clean_vendor_bill: 'full_auto',
+  stage_compliance_notice: 'approve_1tap',
 }
 
 export const DEFAULT_AUTO_LIMIT_CENTS = 50000
@@ -90,13 +92,18 @@ export const AUTONOMY_ACTION_META: ReadonlyArray<{
     label: 'Auto-Match Clean Vendor Bills',
     description: 'Auto-approve PO === GRN === Bill matches within basis-point tolerance and auto-cap.',
   },
+  {
+    key: 'stage_compliance_notice',
+    label: 'Stage Compliance & Renewal Notices',
+    description: 'Prepare counterparty renewal or cancellation notice drafts when contracts enter their notice window.',
+  },
 ]
 
 export const WORKSPACE_MODULE_META: ReadonlyArray<{
   key: WorkspaceModuleKey
   label: string
   description: string
-  release: 'release_1' | 'release_2'
+  release: 'release_1' | 'release_2' | 'release_3'
 }> = [
   {
     key: 'crm',
@@ -136,9 +143,9 @@ export const WORKSPACE_MODULE_META: ReadonlyArray<{
   },
   {
     key: 'vault',
-    label: 'Document Vault',
-    description: 'Signed agreements, compliance files, and audit snapshots.',
-    release: 'release_2',
+    label: 'Compliance Vault & Living SOPs',
+    description: 'Contract expiry countdowns, auto-renewal notice staging, and auto-compiled operational SOPs.',
+    release: 'release_3',
   },
 ]
 
@@ -583,4 +590,162 @@ export interface BookkeepingKpiSummary {
   auto_matched_bills_cents: number
   disputed_saved_cents: number
   disputed_bills_count: number
+}
+
+// ============================================================================
+// Release 3 Types: Compliance Vault, Living SOPs, Command Router & What-If
+// ============================================================================
+
+export type ComplianceDocType =
+  | 'contract'
+  | 'coi'
+  | 'license'
+  | 'saas_renewal'
+  | 'lease'
+
+export type ComplianceVaultStatus =
+  | 'active'
+  | 'expiring_soon'
+  | 'notice_staged'
+  | 'expired'
+  | 'cancelled'
+
+export interface ComplianceVaultItem {
+  id: string
+  workspace_id: string
+  doc_type: ComplianceDocType
+  title: string
+  counterparty: string
+  expires_on: string
+  notice_window_days: number
+  annual_value_cents: number
+  status: ComplianceVaultStatus
+  notes: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ComplianceNoticeDraft {
+  requires_approval: true
+  vault_item_id: string
+  doc_type: ComplianceDocType
+  counterparty: string
+  subject: string
+  body_markdown: string
+  annual_value_cents: number
+}
+
+export interface ComplianceDeadlineItem {
+  item: ComplianceVaultItem
+  days_remaining: number
+  notice_deadline_on: string
+  within_notice_window: boolean
+  is_expired: boolean
+  action_needed: boolean
+  notice_draft: ComplianceNoticeDraft
+  ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+export interface ComplianceEvaluationResult {
+  reference_date: string
+  total_docs_count: number
+  active_docs_count: number
+  expiring_within_window_count: number
+  notice_staged_count: number
+  annual_spend_protected_cents: number
+  annual_spend_at_risk_cents: number
+  evaluated_items: ComplianceDeadlineItem[]
+  expiring_items: ComplianceDeadlineItem[]
+}
+
+export interface LivingSopRecord {
+  id: string
+  workspace_id: string
+  module_key: string
+  title: string
+  trigger_event: string
+  steps_json: string[]
+  version: number
+  auto_generated: boolean
+  last_observed_at: string
+  updated_at?: string
+}
+
+export interface WhatIfCashflowWindow {
+  horizon_days: 30 | 60 | 90
+  label: string
+  baseline_balance_cents: number
+  scenario_delta_cents: number
+  simulated_balance_cents: number
+  below_buffer: boolean
+  buffer_shortfall_cents: number
+}
+
+export interface WhatIfCashflowResult {
+  horizon_days: number
+  baseline_cents: number
+  monthly_delta_cents: number
+  one_time_delta_cents: number
+  safety_buffer_cents: number
+  end_of_horizon_baseline_cents: number
+  end_of_horizon_simulated_cents: number
+  net_variance_cents: number
+  lowest_simulated_balance_cents: number
+  any_buffer_breach: boolean
+  first_breach_horizon_days: 30 | 60 | 90 | null
+  windows: [WhatIfCashflowWindow, WhatIfCashflowWindow, WhatIfCashflowWindow]
+}
+
+export interface CommandRouterSnapshot {
+  invoices: readonly AutonomousInvoice[]
+  inventoryItems: readonly Release2InventoryItem[]
+  complianceItems: readonly ComplianceVaultItem[]
+  sops: readonly LivingSopRecord[]
+  ledgerEntries: readonly AgentActionLedgerEntry[]
+  baselineBalanceCents: number
+  safetyBufferCents?: number
+  referenceDate?: string
+}
+
+export type CommandActionKind =
+  | 'navigate'
+  | 'open_what_if'
+  | 'undo_ledger'
+  | 'run_command'
+
+export interface CommandActionPayload {
+  label: string
+  kind: CommandActionKind
+  route?: string
+  targetId?: string
+  commandText?: string
+  monthlyDeltaCents?: number
+  oneTimeDeltaCents?: number
+}
+
+export interface CommandResultItem {
+  id: string
+  title: string
+  subtitle: string
+  badge: string
+  amount_cents?: number
+  action?: CommandActionPayload
+}
+
+export type CommandIntent =
+  | 'overdue_invoices'
+  | 'low_stock_skus'
+  | 'expiring_compliance'
+  | 'what_if_simulation'
+  | 'undo_last_action'
+  | 'living_sops'
+  | 'quick_jump'
+
+export interface CommandRouteResult {
+  intent: CommandIntent
+  headline: string
+  summary: string
+  items: CommandResultItem[]
+  primary_action: CommandActionPayload | null
+  simulation: WhatIfCashflowResult | null
 }

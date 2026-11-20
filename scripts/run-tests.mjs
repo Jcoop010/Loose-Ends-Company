@@ -45,6 +45,7 @@ const testFiles = [
   'tests/mcp-security-hardening.test.mjs',
   'tests/autonomous-os-engine.test.mjs',
   'tests/release2-inventory-bookkeeping.test.mjs',
+  'tests/release3-enterprise-vault-sops.test.mjs',
 ]
 
 execFileSync(process.execPath, [path.join(repoRoot, 'scripts', 'precompile-test-src.mjs')], {

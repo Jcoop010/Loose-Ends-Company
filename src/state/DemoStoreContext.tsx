@@ -5,6 +5,7 @@ import {
   convertSignedQuoteToInvoice,
   DEFAULT_AUTONOMY_CONFIG,
   evaluateAutonomyGate,
+  evaluateComplianceDeadlines,
   formatCents as formatOsCents,
   reverseLedgerAction,
   runThreeWayMatch,
@@ -16,6 +17,10 @@ import {
   type AutonomousInvoiceItem,
   type AutonomousQuote,
   type AutonomousQuoteItem,
+  type CommandRouterSnapshot,
+  type ComplianceVaultItem,
+  type LivingSopRecord,
+  type Release2InventoryItem,
   type ThreeWayMatchResult,
   type WorkspaceAutonomyConfig,
   type WorkspaceModuleKey,
@@ -145,6 +150,8 @@ export interface DemoSandboxState {
   osInvoiceItemsByInvoice: Record<string, AutonomousInvoiceItem[]>
   osAgentLedger: AgentActionLedgerEntry[]
   osThreeWaySimulation: DemoThreeWaySimulation | null
+  osComplianceItems: ComplianceVaultItem[]
+  osLivingSops: LivingSopRecord[]
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1408,6 +1415,26 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       created_at: isoOffsetFrom(anchorMs, -18 * DAY_MS),
     },
     {
+      id: '00000000-0000-4000-8000-00000000i311',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: null,
+      lead_id: null,
+      customer_id: customers[0]?.id ?? null,
+      invoice_number: 'INV-3011',
+      title: 'Annual Maintenance & Compliance Retainer',
+      customer_name: 'Meridian Logistics Group',
+      customer_email: 'ap@meridian.invalid',
+      subtotal_cents: 185000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 185000,
+      amount_paid_cents: 0,
+      due_date: isoOffsetFrom(anchorMs, -9 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'overdue',
+      created_at: isoOffsetFrom(anchorMs, -24 * DAY_MS),
+    },
+    {
       id: '00000000-0000-4000-8000-00000000i309',
       workspace_id: DEMO_WORKSPACE_ID,
       quote_id: null,
@@ -1480,6 +1507,98 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     },
   ]
 
+  const osComplianceItems: ComplianceVaultItem[] = [
+    {
+      id: 'cv-demo-coi',
+      workspace_id: DEMO_WORKSPACE_ID,
+      doc_type: 'coi',
+      title: 'General Liability COI — Vanguard Subcontractors',
+      counterparty: 'Vanguard Insurance Underwriters',
+      expires_on: isoOffsetFrom(anchorMs, 18 * DAY_MS).slice(0, 10),
+      notice_window_days: 45,
+      annual_value_cents: 1440000,
+      status: 'expiring_soon',
+      notes: 'Requires updated endorsement before dispatching field subcontractors.',
+      created_at: isoOffsetFrom(anchorMs, -90 * DAY_MS),
+    },
+    {
+      id: 'cv-demo-saas',
+      workspace_id: DEMO_WORKSPACE_ID,
+      doc_type: 'saas_renewal',
+      title: 'Legacy Field Routing Suite Auto-Renewal',
+      counterparty: 'CloudRoute Software Inc.',
+      expires_on: isoOffsetFrom(anchorMs, 29 * DAY_MS).slice(0, 10),
+      notice_window_days: 45,
+      annual_value_cents: 780000,
+      status: 'expiring_soon',
+      notes: 'Auto-renews at +12% uplift unless non-renewal notice is sent prior to window deadline.',
+      created_at: isoOffsetFrom(anchorMs, -180 * DAY_MS),
+    },
+    {
+      id: 'cv-demo-license',
+      workspace_id: DEMO_WORKSPACE_ID,
+      doc_type: 'license',
+      title: 'State Commercial Contractor & HVAC License',
+      counterparty: 'Dept. of Licensing & Compliance',
+      expires_on: isoOffsetFrom(anchorMs, 165 * DAY_MS).slice(0, 10),
+      notice_window_days: 60,
+      annual_value_cents: 95000,
+      status: 'active',
+      notes: 'Good standing verified.',
+      created_at: isoOffsetFrom(anchorMs, -120 * DAY_MS),
+    },
+  ]
+
+  const osLivingSops: LivingSopRecord[] = [
+    {
+      id: 'sop-demo-1',
+      workspace_id: DEMO_WORKSPACE_ID,
+      module_key: 'quotes',
+      title: 'Signed Portal Quote to Invoice & Ledger Sync',
+      trigger_event: 'quote.portal_signed',
+      steps_json: [
+        'Validate client e-signature timestamp and quote portal token.',
+        'Recompute exact integer-cent tax_cents and total_cents from line items.',
+        'Evaluate Autonomy Dial (Full Auto vs 1-Tap Approve) against auto_limit_cents.',
+        'Issue invoice and record reversible before/after snapshot in Agent Action Ledger.',
+      ],
+      version: 3,
+      auto_generated: true,
+      last_observed_at: isoOffsetFrom(anchorMs, -2 * HOUR_MS),
+    },
+    {
+      id: 'sop-demo-2',
+      workspace_id: DEMO_WORKSPACE_ID,
+      module_key: 'inventory',
+      title: '3-Way Match Variance & Vendor Dispute Protocol',
+      trigger_event: 'vendor_bill.variance_exceeds_200bps',
+      steps_json: [
+        'Compare PO authorized unit pricing vs usable Goods Receipt units (received minus damaged).',
+        'Calculate exact integer-cent match_variance_cents.',
+        'Hold bill out of scheduled AP cash outflow until credit memo is issued.',
+        'Stage citation-backed vendor dispute draft with requires_approval = true.',
+      ],
+      version: 2,
+      auto_generated: true,
+      last_observed_at: isoOffsetFrom(anchorMs, -5 * HOUR_MS),
+    },
+    {
+      id: 'sop-demo-3',
+      workspace_id: DEMO_WORKSPACE_ID,
+      module_key: 'vault',
+      title: '45-Day Contract Auto-Renewal Prevention Playbook',
+      trigger_event: 'compliance_vault.entered_notice_window',
+      steps_json: [
+        'Calculate days remaining and subtract notice_window_days for cutoff date.',
+        'Highlight annual_value_cents at risk in Command Bar and Compliance Vault KPIs.',
+        'Stage non-renewal or renegotiation draft into approval queue prior to cutoff.',
+      ],
+      version: 1,
+      auto_generated: true,
+      last_observed_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+    },
+  ]
+
   return {
     workspace,
     settings,
@@ -1521,6 +1640,8 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osInvoiceItemsByInvoice,
     osAgentLedger,
     osThreeWaySimulation: null,
+    osComplianceItems,
+    osLivingSops,
   }
 }
 
@@ -1611,6 +1732,8 @@ export interface DemoStoreContextValue {
   stageDemoCollectionNudge: (invoiceId: string) => void
   markDemoInvoicePaid: (invoiceId: string) => void
   simulateShortShipmentThreeWayMatch: () => DemoThreeWaySimulation
+  stageDemoComplianceNotice: (itemId: string) => { subject: string } | null
+  commandSnapshot: CommandRouterSnapshot
   resetDemo: () => void
 }
 
@@ -2525,6 +2648,41 @@ export function DemoStoreProvider({
     [state.osInvoices],
   )
 
+  const commandSnapshot = useMemo<CommandRouterSnapshot>(() => {
+    const r2Items: Release2InventoryItem[] = state.inventoryItems.map(item => ({
+      id: item.id,
+      workspace_id: item.workspace_id,
+      sku: item.sku,
+      name: item.name,
+      location: item.location,
+      bin_code: null,
+      on_hand_qty: Math.max(0, Math.round(item.quantity)),
+      reserved_qty: Math.max(0, Math.round(item.reserved)),
+      reorder_point_qty: Math.max(0, Math.round(item.reorder_threshold)),
+      reorder_qty: Math.max(1, Math.round(item.reorder_quantity)),
+      unit_cost_cents: Math.max(0, Math.round(item.purchase_cost * 100)),
+      unit_price_cents: Math.max(0, Math.round(item.selling_price * 100)),
+      preferred_vendor: item.supplier,
+      lead_time_days: 5,
+      archived: item.archived,
+    }))
+    return {
+      invoices: state.osInvoices,
+      inventoryItems: r2Items,
+      complianceItems: state.osComplianceItems,
+      sops: state.osLivingSops,
+      ledgerEntries: state.osAgentLedger,
+      baselineBalanceCents: 2850000,
+      safetyBufferCents: 500000,
+    }
+  }, [
+    state.osInvoices,
+    state.inventoryItems,
+    state.osComplianceItems,
+    state.osLivingSops,
+    state.osAgentLedger,
+  ])
+
   const simulateClientESign = useCallback(
     (quoteId: string, rawSignerName: string) => {
       const targetQuote = state.osQuotes.find(q => q.id === quoteId)
@@ -2754,12 +2912,28 @@ export function DemoStoreProvider({
           ? null
           : prev.osThreeWaySimulation
 
+      let nextComplianceItems = prev.osComplianceItems
+      if (
+        target.action_type === 'stage_compliance_notice' &&
+        restoredState &&
+        typeof restoredState.vault_item_id === 'string' &&
+        typeof restoredState.vault_status === 'string'
+      ) {
+        const prevVaultStatus = restoredState.vault_status as ComplianceVaultItem['status']
+        nextComplianceItems = prev.osComplianceItems.map(doc =>
+          doc.id === restoredState.vault_item_id
+            ? { ...doc, status: prevVaultStatus, updated_at: nowIso }
+            : doc,
+        )
+      }
+
       return {
         ...prev,
         osQuotes: nextQuotes,
         osInvoices: nextInvoices,
         osAgentLedger: prev.osAgentLedger.map(e => (e.id === entryId ? updatedEntry : e)),
         osThreeWaySimulation: nextThreeWaySim,
+        osComplianceItems: nextComplianceItems,
       }
     })
   }, [])
@@ -2946,6 +3120,34 @@ export function DemoStoreProvider({
     return simulation
   }, [])
 
+  const stageDemoComplianceNotice = useCallback(
+    (itemId: string): { subject: string } | null => {
+      const target = state.osComplianceItems.find(doc => doc.id === itemId)
+      if (!target || target.status === 'notice_staged') return null
+      const nowIso = new Date().toISOString()
+      const evalRes = evaluateComplianceDeadlines([target], nowIso.slice(0, 10))
+      const evaluated = evalRes.evaluated_items[0]
+      if (!evaluated) return null
+
+      const ledgerEntry: AgentActionLedgerEntry = {
+        ...evaluated.ledger_draft,
+        id: `led_vault_${itemId}_${Date.now()}`,
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osComplianceItems: prev.osComplianceItems.map(doc =>
+          doc.id === itemId ? { ...doc, status: 'notice_staged', updated_at: nowIso } : doc,
+        ),
+        osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+      }))
+
+      return { subject: evaluated.notice_draft.subject }
+    },
+    [state.osComplianceItems],
+  )
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -2989,6 +3191,8 @@ export function DemoStoreProvider({
       stageDemoCollectionNudge,
       markDemoInvoicePaid,
       simulateShortShipmentThreeWayMatch,
+      stageDemoComplianceNotice,
+      commandSnapshot,
       resetDemo,
     }),
     [
@@ -3029,6 +3233,8 @@ export function DemoStoreProvider({
       stageDemoCollectionNudge,
       markDemoInvoicePaid,
       simulateShortShipmentThreeWayMatch,
+      stageDemoComplianceNotice,
+      commandSnapshot,
       resetDemo,
     ],
   )
