@@ -84,6 +84,8 @@ const DEFAULT_AUTONOMY_RULES: Readonly<Record<string, AutonomyMode>> = {
   convert_signed_quote_to_invoice: "full_auto",
   send_invoice_reminder: "approve_1tap",
   flag_overdue_ar: "full_auto",
+  stage_auto_po: "approve_1tap",
+  approve_clean_vendor_bill: "full_auto",
 };
 
 const DEFAULT_AUTO_LIMIT_CENTS = 50000;
@@ -174,12 +176,276 @@ interface InventoryRow {
   id?: string;
   name?: string;
   sku?: string;
+  location?: string | null;
+  bin_code?: string | null;
+  preferred_vendor?: string | null;
+  lead_time_days?: number;
+  on_hand_qty?: number;
+  reserved_qty?: number;
+  reorder_point_qty?: number;
+  reorder_qty?: number;
+  unit_cost_cents?: number;
   quantity: number;
   reserved: number;
   reorder_threshold: number;
   reorder_quantity?: number;
   purchase_cost?: number;
   selling_price?: number;
+}
+
+interface Release2VendorBillRow {
+  id: string;
+  po_id: string | null;
+  vendor_name: string;
+  invoice_number: string;
+  total_cents: number;
+  due_date: string;
+  items_json: unknown;
+  match_status: string;
+  match_variance_cents: number;
+}
+
+interface Release2LedgerEntryRow {
+  id: string;
+  entry_type: string;
+  amount_cents: number;
+  occurred_on: string;
+}
+
+interface McpThreeWayLineItem {
+  sku: string;
+  ordered_qty: number;
+  unit_cost_cents: number;
+}
+
+interface McpReceiptLineItem {
+  sku: string;
+  received_qty: number;
+  damaged_qty: number;
+}
+
+interface McpBillLineItem {
+  sku: string;
+  quantity: number;
+  unit_cost_cents: number;
+}
+
+interface McpThreeWayException {
+  code:
+    | "short_shipment"
+    | "over_shipment_billed"
+    | "unit_price_hike"
+    | "damaged_goods"
+    | "duplicate_invoice"
+    | "unexpected_sku";
+  sku: string;
+  ordered_qty: number;
+  received_good_qty: number;
+  damaged_qty: number;
+  billed_qty: number;
+  po_unit_cost_cents: number;
+  billed_unit_cost_cents: number;
+  variance_cents: number;
+  detail: string;
+}
+
+function formatCentsUsd(cents: number): string {
+  const safe = Number.isFinite(cents) ? Math.trunc(cents) : 0;
+  const sign = safe < 0 ? "-" : "";
+  return `${sign}$${(Math.abs(safe) / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function computeMcpThreeWayMatch(params: {
+  poItems: readonly McpThreeWayLineItem[];
+  receiptItems: readonly McpReceiptLineItem[];
+  billItems: readonly McpBillLineItem[];
+  toleranceBps: number;
+  poNumber: string;
+  vendorName: string;
+  invoiceNumber: string;
+  isDuplicateInvoice: boolean;
+}): Record<string, unknown> {
+  const poBySku = new Map<string, { ordered_qty: number; unit_cost_cents: number }>();
+  for (const row of params.poItems) {
+    const sku = row.sku.trim().toUpperCase();
+    if (!sku) continue;
+    const prev = poBySku.get(sku);
+    poBySku.set(sku, {
+      ordered_qty: (prev?.ordered_qty ?? 0) + row.ordered_qty,
+      unit_cost_cents: row.unit_cost_cents,
+    });
+  }
+
+  const receiptBySku = new Map<string, { received_qty: number; damaged_qty: number }>();
+  for (const row of params.receiptItems) {
+    const sku = row.sku.trim().toUpperCase();
+    if (!sku) continue;
+    const prev = receiptBySku.get(sku);
+    receiptBySku.set(sku, {
+      received_qty: (prev?.received_qty ?? 0) + row.received_qty,
+      damaged_qty: (prev?.damaged_qty ?? 0) + row.damaged_qty,
+    });
+  }
+
+  const billBySku = new Map<string, { quantity: number; unit_cost_cents: number }>();
+  for (const row of params.billItems) {
+    const sku = row.sku.trim().toUpperCase();
+    if (!sku) continue;
+    const prev = billBySku.get(sku);
+    billBySku.set(sku, {
+      quantity: (prev?.quantity ?? 0) + row.quantity,
+      unit_cost_cents: row.unit_cost_cents,
+    });
+  }
+
+  const allSkus = Array.from(
+    new Set([...poBySku.keys(), ...receiptBySku.keys(), ...billBySku.keys()])
+  ).sort();
+
+  const exceptions: McpThreeWayException[] = [];
+  let poTotalCents = 0;
+  let receivedPayableCents = 0;
+  let billedTotalCents = 0;
+
+  for (const sku of allSkus) {
+    const po = poBySku.get(sku);
+    const rec = receiptBySku.get(sku);
+    const bill = billBySku.get(sku);
+
+    const orderedQty = po?.ordered_qty ?? 0;
+    const poUnitCost = po?.unit_cost_cents ?? 0;
+    const recQty = rec?.received_qty ?? 0;
+    const dmgQty = rec?.damaged_qty ?? 0;
+    const goodRecQty = Math.max(0, recQty - dmgQty);
+    const billedQty = bill?.quantity ?? 0;
+    const billUnitCost = bill?.unit_cost_cents ?? 0;
+
+    poTotalCents += orderedQty * poUnitCost;
+    receivedPayableCents += goodRecQty * poUnitCost;
+    billedTotalCents += billedQty * billUnitCost;
+
+    if (!po && billedQty > 0) {
+      exceptions.push({
+        code: "unexpected_sku",
+        sku,
+        ordered_qty: 0,
+        received_good_qty: goodRecQty,
+        damaged_qty: dmgQty,
+        billed_qty: billedQty,
+        po_unit_cost_cents: 0,
+        billed_unit_cost_cents: billUnitCost,
+        variance_cents: billedQty * billUnitCost,
+        detail: `${sku}: billed ${billedQty} unit(s) not present on Purchase Order.`,
+      });
+      continue;
+    }
+
+    if (dmgQty > 0) {
+      exceptions.push({
+        code: "damaged_goods",
+        sku,
+        ordered_qty: orderedQty,
+        received_good_qty: goodRecQty,
+        damaged_qty: dmgQty,
+        billed_qty: billedQty,
+        po_unit_cost_cents: poUnitCost,
+        billed_unit_cost_cents: billUnitCost,
+        variance_cents: dmgQty * poUnitCost,
+        detail: `${sku}: ${dmgQty} unit(s) damaged on receipt.`,
+      });
+    }
+
+    if (billedQty > goodRecQty) {
+      const shortage = billedQty - goodRecQty;
+      exceptions.push({
+        code: billedQty > orderedQty ? "over_shipment_billed" : "short_shipment",
+        sku,
+        ordered_qty: orderedQty,
+        received_good_qty: goodRecQty,
+        damaged_qty: dmgQty,
+        billed_qty: billedQty,
+        po_unit_cost_cents: poUnitCost,
+        billed_unit_cost_cents: billUnitCost,
+        variance_cents: shortage * poUnitCost,
+        detail: `${sku}: billed ${billedQty} vs ${goodRecQty} usable received (${shortage} unit shortage = ${formatCentsUsd(shortage * poUnitCost)}).`,
+      });
+    }
+
+    if (poUnitCost > 0 && billedQty > 0) {
+      const diff = Math.abs(billUnitCost - poUnitCost);
+      if (diff * 10000 > poUnitCost * params.toleranceBps) {
+        const impact = (billUnitCost - poUnitCost) * billedQty;
+        exceptions.push({
+          code: "unit_price_hike",
+          sku,
+          ordered_qty: orderedQty,
+          received_good_qty: goodRecQty,
+          damaged_qty: dmgQty,
+          billed_qty: billedQty,
+          po_unit_cost_cents: poUnitCost,
+          billed_unit_cost_cents: billUnitCost,
+          variance_cents: impact,
+          detail: `${sku}: unit price billed ${formatCentsUsd(billUnitCost)} vs PO ${formatCentsUsd(poUnitCost)} (impact ${formatCentsUsd(impact)}).`,
+        });
+      }
+    }
+  }
+
+  const matchVarianceCents = billedTotalCents - receivedPayableCents;
+  if (params.isDuplicateInvoice) {
+    exceptions.unshift({
+      code: "duplicate_invoice",
+      sku: allSkus[0] ?? "ALL",
+      ordered_qty: 0,
+      received_good_qty: 0,
+      damaged_qty: 0,
+      billed_qty: 0,
+      po_unit_cost_cents: 0,
+      billed_unit_cost_cents: 0,
+      variance_cents: billedTotalCents,
+      detail: `Duplicate vendor invoice #${params.invoiceNumber} detected.`,
+    });
+  }
+
+  const absBps =
+    receivedPayableCents > 0
+      ? Math.round((Math.abs(matchVarianceCents) * 10000) / receivedPayableCents)
+      : Math.abs(matchVarianceCents) > 0
+        ? 10000
+        : 0;
+
+  const hasException = exceptions.length > 0 || absBps > params.toleranceBps;
+  const matchStatus = hasException ? "exception_flagged" : "matched_clean";
+  const discrepancySummary = hasException
+    ? `Variance ${formatCentsUsd(matchVarianceCents)} (Billed ${formatCentsUsd(billedTotalCents)} vs GRN Payable ${formatCentsUsd(receivedPayableCents)}) | ${exceptions.map((e) => e.detail).join(" | ")}`
+    : null;
+
+  const vendorDisputeDraft = hasException
+    ? {
+        requires_approval: true,
+        vendor_name: params.vendorName,
+        invoice_number: params.invoiceNumber,
+        po_number: params.poNumber,
+        subject: `HOLD / Credit Memo Request: ${params.invoiceNumber} vs ${params.poNumber} (${formatCentsUsd(Math.abs(matchVarianceCents))} variance)`,
+        body_markdown: `3-Way Match Variance Held (${formatCentsUsd(matchVarianceCents)}):\n${exceptions.map((e) => `- ${e.code.toUpperCase()} (${e.sku}): ${e.detail}`).join("\n")}`,
+        disputed_amount_cents: Math.abs(matchVarianceCents),
+      }
+    : null;
+
+  return {
+    match_status: matchStatus,
+    tolerance_bps: params.toleranceBps,
+    po_total_cents: poTotalCents,
+    received_payable_cents: receivedPayableCents,
+    billed_total_cents: billedTotalCents,
+    match_variance_cents: matchVarianceCents,
+    exceptions,
+    discrepancy_summary: discrepancySummary,
+    vendor_dispute_draft: vendorDisputeDraft,
+  };
 }
 
 interface OverviewCounts {
@@ -833,6 +1099,125 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "check_low_stock_skus",
+    requiredScope: "read_all",
+    description:
+      "Read-only scan of workspace inventory_items where available_qty (on_hand_qty - reserved_qty) <= reorder_point_qty, capped strictly at limit <= 10.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: "stage_purchase_order",
+    requiredScope: "stage_actions",
+    description:
+      "Write-narrow (staged): Create an integer-cent draft/pending_approval Purchase Order with itemized SKUs in public.purchase_orders + purchase_order_items and log to agent_action_ledger.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["vendor_name", "items"],
+      properties: {
+        vendor_name: { type: "string" },
+        po_number: { type: "string" },
+        expected_date: { type: "string" },
+        status: { type: "string", enum: ["draft", "pending_approval"] },
+        notes: { type: "string" },
+        items: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["sku", "ordered_qty", "unit_cost_cents"],
+            properties: {
+              inventory_item_id: { type: "string" },
+              sku: { type: "string" },
+              description: { type: "string" },
+              ordered_qty: { type: "integer", minimum: 1 },
+              unit_cost_cents: { type: "integer", minimum: 0 },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: "run_three_way_match",
+    requiredScope: "stage_actions",
+    description:
+      "Run deterministic integer-cent 3-Way Match (PO === Goods Receipt === Supplier Bill) on workspace records or inline line items, flagging short-shipments, price hikes, and duplicates.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        po_id: { type: "string" },
+        vendor_bill_id: { type: "string" },
+        po_number: { type: "string" },
+        vendor_name: { type: "string" },
+        invoice_number: { type: "string" },
+        tolerance_bps: { type: "integer", minimum: 0, maximum: 5000 },
+        po_items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["sku", "ordered_qty", "unit_cost_cents"],
+            properties: {
+              sku: { type: "string" },
+              ordered_qty: { type: "integer", minimum: 1 },
+              unit_cost_cents: { type: "integer", minimum: 0 },
+            },
+          },
+        },
+        receipt_items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["sku", "received_qty"],
+            properties: {
+              sku: { type: "string" },
+              received_qty: { type: "integer", minimum: 0 },
+              damaged_qty: { type: "integer", minimum: 0 },
+            },
+          },
+        },
+        bill_items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["sku", "quantity", "unit_cost_cents"],
+            properties: {
+              sku: { type: "string" },
+              quantity: { type: "integer", minimum: 0 },
+              unit_cost_cents: { type: "integer", minimum: 0 },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: "get_cashflow_summary",
+    requiredScope: "read_all",
+    description:
+      "Read-only deterministic 30/60/90-day cashflow forecast combining workspace ledger_entries, open AR invoices, and scheduled vs disputed vendor_bills.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        starting_balance_cents: { type: "integer" },
+        safety_buffer_cents: { type: "integer", minimum: 0 },
+        as_of_date: { type: "string" },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1189,7 +1574,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "2.0.0",
+        version: "2.1.0",
         workspace_id: workspaceId,
       },
     });
@@ -2527,6 +2912,582 @@ Deno.serve(async (req: Request) => {
 
       toolResult = {
         ledger_entry: ledgerRow,
+      };
+    } else if (toolName === "check_low_stock_skus") {
+      auditBotRole = "buyer";
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+
+      const { data: rawSkus, error: skuErr } = await admin
+        .from("inventory_items")
+        .select(
+          "id, sku, name, location, bin_code, preferred_vendor, lead_time_days, on_hand_qty, reserved_qty, reorder_point_qty, reorder_qty, unit_cost_cents, quantity, reserved, reorder_threshold, reorder_quantity, purchase_cost"
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("archived", false)
+        .limit(500);
+
+      if (skuErr) {
+        throw new Error("Failed to query workspace inventory_items");
+      }
+
+      const lowStockRows = ((rawSkus ?? []) as InventoryRow[])
+        .map((row) => {
+          const onHand =
+            typeof row.on_hand_qty === "number" && Number.isSafeInteger(row.on_hand_qty)
+              ? row.on_hand_qty
+              : Math.max(0, Math.round(Number(row.quantity ?? 0)));
+          const reserved =
+            typeof row.reserved_qty === "number" && Number.isSafeInteger(row.reserved_qty)
+              ? row.reserved_qty
+              : Math.max(0, Math.round(Number(row.reserved ?? 0)));
+          const reorderPoint =
+            typeof row.reorder_point_qty === "number" && Number.isSafeInteger(row.reorder_point_qty)
+              ? row.reorder_point_qty
+              : Math.max(0, Math.round(Number(row.reorder_threshold ?? 0)));
+          const reorderQty =
+            typeof row.reorder_qty === "number" && Number.isSafeInteger(row.reorder_qty)
+              ? Math.max(1, row.reorder_qty)
+              : Math.max(1, Math.round(Number(row.reorder_quantity ?? 1)));
+          const unitCostCents =
+            typeof row.unit_cost_cents === "number" && Number.isSafeInteger(row.unit_cost_cents)
+              ? row.unit_cost_cents
+              : Math.max(0, Math.round(Number(row.purchase_cost ?? 0) * 100));
+          const availableQty = onHand - reserved;
+          return {
+            id: row.id ?? "",
+            sku: row.sku ?? "",
+            name: row.name ?? "",
+            location: row.location ?? null,
+            bin_code: row.bin_code ?? null,
+            preferred_vendor: row.preferred_vendor ?? null,
+            on_hand_qty: onHand,
+            reserved_qty: reserved,
+            available_qty: availableQty,
+            reorder_point_qty: reorderPoint,
+            reorder_qty: reorderQty,
+            unit_cost_cents: unitCostCents,
+            estimated_reorder_cost_cents: reorderQty * unitCostCents,
+          };
+        })
+        .filter((item) => item.available_qty <= item.reorder_point_qty)
+        .sort((a, b) => a.available_qty - b.available_qty || a.sku.localeCompare(b.sku));
+
+      const totalEstimatedReorderCostCents = lowStockRows.reduce(
+        (sum, row) => sum + row.estimated_reorder_cost_cents,
+        0
+      );
+
+      toolResult = {
+        workspace_id: workspaceId,
+        low_stock_count: lowStockRows.length,
+        total_estimated_reorder_cost_cents: totalEstimatedReorderCostCents,
+        items: lowStockRows.slice(0, limit),
+      };
+    } else if (toolName === "stage_purchase_order") {
+      auditBotRole = "buyer";
+      const vendorName = typeof args.vendor_name === "string" ? args.vendor_name.trim() : "";
+      if (!vendorName) {
+        throw new Error("vendor_name is required");
+      }
+      if (!Array.isArray(args.items) || args.items.length === 0) {
+        throw new Error("items must be a non-empty array");
+      }
+
+      const poStatus = args.status === "draft" ? "draft" : "pending_approval";
+      const expectedDate =
+        typeof args.expected_date === "string" && args.expected_date.trim()
+          ? args.expected_date.trim()
+          : new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+      const notes = typeof args.notes === "string" ? args.notes.trim() : null;
+
+      let totalCents = 0;
+      const computedPoItems: Array<{
+        inventory_item_id: string | null;
+        sku: string;
+        description: string;
+        ordered_qty: number;
+        unit_cost_cents: number;
+        line_total_cents: number;
+      }> = [];
+
+      for (const rawItem of args.items) {
+        const entry =
+          rawItem && typeof rawItem === "object"
+            ? (rawItem as Record<string, unknown>)
+            : null;
+        if (!entry) {
+          throw new Error("Each PO item must be an object");
+        }
+        const sku = typeof entry.sku === "string" ? entry.sku.trim().toUpperCase() : "";
+        const description =
+          typeof entry.description === "string" && entry.description.trim()
+            ? entry.description.trim()
+            : sku;
+        const orderedQty = entry.ordered_qty;
+        const unitCostCents = entry.unit_cost_cents;
+        if (
+          !sku ||
+          typeof orderedQty !== "number" ||
+          !Number.isSafeInteger(orderedQty) ||
+          orderedQty < 1 ||
+          typeof unitCostCents !== "number" ||
+          !Number.isSafeInteger(unitCostCents) ||
+          unitCostCents < 0
+        ) {
+          throw new Error(
+            "Each PO item requires sku, ordered_qty >= 1, and integer unit_cost_cents >= 0"
+          );
+        }
+        const lineTotalCents = orderedQty * unitCostCents;
+        totalCents += lineTotalCents;
+        computedPoItems.push({
+          inventory_item_id:
+            typeof entry.inventory_item_id === "string" && entry.inventory_item_id.trim()
+              ? entry.inventory_item_id.trim()
+              : null,
+          sku,
+          description,
+          ordered_qty: orderedQty,
+          unit_cost_cents: unitCostCents,
+          line_total_cents: lineTotalCents,
+        });
+      }
+
+      const poNumber =
+        typeof args.po_number === "string" && args.po_number.trim()
+          ? args.po_number.trim().toUpperCase()
+          : `PO-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+
+      const { data: poRow, error: poErr } = await admin
+        .from("purchase_orders")
+        .insert({
+          workspace_id: workspaceId,
+          po_number: poNumber,
+          vendor_name: vendorName,
+          status: poStatus,
+          total_cents: totalCents,
+          expected_date: expectedDate,
+          notes,
+        })
+        .select("*")
+        .single();
+
+      if (poErr || !poRow) {
+        throw new Error("Failed to insert purchase_order");
+      }
+      const createdPoId = (poRow as { id: string }).id;
+
+      const { data: poItemRows, error: poItemErr } = await admin
+        .from("purchase_order_items")
+        .insert(
+          computedPoItems.map((line) => ({
+            workspace_id: workspaceId,
+            po_id: createdPoId,
+            inventory_item_id: line.inventory_item_id,
+            sku: line.sku,
+            description: line.description,
+            ordered_qty: line.ordered_qty,
+            received_qty: 0,
+            unit_cost_cents: line.unit_cost_cents,
+            line_total_cents: line.line_total_cents,
+          }))
+        )
+        .select("*");
+
+      if (poItemErr) {
+        throw new Error("Purchase order created, but saving line items failed");
+      }
+
+      const { data: ledgerRow, error: ledgerErr } = await admin
+        .from("agent_action_ledger")
+        .insert({
+          workspace_id: workspaceId,
+          agent_name: "Procurement & Restock Agent",
+          module: "inventory",
+          action_type: "stage_auto_po",
+          autonomy_mode: "approve_1tap",
+          summary: `Staged PO ${poNumber} for ${vendorName} (${formatCentsUsd(totalCents)})`,
+          impact_cents: totalCents,
+          before_state: { po_id: null, vendor_name: vendorName },
+          after_state: {
+            po_id: createdPoId,
+            po_number: poNumber,
+            po_status: poStatus,
+            total_cents: totalCents,
+          },
+          status: "pending_approval",
+        })
+        .select("*")
+        .single();
+
+      if (ledgerErr || !ledgerRow) {
+        throw new Error("PO staged, but logging into agent_action_ledger failed");
+      }
+
+      toolResult = {
+        purchase_order: poRow,
+        items: poItemRows ?? [],
+        ledger_entry: ledgerRow,
+      };
+    } else if (toolName === "run_three_way_match") {
+      auditBotRole = "qa";
+      const rawTolerance =
+        typeof args.tolerance_bps === "number" ? Math.trunc(args.tolerance_bps) : 200;
+      if (!Number.isSafeInteger(rawTolerance) || rawTolerance < 0 || rawTolerance > 5000) {
+        throw new Error("tolerance_bps must be an integer between 0 and 5000");
+      }
+
+      const poId = typeof args.po_id === "string" ? args.po_id.trim() : "";
+      const billId = typeof args.vendor_bill_id === "string" ? args.vendor_bill_id.trim() : "";
+
+      let resolvedPoId = poId;
+      let poNumber = typeof args.po_number === "string" ? args.po_number.trim() : "PO-INLINE";
+      let vendorName = typeof args.vendor_name === "string" ? args.vendor_name.trim() : "Supplier";
+      let invoiceNumber =
+        typeof args.invoice_number === "string" ? args.invoice_number.trim() : "BILL-INLINE";
+
+      const poItems: McpThreeWayLineItem[] = [];
+      const receiptItems: McpReceiptLineItem[] = [];
+      const billItems: McpBillLineItem[] = [];
+
+      if (billId) {
+        const { data: billRow, error: billErr } = await admin
+          .from("vendor_bills")
+          .select("id, po_id, vendor_name, invoice_number, items_json")
+          .eq("workspace_id", workspaceId)
+          .eq("id", billId)
+          .maybeSingle();
+        if (billErr || !billRow) {
+          throw new Error("vendor_bill_id not found in authenticated workspace");
+        }
+        const typedBill = billRow as Release2VendorBillRow;
+        if (!resolvedPoId && typedBill.po_id) {
+          resolvedPoId = typedBill.po_id;
+        }
+        vendorName = typedBill.vendor_name || vendorName;
+        invoiceNumber = typedBill.invoice_number || invoiceNumber;
+        if (Array.isArray(typedBill.items_json)) {
+          for (const entry of typedBill.items_json) {
+            if (entry && typeof entry === "object") {
+              const obj = entry as Record<string, unknown>;
+              const sku = typeof obj.sku === "string" ? obj.sku.trim().toUpperCase() : "";
+              const qty = typeof obj.quantity === "number" ? Math.trunc(obj.quantity) : 0;
+              const unitCost =
+                typeof obj.unit_cost_cents === "number" ? Math.trunc(obj.unit_cost_cents) : 0;
+              if (sku) {
+                billItems.push({ sku, quantity: qty, unit_cost_cents: unitCost });
+              }
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(args.bill_items)) {
+        billItems.length = 0;
+        for (const rawEntry of args.bill_items) {
+          const obj = rawEntry as Record<string, unknown>;
+          const sku = typeof obj.sku === "string" ? obj.sku.trim().toUpperCase() : "";
+          const qty = Number(obj.quantity);
+          const unitCost = Number(obj.unit_cost_cents);
+          if (
+            !sku ||
+            !Number.isSafeInteger(qty) ||
+            qty < 0 ||
+            !Number.isSafeInteger(unitCost) ||
+            unitCost < 0
+          ) {
+            throw new Error("Invalid bill_items entry");
+          }
+          billItems.push({ sku, quantity: qty, unit_cost_cents: unitCost });
+        }
+      }
+
+      if (billItems.length === 0) {
+        throw new Error("Provide bill_items or a valid vendor_bill_id with line items");
+      }
+
+      if (resolvedPoId) {
+        const [{ data: poRow, error: poErr }, { data: poItemRows }, { data: recRows }] =
+          await Promise.all([
+            admin
+              .from("purchase_orders")
+              .select("id, po_number, vendor_name")
+              .eq("workspace_id", workspaceId)
+              .eq("id", resolvedPoId)
+              .maybeSingle(),
+            admin
+              .from("purchase_order_items")
+              .select("sku, ordered_qty, unit_cost_cents")
+              .eq("workspace_id", workspaceId)
+              .eq("po_id", resolvedPoId),
+            admin
+              .from("goods_receipts")
+              .select("items_json")
+              .eq("workspace_id", workspaceId)
+              .eq("po_id", resolvedPoId),
+          ]);
+
+        if (poErr || !poRow) {
+          throw new Error("po_id not found in authenticated workspace");
+        }
+        const typedPo = poRow as { po_number?: string; vendor_name?: string };
+        poNumber = typedPo.po_number ?? poNumber;
+        if (!vendorName || vendorName === "Supplier") {
+          vendorName = typedPo.vendor_name ?? vendorName;
+        }
+        for (const r of (poItemRows ?? []) as Array<{
+          sku: string;
+          ordered_qty: number;
+          unit_cost_cents: number;
+        }>) {
+          poItems.push({
+            sku: r.sku,
+            ordered_qty: Math.max(1, Math.trunc(r.ordered_qty)),
+            unit_cost_cents: Math.max(0, Math.trunc(r.unit_cost_cents)),
+          });
+        }
+        for (const grn of (recRows ?? []) as Array<{ items_json?: unknown }>) {
+          if (Array.isArray(grn.items_json)) {
+            for (const line of grn.items_json) {
+              if (line && typeof line === "object") {
+                const obj = line as Record<string, unknown>;
+                const sku = typeof obj.sku === "string" ? obj.sku.trim().toUpperCase() : "";
+                if (!sku) continue;
+                receiptItems.push({
+                  sku,
+                  received_qty: Math.max(0, Math.trunc(Number(obj.received_qty ?? 0))),
+                  damaged_qty: Math.max(0, Math.trunc(Number(obj.damaged_qty ?? 0))),
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(args.po_items)) {
+        poItems.length = 0;
+        for (const rawEntry of args.po_items) {
+          const obj = rawEntry as Record<string, unknown>;
+          const sku = typeof obj.sku === "string" ? obj.sku.trim().toUpperCase() : "";
+          const orderedQty = Number(obj.ordered_qty);
+          const unitCost = Number(obj.unit_cost_cents);
+          if (
+            !sku ||
+            !Number.isSafeInteger(orderedQty) ||
+            orderedQty < 1 ||
+            !Number.isSafeInteger(unitCost) ||
+            unitCost < 0
+          ) {
+            throw new Error("Invalid po_items entry");
+          }
+          poItems.push({ sku, ordered_qty: orderedQty, unit_cost_cents: unitCost });
+        }
+      }
+
+      if (Array.isArray(args.receipt_items)) {
+        receiptItems.length = 0;
+        for (const rawEntry of args.receipt_items) {
+          const obj = rawEntry as Record<string, unknown>;
+          const sku = typeof obj.sku === "string" ? obj.sku.trim().toUpperCase() : "";
+          const recQty = Number(obj.received_qty);
+          const dmgQty =
+            obj.damaged_qty !== undefined ? Number(obj.damaged_qty) : 0;
+          if (
+            !sku ||
+            !Number.isSafeInteger(recQty) ||
+            recQty < 0 ||
+            !Number.isSafeInteger(dmgQty) ||
+            dmgQty < 0
+          ) {
+            throw new Error("Invalid receipt_items entry");
+          }
+          receiptItems.push({ sku, received_qty: recQty, damaged_qty: dmgQty });
+        }
+      }
+
+      let isDuplicateInvoice = false;
+      if (invoiceNumber && invoiceNumber !== "BILL-INLINE") {
+        const { data: dupRows, error: dupErr } = await admin
+          .from("vendor_bills")
+          .select("id, invoice_number")
+          .eq("workspace_id", workspaceId)
+          .eq("invoice_number", invoiceNumber)
+          .limit(5);
+        if (!dupErr && Array.isArray(dupRows)) {
+          isDuplicateInvoice = (dupRows as Array<{ id: string }>).some(
+            (r) => r.id !== billId
+          );
+        }
+      }
+
+      const matchOut = computeMcpThreeWayMatch({
+        poItems,
+        receiptItems,
+        billItems,
+        toleranceBps: rawTolerance,
+        poNumber,
+        vendorName,
+        invoiceNumber,
+        isDuplicateInvoice,
+      });
+
+      if (billId) {
+        await admin
+          .from("vendor_bills")
+          .update({
+            match_status: String(matchOut.match_status),
+            match_variance_cents: Number(matchOut.match_variance_cents ?? 0),
+            discrepancy_summary:
+              typeof matchOut.discrepancy_summary === "string"
+                ? matchOut.discrepancy_summary
+                : null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("workspace_id", workspaceId)
+          .eq("id", billId);
+      }
+
+      await admin.from("agent_action_ledger").insert({
+        workspace_id: workspaceId,
+        agent_name: "3-Way Match Controller",
+        module: "bookkeeping",
+        action_type: "run_three_way_match",
+        autonomy_mode: "approve_1tap",
+        summary: `3-Way Match (${String(matchOut.match_status)}) for ${invoiceNumber} vs ${poNumber}: variance ${formatCentsUsd(Number(matchOut.match_variance_cents ?? 0))}`,
+        impact_cents: Math.abs(Number(matchOut.match_variance_cents ?? 0)),
+        before_state: { vendor_bill_id: billId || null, po_id: resolvedPoId || null },
+        after_state: {
+          match_status: matchOut.match_status,
+          match_variance_cents: matchOut.match_variance_cents,
+        },
+        status: matchOut.match_status === "matched_clean" ? "executed" : "pending_approval",
+      });
+
+      toolResult = {
+        workspace_id: workspaceId,
+        vendor_bill_id: billId || null,
+        po_id: resolvedPoId || null,
+        ...matchOut,
+      };
+    } else if (toolName === "get_cashflow_summary") {
+      auditBotRole = "cash_applications";
+      const asOfDate =
+        typeof args.as_of_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.as_of_date.trim())
+          ? args.as_of_date.trim()
+          : new Date().toISOString().slice(0, 10);
+      const safetyBufferCents =
+        typeof args.safety_buffer_cents === "number" &&
+        Number.isSafeInteger(args.safety_buffer_cents) &&
+        args.safety_buffer_cents >= 0
+          ? args.safety_buffer_cents
+          : 500000;
+
+      const [invRes, billsRes, ledgerRes] = await Promise.all([
+        admin
+          .from("invoices")
+          .select("id, total_cents, amount_paid_cents, due_date, status")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+        admin
+          .from("vendor_bills")
+          .select("id, total_cents, due_date, match_status")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+        admin
+          .from("ledger_entries")
+          .select("id, entry_type, amount_cents, occurred_on")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+      ]);
+
+      if (invRes.error || billsRes.error || ledgerRes.error) {
+        throw new Error("Failed to query workspace bookkeeping tables");
+      }
+
+      let netLedgerCents = 0;
+      for (const row of (ledgerRes.data ?? []) as Release2LedgerEntryRow[]) {
+        const amt = Number.isSafeInteger(row.amount_cents) ? Math.abs(row.amount_cents) : 0;
+        if (row.entry_type === "revenue") {
+          netLedgerCents += amt;
+        } else if (row.entry_type === "cogs" || row.entry_type === "expense") {
+          netLedgerCents -= amt;
+        }
+      }
+
+      const startingBalanceCents =
+        typeof args.starting_balance_cents === "number" &&
+        Number.isSafeInteger(args.starting_balance_cents)
+          ? args.starting_balance_cents
+          : netLedgerCents;
+
+      const startMs = Date.parse(`${asOfDate}T00:00:00Z`);
+      const periodInflows: Record<30 | 60 | 90, number> = { 30: 0, 60: 0, 90: 0 };
+      const periodOutflows: Record<30 | 60 | 90, number> = { 30: 0, 60: 0, 90: 0 };
+      let totalOpenArCents = 0;
+      let totalScheduledApCents = 0;
+      let heldDisputedApCents = 0;
+
+      for (const inv of (invRes.data ?? []) as InvoiceRowForAr[]) {
+        if (inv.status === "paid" || inv.status === "void") continue;
+        const remaining = Math.max(0, (inv.total_cents ?? 0) - (inv.amount_paid_cents ?? 0));
+        if (remaining === 0) continue;
+        totalOpenArCents += remaining;
+        const dueMs = Date.parse(`${(inv.due_date || asOfDate).slice(0, 10)}T00:00:00Z`);
+        const diffDays = Number.isFinite(dueMs) ? Math.round((dueMs - startMs) / 86_400_000) : 0;
+        if (diffDays <= 30) periodInflows[30] += remaining;
+        else if (diffDays <= 60) periodInflows[60] += remaining;
+        else if (diffDays <= 90) periodInflows[90] += remaining;
+      }
+
+      for (const bill of (billsRes.data ?? []) as Release2VendorBillRow[]) {
+        const amount = Math.max(0, bill.total_cents ?? 0);
+        if (amount === 0 || bill.match_status === "paid") continue;
+        if (bill.match_status === "disputed" || bill.match_status === "exception_flagged") {
+          heldDisputedApCents += amount;
+          continue;
+        }
+        totalScheduledApCents += amount;
+        const dueMs = Date.parse(`${(bill.due_date || asOfDate).slice(0, 10)}T00:00:00Z`);
+        const diffDays = Number.isFinite(dueMs) ? Math.round((dueMs - startMs) / 86_400_000) : 0;
+        if (diffDays <= 30) periodOutflows[30] += amount;
+        else if (diffDays <= 60) periodOutflows[60] += amount;
+        else if (diffDays <= 90) periodOutflows[90] += amount;
+      }
+
+      let running = startingBalanceCents;
+      let firstBreachHorizonDays: 30 | 60 | 90 | null = null;
+      const windows = ([30, 60, 90] as const).map((horizon) => {
+        const pIn = periodInflows[horizon];
+        const pOut = periodOutflows[horizon];
+        running = running + pIn - pOut;
+        const below = running < safetyBufferCents;
+        if (below && firstBreachHorizonDays === null) {
+          firstBreachHorizonDays = horizon;
+        }
+        return {
+          horizon_days: horizon,
+          window_end_date: new Date(startMs + horizon * 86_400_000).toISOString().slice(0, 10),
+          period_inflows_cents: pIn,
+          period_outflows_cents: pOut,
+          ending_balance_cents: running,
+          below_buffer: below,
+          buffer_shortfall_cents: below ? safetyBufferCents - running : 0,
+        };
+      });
+
+      toolResult = {
+        workspace_id: workspaceId,
+        as_of_date: asOfDate,
+        starting_balance_cents: startingBalanceCents,
+        net_ledger_cashflow_cents: netLedgerCents,
+        safety_buffer_cents: safetyBufferCents,
+        total_open_ar_cents: totalOpenArCents,
+        total_scheduled_ap_cents: totalScheduledApCents,
+        held_disputed_ap_cents: heldDisputedApCents,
+        any_buffer_breach: firstBreachHorizonDays !== null,
+        first_breach_horizon_days: firstBreachHorizonDays,
+        windows,
       };
     }
 

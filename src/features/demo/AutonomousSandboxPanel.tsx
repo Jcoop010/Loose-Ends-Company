@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import {
+  AlertTriangle,
   CheckCircle2,
+  FileCheck2,
   FileSignature,
   ReceiptText,
   RotateCcw,
@@ -31,6 +33,7 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const invoices = demo.state.osInvoices
   const ledger = demo.state.osAgentLedger
   const config = demo.state.osAutonomyConfig
+  const threeWaySim = demo.state.osThreeWaySimulation
 
   return (
     <section
@@ -371,6 +374,104 @@ export function AutonomousSandboxPanel(): React.ReactElement {
             </ul>
           </div>
         </div>
+      </div>
+
+      {/* Release 2: Air-Gapped Short-Shipment 3-Way Match Sandbox */}
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <FileCheck2 className="h-4 w-4 text-[#ea580c]" aria-hidden="true" />
+              <h4 className="text-sm font-bold text-slate-900">
+                Procurement 3-Way Match Sandbox (PO vs. Goods Receipt vs. Vendor Bill)
+              </h4>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-600">
+              Test PO 100 units @ $42.00 ($4,200.00), GRN 80 received ($3,360.00 payable), and Bill 100 @ $46.00 ($4,600.00) to catch the exact <strong>$1,240.00</strong> variance.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const sim = demo.simulateShortShipmentThreeWayMatch()
+              toast.error(
+                `Caught ${formatCents(sim.match_result.match_variance_cents)} 3-Way Variance`,
+                `Held ${sim.invoice_number} (${sim.po_number}) and staged citation-backed dispute.`,
+              )
+            }}
+            className="exec-btn-primary !px-3.5 !py-2 !text-xs touch-target shrink-0"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+            Simulate Short-Shipment 3-Way Match
+          </button>
+        </div>
+
+        {threeWaySim ? (
+          <div className="rounded-xl border border-rose-200 bg-white p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs font-bold text-slate-900">
+                  {threeWaySim.po_number} -&gt; {threeWaySim.invoice_number}
+                </span>
+                <Badge tone="rose">{threeWaySim.match_result.match_status}</Badge>
+                <Badge tone="amber">{threeWaySim.bill_status}</Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-rose-700 tabular-nums">
+                  Variance Held: {formatCents(threeWaySim.match_result.match_variance_cents)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    demo.undoDemoLedgerAction(threeWaySim.ledger_entry_id)
+                    toast.info('1-Click Undo executed', '3-Way Match simulation reversed.')
+                  }}
+                  className="exec-btn-secondary !px-2.5 !py-1 !text-[11px]"
+                >
+                  <RotateCcw className="h-3 w-3 text-[#ea580c]" aria-hidden="true" />
+                  1-Click Undo
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 text-xs tabular-nums">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <span className="text-[10px] font-bold uppercase text-slate-500">1. Purchase Order</span>
+                <p className="font-bold text-slate-900 mt-0.5">
+                  {threeWaySim.ordered_qty} x {formatCents(threeWaySim.po_unit_cost_cents)} ={' '}
+                  {formatCents(threeWaySim.match_result.po_total_cents)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <span className="text-[10px] font-bold uppercase text-slate-500">2. Goods Receipt (GRN)</span>
+                <p className="font-bold text-emerald-700 mt-0.5">
+                  {threeWaySim.received_qty} usable ={' '}
+                  {formatCents(threeWaySim.match_result.received_payable_cents)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                <span className="text-[10px] font-bold uppercase text-slate-500">3. Supplier Bill</span>
+                <p className="font-bold text-rose-700 mt-0.5">
+                  {threeWaySim.billed_qty} x {formatCents(threeWaySim.billed_unit_cost_cents)} ={' '}
+                  {formatCents(threeWaySim.match_result.billed_total_cents)}
+                </p>
+              </div>
+            </div>
+
+            {threeWaySim.match_result.vendor_dispute_draft ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 text-xs space-y-1">
+                <p className="font-bold text-rose-950">
+                  Pre-Staged Vendor Dispute Draft (requires_approval: true):{' '}
+                  {threeWaySim.match_result.vendor_dispute_draft.subject}
+                </p>
+                <p className="text-rose-900 whitespace-pre-line">
+                  {threeWaySim.match_result.discrepancy_summary}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </section>
   )

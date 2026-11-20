@@ -25,7 +25,7 @@ interface NavItemConfig {
   label: string
   mobileLabel: string
   icon: React.ComponentType<{ className?: string }>
-  moduleKey?: 'crm' | 'quotes' | 'billing' | 'inventory' | 'projects'
+  moduleKey?: 'crm' | 'quotes' | 'billing' | 'inventory' | 'bookkeeping' | 'projects'
 }
 
 export const WORKSPACE_NAV_ITEMS: NavItemConfig[] = [
@@ -72,6 +72,7 @@ const ALL_SECTION_TITLES: Readonly<Record<DashboardSection, string>> = {
   autonomy: 'Agent Ledger & Autonomy',
   dispatch: 'Fulfillment & Schedules',
   inventory: 'Inventory & Procurement',
+  bookkeeping: 'Bookkeeping & AP',
   autopilot: 'Billing, Policies & MCP',
 }
 
@@ -209,7 +210,7 @@ export function AppShell({
               )
             })}
 
-            {/* Inventory & Procurement (active when toggled ON, otherwise Release 2 slot) */}
+            {/* Release 2 Gated Modules: shown when workspace_settings.modules_enabled.* is ON */}
             {modules.inventory ? (
               <button
                 type="button"
@@ -227,36 +228,26 @@ export function AppShell({
                 />
                 <span className="truncate">Inventory &amp; Procurement</span>
               </button>
-            ) : (
+            ) : null}
+
+            {modules.bookkeeping ? (
               <button
                 type="button"
-                onClick={() => navigate('/dashboard/autonomy')}
-                className="flex w-full items-center justify-between gap-2 rounded-xl border border-transparent px-3.5 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition"
+                aria-current={section === 'bookkeeping' ? 'page' : undefined}
+                onClick={() => navigateSection('bookkeeping')}
+                className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
+                  section === 'bookkeeping'
+                    ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                    : 'text-slate-300 hover:bg-slate-800/70 hover:text-white border border-transparent'
+                }`}
               >
-                <span className="flex items-center gap-2.5 min-w-0">
-                  <Boxes className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span className="truncate">Inventory &amp; Procurement</span>
-                </span>
-                <span className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
-                  Release 2
-                </span>
+                <BookOpenCheck
+                  className={`h-4 w-4 shrink-0 ${section === 'bookkeeping' ? 'text-[#fb923c]' : ''}`}
+                  aria-hidden="true"
+                />
+                <span className="truncate">Bookkeeping &amp; AP</span>
               </button>
-            )}
-
-            {/* Bookkeeping (Release 2 toggle slot) */}
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard/autonomy')}
-              className="flex w-full items-center justify-between gap-2 rounded-xl border border-transparent px-3.5 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition"
-            >
-              <span className="flex items-center gap-2.5 min-w-0">
-                <BookOpenCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">Bookkeeping</span>
-              </span>
-              <span className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
-                {modules.bookkeeping ? 'Ready' : 'Release 2'}
-              </span>
-            </button>
+            ) : null}
 
             <div className="pt-2 mt-2 border-t border-slate-800/80 space-y-1">
               {modules.projects ? (
@@ -352,6 +343,39 @@ export function AppShell({
             </div>
           </div>
         </header>
+
+        {modules.inventory || modules.bookkeeping ? (
+          <div className="md:hidden border-b border-slate-200 bg-slate-50 px-4 py-2 flex flex-wrap gap-2">
+            {modules.inventory ? (
+              <button
+                type="button"
+                onClick={() => navigateSection('inventory')}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                  section === 'inventory'
+                    ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
+                    : 'border-slate-300 bg-white text-slate-700'
+                }`}
+              >
+                <Boxes className="h-3.5 w-3.5" aria-hidden="true" />
+                Inventory
+              </button>
+            ) : null}
+            {modules.bookkeeping ? (
+              <button
+                type="button"
+                onClick={() => navigateSection('bookkeeping')}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                  section === 'bookkeeping'
+                    ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
+                    : 'border-slate-300 bg-white text-slate-700'
+                }`}
+              >
+                <BookOpenCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Bookkeeping &amp; AP
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <main
           id="main-workspace-content"

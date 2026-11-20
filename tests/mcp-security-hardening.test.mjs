@@ -125,8 +125,125 @@ const state = {
   ],
   documents: [],
   ops_jobs: [],
-  inventory_items: [],
+  inventory_items: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `sku-a-${idx + 1}`,
+      workspace_id: wsA,
+      sku: `PART-${String(idx + 1).padStart(2, '0')}`,
+      name: `Part ${idx + 1}`,
+      location: 'Bay A',
+      bin_code: `A-${idx + 1}`,
+      preferred_vendor: 'Apex Industrial',
+      lead_time_days: 5,
+      on_hand_qty: 2,
+      reserved_qty: 0,
+      reorder_point_qty: 5,
+      reorder_qty: 10,
+      unit_cost_cents: 1500,
+      quantity: 2,
+      reserved: 0,
+      reorder_threshold: 5,
+      reorder_quantity: 10,
+      purchase_cost: 15,
+      archived: false,
+      created_at: '2026-11-18T08:00:00Z',
+    })),
+    {
+      id: 'sku-b-1',
+      workspace_id: wsB,
+      sku: 'SECRET-B',
+      name: 'Other Workspace Secret Part',
+      on_hand_qty: 0,
+      reserved_qty: 0,
+      reorder_point_qty: 10,
+      reorder_qty: 50,
+      unit_cost_cents: 99900,
+      quantity: 0,
+      reserved: 0,
+      reorder_threshold: 10,
+      reorder_quantity: 50,
+      purchase_cost: 999,
+      archived: false,
+      created_at: '2026-11-18T08:00:00Z',
+    },
+  ],
   ops_purchase_orders: [],
+  purchase_orders: [],
+  purchase_order_items: [],
+  goods_receipts: [],
+  vendor_bills: [
+    {
+      id: 'vb-a-clean',
+      workspace_id: wsA,
+      po_id: null,
+      vendor_name: 'Apex Industrial',
+      invoice_number: 'VB-A-100',
+      total_cents: 150000,
+      due_date: '2026-12-01',
+      items_json: [],
+      match_status: 'matched_clean',
+      match_variance_cents: 0,
+      created_at: '2026-11-18T09:00:00Z',
+    },
+    {
+      id: 'vb-a-disputed',
+      workspace_id: wsA,
+      po_id: null,
+      vendor_name: 'Apex Industrial',
+      invoice_number: 'VB-A-DISPUTED',
+      total_cents: 460000,
+      due_date: '2026-12-01',
+      items_json: [],
+      match_status: 'disputed',
+      match_variance_cents: 124000,
+      created_at: '2026-11-18T09:30:00Z',
+    },
+    {
+      id: 'vb-b-secret',
+      workspace_id: wsB,
+      po_id: null,
+      vendor_name: 'Secret Supplier',
+      invoice_number: 'VB-B-999',
+      total_cents: 88888800,
+      due_date: '2026-12-01',
+      items_json: [],
+      match_status: 'matched_clean',
+      match_variance_cents: 0,
+      created_at: '2026-11-18T09:30:00Z',
+    },
+  ],
+  ledger_entries: [
+    {
+      id: 'le-a-1',
+      workspace_id: wsA,
+      entry_type: 'revenue',
+      category: 'Sales',
+      description: 'Retainer batch',
+      amount_cents: 800000,
+      occurred_on: '2026-11-10',
+      created_at: '2026-11-10T09:00:00Z',
+    },
+    {
+      id: 'le-a-2',
+      workspace_id: wsA,
+      entry_type: 'cogs',
+      category: 'Materials',
+      description: 'Parts order',
+      amount_cents: 200000,
+      occurred_on: '2026-11-12',
+      created_at: '2026-11-12T09:00:00Z',
+    },
+    {
+      id: 'le-b-secret',
+      workspace_id: wsB,
+      entry_type: 'revenue',
+      category: 'Other Tenant',
+      description: 'Secret B',
+      amount_cents: 99999900,
+      occurred_on: '2026-11-12',
+      created_at: '2026-11-12T09:00:00Z',
+    },
+  ],
   staged_ops_actions: [],
   staged_ledger_entries: [],
   ops_readiness_audits: [
@@ -483,11 +600,19 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. tools/list returns all 17 tools including Release 1 Autonomous OS tools
+// B. initialize returns v2.1.0 and tools/list returns all 21 tools including Release 2 tools
+const initRes = await callMcp(rawTokenA, 'initialize', {
+  protocolVersion: '2024-11-05',
+  capabilities: {},
+  clientInfo: { name: 'qa-client', version: '1.0.0' },
+})
+assert.equal(initRes.status, 200)
+assert.equal(initRes.json.result.serverInfo.version, '2.1.0')
+
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 17)
+assert.equal(toolNames.length, 21)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
@@ -497,6 +622,10 @@ for (const reqTool of [
   'list_ar_summary',
   'get_autonomy_rules',
   'log_agent_action',
+  'check_low_stock_skus',
+  'stage_purchase_order',
+  'run_three_way_match',
+  'get_cashflow_summary',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -875,6 +1004,69 @@ const loggedActionRes = await callMcp(rawTokenA, 'tools/call', {
 assert.equal(loggedActionRes.status, 200)
 assert.equal(loggedActionRes.json.result.structuredContent.ledger_entry.impact_cents, 43000)
 
+// F5. Release 2 MCP v2.1.0 tools: check_low_stock_skus (<=10), stage_purchase_order, run_three_way_match, get_cashflow_summary
+const lowStockRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'check_low_stock_skus',
+  arguments: { limit: 50 },
+})
+assert.equal(lowStockRes.status, 200)
+const lowStockSc = lowStockRes.json.result.structuredContent
+assert.equal(lowStockSc.low_stock_count, 11)
+assert.equal(lowStockSc.items.length, 10, 'check_low_stock_skus must clamp strictly <= 10')
+assert.equal(lowStockSc.items.some(i => i.sku === 'SECRET-B'), false)
+
+const roStagePoAttempt = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'stage_purchase_order',
+  arguments: {
+    vendor_name: 'Apex Industrial',
+    items: [{ sku: 'PART-01', ordered_qty: 10, unit_cost_cents: 1500 }],
+  },
+})
+assert.equal(roStagePoAttempt.status, 403)
+
+const stagePoRes = await callMcp(rawTokenA, 'tools/call', {
+  name: 'stage_purchase_order',
+  arguments: {
+    vendor_name: 'Apex Industrial',
+    po_number: 'PO-MCP-01',
+    items: [{ sku: 'PART-01', ordered_qty: 10, unit_cost_cents: 1500 }],
+  },
+})
+assert.equal(stagePoRes.status, 200)
+assert.equal(stagePoRes.json.result.structuredContent.purchase_order.total_cents, 15000)
+
+const threeWayRes = await callMcp(rawTokenA, 'tools/call', {
+  name: 'run_three_way_match',
+  arguments: {
+    po_number: 'PO-4088',
+    vendor_name: 'Apex Industrial Supply',
+    invoice_number: 'VB-9042',
+    tolerance_bps: 200,
+    po_items: [{ sku: 'VALVE-42', ordered_qty: 100, unit_cost_cents: 4200 }],
+    receipt_items: [{ sku: 'VALVE-42', received_qty: 80, damaged_qty: 0 }],
+    bill_items: [{ sku: 'VALVE-42', quantity: 100, unit_cost_cents: 4600 }],
+  },
+})
+assert.equal(threeWayRes.status, 200)
+const threeWaySc = threeWayRes.json.result.structuredContent
+assert.equal(threeWaySc.match_status, 'exception_flagged')
+assert.equal(threeWaySc.match_variance_cents, 124000)
+assert.equal(threeWaySc.vendor_dispute_draft.requires_approval, true)
+
+const cashflowRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_cashflow_summary',
+  arguments: {
+    as_of_date: '2026-11-20',
+    safety_buffer_cents: 500000,
+  },
+})
+assert.equal(cashflowRes.status, 200)
+const cashflowSc = cashflowRes.json.result.structuredContent
+assert.equal(cashflowSc.net_ledger_cashflow_cents, 600000)
+assert.equal(cashflowSc.held_disputed_ap_cents, 460000)
+assert.equal(cashflowSc.total_scheduled_ap_cents, 150000)
+assert.equal(cashflowSc.windows.length, 3)
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -884,6 +1076,11 @@ const workspaceTables = new Set([
   'ops_jobs',
   'inventory_items',
   'ops_purchase_orders',
+  'purchase_orders',
+  'purchase_order_items',
+  'goods_receipts',
+  'vendor_bills',
+  'ledger_entries',
   'ops_readiness_audits',
   'staged_ops_actions',
   'staged_ledger_entries',

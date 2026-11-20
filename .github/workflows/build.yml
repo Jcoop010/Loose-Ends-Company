@@ -81,3 +81,4 @@ jobs:
       - run: node tests/local-ollama-gemma.test.mjs
       - run: node tests/mcp-security-hardening.test.mjs
       - run: node tests/autonomous-os-engine.test.mjs
+      - run: node tests/release2-inventory-bookkeeping.test.mjs

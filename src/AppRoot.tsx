@@ -8,6 +8,7 @@ import { LandingPage } from './features/landing/LandingPage'
 import { ClientPortalPage } from './features/portal/ClientPortalPage'
 import { AutopilotBillingPage } from './features/workspaces/autopilot-billing/AutopilotBillingPage'
 import { AutonomyLedgerPage } from './features/workspaces/autonomy-ledger/AutonomyLedgerPage'
+import { BookkeepingApPage } from './features/workspaces/bookkeeping-ap/BookkeepingApPage'
 import { CommandCenterPage } from './features/workspaces/command-center/CommandCenterPage'
 import { DispatchJobsPage } from './features/workspaces/dispatch-jobs/DispatchJobsPage'
 import { InventoryPosPage } from './features/workspaces/inventory-pos/InventoryPosPage'
@@ -34,6 +35,8 @@ function AuthenticatedWorkspaceSwitch(): React.ReactElement {
       return <DispatchJobsPage />
     case 'inventory':
       return <InventoryPosPage />
+    case 'bookkeeping':
+      return <BookkeepingApPage />
     case 'autopilot':
       return <AutopilotBillingPage />
     case 'command':

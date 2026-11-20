@@ -7,6 +7,8 @@ export type AutonomyActionKey =
   | 'convert_signed_quote_to_invoice'
   | 'send_invoice_reminder'
   | 'flag_overdue_ar'
+  | 'stage_auto_po'
+  | 'approve_clean_vendor_bill'
 
 export type WorkspaceModuleKey =
   | 'crm'
@@ -41,6 +43,8 @@ export const DEFAULT_AUTONOMY_RULES: AutonomyRulesMap = {
   convert_signed_quote_to_invoice: 'full_auto',
   send_invoice_reminder: 'approve_1tap',
   flag_overdue_ar: 'full_auto',
+  stage_auto_po: 'approve_1tap',
+  approve_clean_vendor_bill: 'full_auto',
 }
 
 export const DEFAULT_AUTO_LIMIT_CENTS = 50000
@@ -76,6 +80,16 @@ export const AUTONOMY_ACTION_META: ReadonlyArray<{
     label: 'Flag Overdue AR & Margin Risks',
     description: 'Scan open receivables and stage prioritized AR recovery items in your ledger.',
   },
+  {
+    key: 'stage_auto_po',
+    label: 'Stage Auto-PO on Low Stock',
+    description: 'Generate draft or pre-approved supplier purchase orders when available stock hits reorder point.',
+  },
+  {
+    key: 'approve_clean_vendor_bill',
+    label: 'Auto-Match Clean Vendor Bills',
+    description: 'Auto-approve PO === GRN === Bill matches within basis-point tolerance and auto-cap.',
+  },
 ]
 
 export const WORKSPACE_MODULE_META: ReadonlyArray<{
@@ -105,13 +119,13 @@ export const WORKSPACE_MODULE_META: ReadonlyArray<{
   {
     key: 'inventory',
     label: 'Inventory & Procurement',
-    description: 'SKU stock counts, reservations, low-stock alerts, and supplier purchase orders.',
+    description: 'SKU stock counts, reservations, barcode GRN receiving, Auto-POs, and 3-way matching.',
     release: 'release_2',
   },
   {
     key: 'bookkeeping',
-    label: 'Bookkeeping',
-    description: 'Automated transaction categorization, vendor bill audit, and GL export.',
+    label: 'Bookkeeping & AP',
+    description: 'Double-entry cashflow ledger, 90-day forecast, and 3-way matched AP approvals.',
     release: 'release_2',
   },
   {
@@ -304,4 +318,269 @@ export interface ArSummaryMetrics {
   openCount: number
   overdueCount: number
   paidCount: number
+}
+
+// ============================================================================
+// Release 2 Types: Inventory, Procurement, 3-Way Match & Native Bookkeeping
+// ============================================================================
+
+export interface Release2InventoryItem {
+  id: string
+  workspace_id: string
+  sku: string
+  name: string
+  location: string | null
+  bin_code: string | null
+  on_hand_qty: number
+  reserved_qty: number
+  reorder_point_qty: number
+  reorder_qty: number
+  unit_cost_cents: number
+  unit_price_cents: number
+  preferred_vendor: string | null
+  lead_time_days: number
+  archived?: boolean
+  updated_at?: string
+}
+
+export type PurchaseOrderStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'sent'
+  | 'partially_received'
+  | 'received'
+  | 'closed'
+
+export interface PurchaseOrderRecord {
+  id: string
+  workspace_id: string
+  po_number: string
+  vendor_name: string
+  status: PurchaseOrderStatus
+  total_cents: number
+  expected_date: string | null
+  notes: string | null
+  created_at: string
+  updated_at?: string
+}
+
+export interface PurchaseOrderItemRecord {
+  id: string
+  workspace_id: string
+  po_id: string
+  inventory_item_id: string | null
+  sku: string
+  description: string
+  ordered_qty: number
+  received_qty: number
+  unit_cost_cents: number
+  line_total_cents: number
+  created_at?: string
+}
+
+export interface GoodsReceiptLineItem {
+  sku: string
+  ordered_qty: number
+  received_qty: number
+  damaged_qty: number
+}
+
+export interface GoodsReceiptRecord {
+  id: string
+  workspace_id: string
+  po_id: string
+  received_by: string
+  items_json: GoodsReceiptLineItem[]
+  received_at: string
+  created_at?: string
+}
+
+export type VendorBillMatchStatus =
+  | 'unmatched'
+  | 'matched_clean'
+  | 'exception_flagged'
+  | 'disputed'
+  | 'paid'
+
+export interface VendorBillLineItem {
+  sku: string
+  description?: string
+  quantity: number
+  unit_cost_cents: number
+}
+
+export interface VendorBillRecord {
+  id: string
+  workspace_id: string
+  po_id: string | null
+  vendor_name: string
+  invoice_number: string
+  subtotal_cents: number
+  tax_cents: number
+  total_cents: number
+  due_date: string
+  items_json: VendorBillLineItem[]
+  match_status: VendorBillMatchStatus
+  match_variance_cents: number
+  discrepancy_summary: string | null
+  created_at: string
+  updated_at?: string
+}
+
+export type LedgerEntryType = 'revenue' | 'cogs' | 'expense' | 'ap_scheduled'
+
+export interface LedgerEntryRecord {
+  id: string
+  workspace_id: string
+  entry_type: LedgerEntryType
+  category: string
+  description: string
+  amount_cents: number
+  occurred_on: string
+  source_ref: string | null
+  created_at?: string
+}
+
+export interface StockEvaluationItem {
+  item_id: string
+  sku: string
+  name: string
+  location: string | null
+  bin_code: string | null
+  preferred_vendor: string
+  on_hand_qty: number
+  reserved_qty: number
+  available_qty: number
+  reorder_point_qty: number
+  reorder_qty: number
+  unit_cost_cents: number
+  lead_time_days: number
+  is_low_stock: boolean
+  shortfall_qty: number
+}
+
+export interface AutoPoLineProposal {
+  inventory_item_id: string
+  sku: string
+  description: string
+  ordered_qty: number
+  unit_cost_cents: number
+  line_total_cents: number
+}
+
+export interface AutoPoDraftProposal {
+  po_number: string
+  vendor_name: string
+  expected_date: string
+  total_cents: number
+  status: PurchaseOrderStatus
+  autonomy_decision: AutonomyGateDecision
+  items: AutoPoLineProposal[]
+  ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+export interface StockEvaluationResult {
+  evaluated_items: StockEvaluationItem[]
+  low_stock_items: StockEvaluationItem[]
+  auto_po_drafts: AutoPoDraftProposal[]
+  total_low_stock_count: number
+  total_reorder_cost_cents: number
+}
+
+export type ThreeWayMatchExceptionCode =
+  | 'short_shipment'
+  | 'over_shipment_billed'
+  | 'unit_price_hike'
+  | 'damaged_goods'
+  | 'duplicate_invoice'
+  | 'unexpected_sku'
+
+export interface ThreeWayMatchException {
+  code: ThreeWayMatchExceptionCode
+  sku: string
+  ordered_qty: number
+  received_good_qty: number
+  damaged_qty: number
+  billed_qty: number
+  po_unit_cost_cents: number
+  billed_unit_cost_cents: number
+  variance_cents: number
+  detail: string
+}
+
+export interface VendorDisputeDraft {
+  requires_approval: true
+  vendor_name: string
+  invoice_number: string
+  po_number: string
+  subject: string
+  body_markdown: string
+  disputed_amount_cents: number
+}
+
+export interface ThreeWayMatchLineComparison {
+  sku: string
+  ordered_qty: number
+  received_qty: number
+  damaged_qty: number
+  good_received_qty: number
+  billed_qty: number
+  po_unit_cost_cents: number
+  billed_unit_cost_cents: number
+  po_line_cents: number
+  received_payable_cents: number
+  billed_line_cents: number
+  line_variance_cents: number
+}
+
+export interface ThreeWayMatchResult {
+  match_status: 'matched_clean' | 'exception_flagged'
+  tolerance_bps: number
+  po_total_cents: number
+  received_payable_cents: number
+  billed_total_cents: number
+  match_variance_cents: number
+  line_comparisons: ThreeWayMatchLineComparison[]
+  exceptions: ThreeWayMatchException[]
+  discrepancy_summary: string | null
+  vendor_dispute_draft: VendorDisputeDraft | null
+}
+
+export interface CashflowWindowBucket {
+  horizon_days: 30 | 60 | 90
+  label: string
+  window_end_date: string
+  period_inflows_cents: number
+  period_outflows_cents: number
+  cumulative_inflows_cents: number
+  cumulative_outflows_cents: number
+  ending_balance_cents: number
+  below_buffer: boolean
+  buffer_shortfall_cents: number
+}
+
+export interface Cashflow90DayProjection {
+  as_of_date: string
+  starting_balance_cents: number
+  safety_buffer_cents: number
+  total_open_ar_cents: number
+  total_scheduled_ap_cents: number
+  held_disputed_ap_cents: number
+  lowest_projected_balance_cents: number
+  any_buffer_breach: boolean
+  first_breach_horizon_days: 30 | 60 | 90 | null
+  windows: [CashflowWindowBucket, CashflowWindowBucket, CashflowWindowBucket]
+}
+
+export interface BookkeepingKpiSummary {
+  net_cashflow_cents: number
+  revenue_cents: number
+  cogs_cents: number
+  expense_cents: number
+  total_ap_due_cents: number
+  open_bills_count: number
+  auto_matched_bills_count: number
+  auto_matched_bills_cents: number
+  disputed_saved_cents: number
+  disputed_bills_count: number
 }

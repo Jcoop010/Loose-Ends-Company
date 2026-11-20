@@ -74,6 +74,8 @@ export function normalizeAutonomyRules(
     'convert_signed_quote_to_invoice',
     'send_invoice_reminder',
     'flag_overdue_ar',
+    'stage_auto_po',
+    'approve_clean_vendor_bill',
   ]
   for (const key of keys) {
     if (isValidAutonomyMode(raw[key])) {

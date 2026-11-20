@@ -7,6 +7,7 @@ import {
   evaluateAutonomyGate,
   formatCents as formatOsCents,
   reverseLedgerAction,
+  runThreeWayMatch,
   type AgentActionLedgerEntry,
   type ArSummaryMetrics,
   type AutonomyActionKey,
@@ -15,6 +16,7 @@ import {
   type AutonomousInvoiceItem,
   type AutonomousQuote,
   type AutonomousQuoteItem,
+  type ThreeWayMatchResult,
   type WorkspaceAutonomyConfig,
   type WorkspaceModuleKey,
 } from '../lib/autonomousOs'
@@ -87,6 +89,21 @@ function isoOffsetFrom(anchorMs: number, deltaMs: number): string {
   return new Date(anchorMs + deltaMs).toISOString()
 }
 
+export interface DemoThreeWaySimulation {
+  po_number: string
+  vendor_name: string
+  invoice_number: string
+  sku: string
+  ordered_qty: number
+  po_unit_cost_cents: number
+  received_qty: number
+  billed_qty: number
+  billed_unit_cost_cents: number
+  bill_status: 'exception_flagged' | 'disputed' | 'reversed'
+  ledger_entry_id: string
+  match_result: ThreeWayMatchResult
+}
+
 export interface DemoSandboxState {
   workspace: Workspace
   settings: WorkspaceSettings
@@ -127,6 +144,7 @@ export interface DemoSandboxState {
   osInvoices: AutonomousInvoice[]
   osInvoiceItemsByInvoice: Record<string, AutonomousInvoiceItem[]>
   osAgentLedger: AgentActionLedgerEntry[]
+  osThreeWaySimulation: DemoThreeWaySimulation | null
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1502,6 +1520,7 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osInvoices,
     osInvoiceItemsByInvoice,
     osAgentLedger,
+    osThreeWaySimulation: null,
   }
 }
 
@@ -1591,6 +1610,7 @@ export interface DemoStoreContextValue {
   toggleDemoModule: (key: WorkspaceModuleKey) => void
   stageDemoCollectionNudge: (invoiceId: string) => void
   markDemoInvoicePaid: (invoiceId: string) => void
+  simulateShortShipmentThreeWayMatch: () => DemoThreeWaySimulation
   resetDemo: () => void
 }
 
@@ -2728,11 +2748,18 @@ export function DemoStoreProvider({
         )
       }
 
+      const nextThreeWaySim =
+        target.action_type === 'three_way_match_dispute' &&
+        prev.osThreeWaySimulation?.ledger_entry_id === entryId
+          ? null
+          : prev.osThreeWaySimulation
+
       return {
         ...prev,
         osQuotes: nextQuotes,
         osInvoices: nextInvoices,
         osAgentLedger: prev.osAgentLedger.map(e => (e.id === entryId ? updatedEntry : e)),
+        osThreeWaySimulation: nextThreeWaySim,
       }
     })
   }, [])
@@ -2852,6 +2879,73 @@ export function DemoStoreProvider({
     })
   }, [])
 
+  const simulateShortShipmentThreeWayMatch = useCallback((): DemoThreeWaySimulation => {
+    const nowIso = new Date().toISOString()
+    const poItems = [{ sku: 'VALVE-42', ordered_qty: 100, unit_cost_cents: 4200 }]
+    const receiptItems = [{ sku: 'VALVE-42', ordered_qty: 100, received_qty: 80, damaged_qty: 0 }]
+    const billItems = [
+      {
+        sku: 'VALVE-42',
+        description: 'Brass Control Valve',
+        quantity: 100,
+        unit_cost_cents: 4600,
+      },
+    ]
+
+    const matchResult = runThreeWayMatch(poItems, receiptItems, billItems, 200, {
+      poNumber: 'PO-4088',
+      vendorName: 'Apex Industrial Supply',
+      invoiceNumber: 'VB-9042',
+    })
+
+    const ledgerId = `led_3way_${Date.now()}`
+    const ledgerEntry: AgentActionLedgerEntry = {
+      id: ledgerId,
+      workspace_id: DEMO_WORKSPACE_ID,
+      agent_name: '3-Way Match Controller',
+      module: 'bookkeeping',
+      action_type: 'three_way_match_dispute',
+      autonomy_mode: 'approve_1tap',
+      summary: `Caught ${formatOsCents(matchResult.match_variance_cents)} short-shipment & price hike on VB-9042 (PO-4088) — staged vendor dispute`,
+      impact_cents: matchResult.match_variance_cents,
+      before_state: { invoice_number: 'VB-9042', bill_status: 'unmatched' },
+      after_state: {
+        invoice_number: 'VB-9042',
+        bill_status: 'disputed',
+        match_variance_cents: matchResult.match_variance_cents,
+      },
+      status: 'executed',
+      reversed_at: null,
+      created_at: nowIso,
+    }
+
+    const simulation: DemoThreeWaySimulation = {
+      po_number: 'PO-4088',
+      vendor_name: 'Apex Industrial Supply',
+      invoice_number: 'VB-9042',
+      sku: 'VALVE-42',
+      ordered_qty: 100,
+      po_unit_cost_cents: 4200,
+      received_qty: 80,
+      billed_qty: 100,
+      billed_unit_cost_cents: 4600,
+      bill_status: 'disputed',
+      ledger_entry_id: ledgerId,
+      match_result: matchResult,
+    }
+
+    setState(prev => ({
+      ...prev,
+      osThreeWaySimulation: simulation,
+      osAgentLedger: [
+        ledgerEntry,
+        ...prev.osAgentLedger.filter(e => e.action_type !== 'three_way_match_dispute'),
+      ],
+    }))
+
+    return simulation
+  }, [])
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -2894,6 +2988,7 @@ export function DemoStoreProvider({
       toggleDemoModule,
       stageDemoCollectionNudge,
       markDemoInvoicePaid,
+      simulateShortShipmentThreeWayMatch,
       resetDemo,
     }),
     [
@@ -2933,6 +3028,7 @@ export function DemoStoreProvider({
       toggleDemoModule,
       stageDemoCollectionNudge,
       markDemoInvoicePaid,
+      simulateShortShipmentThreeWayMatch,
       resetDemo,
     ],
   )

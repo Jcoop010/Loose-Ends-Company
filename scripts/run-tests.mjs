@@ -44,6 +44,7 @@ const testFiles = [
   'tests/local-ollama-gemma.test.mjs',
   'tests/mcp-security-hardening.test.mjs',
   'tests/autonomous-os-engine.test.mjs',
+  'tests/release2-inventory-bookkeeping.test.mjs',
 ]
 
 execFileSync(process.execPath, [path.join(repoRoot, 'scripts', 'precompile-test-src.mjs')], {

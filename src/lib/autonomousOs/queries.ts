@@ -621,6 +621,32 @@ export async function reverseLedgerEntryInDb(params: {
       .eq('id', after.invoice_id)
   }
 
+  if (entry.action_type === 'stage_auto_po' && typeof after.po_id === 'string' && after.po_id) {
+    await supabase
+      .from('purchase_orders')
+      .update({ status: 'closed', updated_at: updatedEntry.reversed_at })
+      .eq('workspace_id', workspaceId)
+      .eq('id', after.po_id)
+  }
+
+  if (
+    (entry.action_type === 'approve_vendor_bill' ||
+      entry.action_type === 'dispute_vendor_bill' ||
+      entry.action_type === 'mark_vendor_bill_paid') &&
+    typeof after.bill_id === 'string' &&
+    restoredState &&
+    typeof restoredState.bill_match_status === 'string'
+  ) {
+    await supabase
+      .from('vendor_bills')
+      .update({
+        match_status: restoredState.bill_match_status,
+        updated_at: updatedEntry.reversed_at,
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('id', after.bill_id)
+  }
+
   const { data, error } = await supabase
     .from('agent_action_ledger')
     .update({

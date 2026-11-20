@@ -253,7 +253,7 @@ export function AutonomyLedgerPage(): React.ReactElement {
           <div className="border-b border-slate-200 pb-3">
             <h3 className="text-base font-bold text-slate-900">Workspace Module Toggles</h3>
             <p className="text-xs text-slate-600">
-              Enable only what your team uses. Inventory &amp; Procurement and Bookkeeping expand cleanly for Release 2.
+              Enable only what your team uses. Turning Inventory &amp; Procurement or Bookkeeping &amp; AP ON activates those left-rail views immediately.
             </p>
           </div>
 
