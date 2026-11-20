@@ -386,7 +386,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                       Zero-Keyboard Ops &amp; Staged Bot Approvals
                     </h3>
                     <Badge tone="brand" className="whitespace-nowrap">
-                      12 MCP Tools
+                      13 MCP Tools
                     </Badge>
                     <Badge tone="amber" className="whitespace-nowrap">
                       {demo.state.stagedOpsActions.filter(a => a.status === 'pending_approval').length} pending
@@ -1208,7 +1208,7 @@ export function DemoWorkspacePage(): React.ReactElement {
                       Print Operations Binder
                     </button>
                     <Badge tone="brand" className="whitespace-nowrap">
-                      grok-4.7 · 12 MCP Tools
+                      grok-4.7 · 13 MCP Tools
                     </Badge>
                   </div>
                 </div>

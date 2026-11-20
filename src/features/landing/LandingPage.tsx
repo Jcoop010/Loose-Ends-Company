@@ -412,55 +412,93 @@ export function LandingPage(): React.ReactElement {
         {/* Transparent Pricing + Public Audit Form */}
         <section id="pricing" className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20">
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-start">
-            {/* Flat $199/mo Card */}
-            <div className="exec-surface p-6 sm:p-8 lg:col-span-5 border-slate-300">
-              <Badge tone="brand">Transparent Workspace Pricing</Badge>
-              <h2 className="mt-3 text-2xl font-bold text-slate-950">
-                One flat plan. Every operational module included.
-              </h2>
-              <div className="mt-4 flex items-baseline gap-2">
-                <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-950 tabular-nums">
-                  $199
-                </span>
-                <span className="text-sm font-medium text-slate-600">/ month per workspace</span>
+            {/* Flat $199/mo Plan + $249 Risk-Reversal Audit Pilot */}
+            <div className="space-y-5 lg:col-span-5">
+              <div className="exec-surface p-6 sm:p-8 border-slate-300">
+                <Badge tone="brand">Transparent Workspace Pricing</Badge>
+                <h2 className="mt-3 text-2xl font-bold text-slate-950">
+                  One flat plan. Every operational module included.
+                </h2>
+                <div className="mt-4 flex items-baseline gap-2">
+                  <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-950 tabular-nums">
+                    $199
+                  </span>
+                  <span className="text-sm font-medium text-slate-600">/ month per workspace</span>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Month-to-month subscription via Stripe · $0 setup · Cancel anytime in Billing Portal.
+                </p>
+
+                <ul className="mt-6 space-y-2.5 text-xs sm:text-sm text-slate-700">
+                  {[
+                    'Unlimited technicians, dispatchers, and office admins',
+                    'All 5 workspaces: Command, Pipeline, Dispatch, Inventory & Autopilot',
+                    'Deterministic Revenue & Unbilled-Job Leak Scanner',
+                    'Resumable CSV Customer & Inventory SKU Bulk Imports',
+                    'Consent-Gated Outbound Drafts + Full Audit Trail',
+                    'QuickBooks Online Sync + Stripe Verified Collections Ledger',
+                  ].map(feature => (
+                    <li key={feature} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-7 flex flex-col gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard')}
+                    className="exec-btn-primary w-full touch-target"
+                  >
+                    Start Workspace ($199/mo)
+                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/demo')}
+                    className="exec-btn-secondary w-full touch-target"
+                  >
+                    <Play className="h-4 w-4 shrink-0 text-[#ea580c]" aria-hidden="true" />
+                    Try Interactive Sandbox First
+                  </button>
+                </div>
               </div>
-              <p className="mt-2 text-xs text-slate-500">
-                Month-to-month subscription via Stripe · $0 setup · Cancel anytime in Billing Portal.
-              </p>
 
-              <ul className="mt-6 space-y-2.5 text-xs sm:text-sm text-slate-700">
-                {[
-                  'Unlimited technicians, dispatchers, and office admins',
-                  'All 5 workspaces: Command, Pipeline, Dispatch, Inventory & Autopilot',
-                  'Deterministic Revenue & Unbilled-Job Leak Scanner',
-                  'Resumable CSV Customer & Inventory SKU Bulk Imports',
-                  'Consent-Gated Outbound Drafts + Full Audit Trail',
-                  'QuickBooks Online Sync + Stripe Verified Collections Ledger',
-                ].map(feature => (
-                  <li key={feature} className="flex items-start gap-2.5">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="rounded-2xl border-2 border-[#ea580c] bg-[#0b1320] p-6 sm:p-7 text-white shadow-lg">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-3 py-1 text-xs font-semibold text-[#fdba74]">
+                  Done-For-You 48-Hour Pilot
+                </span>
+                <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="text-lg sm:text-xl font-bold text-white">
+                    Revenue Recovery Audit Pilot
+                  </h3>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl sm:text-3xl font-extrabold text-white tabular-nums">
+                      $249
+                    </span>
+                    <span className="text-xs font-medium text-slate-300">/ one-time</span>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  Hands-on 48-hour diagnostic across open quotes, unbilled completed jobs, and
+                  vendor overcharges with a prioritized Operations Readiness Scorecard.
+                </p>
 
-              <div className="mt-7 flex flex-col gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard')}
-                  className="exec-btn-primary w-full touch-target"
-                >
-                  Start Workspace ($199/mo)
+                <div className="mt-4 rounded-xl border border-[#fb923c]/50 bg-[rgba(234,88,12,0.18)] px-4 py-3 text-xs sm:text-sm font-semibold text-white leading-snug">
+                  <span className="flex items-start gap-2.5">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#fb923c]" aria-hidden="true" />
+                    <span>
+                      48-Hour Guarantee: If we don&apos;t uncover at least $500 in recoverable
+                      revenue or wasted spend, you pay $0.
+                    </span>
+                  </span>
+                </div>
+
+                <a href="#audit" className="mt-5 exec-btn-primary w-full touch-target">
+                  Request $249 Audit Pilot
                   <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/demo')}
-                  className="exec-btn-secondary w-full touch-target"
-                >
-                  <Play className="h-4 w-4 shrink-0 text-[#ea580c]" aria-hidden="true" />
-                  Try Interactive Sandbox First
-                </button>
+                </a>
               </div>
             </div>
 

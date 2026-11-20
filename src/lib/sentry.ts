@@ -11,6 +11,11 @@ interface ParsedSentryDsn {
 }
 
 let activeDsn: ParsedSentryDsn | null = null
+let listenersRegistered = false
+
+export function isSentryTelemetryEnabled(): boolean {
+  return activeDsn !== null
+}
 
 export function parseSentryDsn(rawDsn: string | undefined): ParsedSentryDsn | null {
   const trimmed = (rawDsn ?? '').trim()
@@ -77,7 +82,7 @@ export function captureSentryException(error: unknown, context?: Record<string, 
 }
 
 export function initSentryTelemetry(): boolean {
-  const rawDsn = import.meta.env?.VITE_SENTRY_DSN as string | undefined
+  const rawDsn = import.meta.env?.VITE_SENTRY_DSN
   const parsed = parseSentryDsn(rawDsn)
   if (!parsed) {
     activeDsn = null
@@ -85,7 +90,8 @@ export function initSentryTelemetry(): boolean {
   }
   activeDsn = parsed
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && !listenersRegistered) {
+    listenersRegistered = true
     window.addEventListener('error', event => {
       captureSentryException(event.error ?? event.message, {
         filename: event.filename,

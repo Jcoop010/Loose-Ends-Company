@@ -422,15 +422,16 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. tools/list returns all 12 tools including all 3 ops_readiness_audits tools
+// B. tools/list returns all 13 tools including ops_readiness_audits and dismiss_communication_draft
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 12)
+assert.equal(toolNames.length, 13)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
   'list_ops_readiness_audits',
+  'dismiss_communication_draft',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -673,6 +674,49 @@ const badRoleManual = await callMcp(rawTokenA, 'tools/call', {
   arguments: { role: 'invalid_role' },
 })
 assert.equal(badRoleManual.status, 400)
+
+// F3. dismiss_communication_draft scope, idempotency & sent protection
+const roDismissAttempt = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'dismiss_communication_draft',
+  arguments: { draft_id: leadDraftRef.id },
+})
+assert.equal(roDismissAttempt.status, 403)
+assert.match(roDismissAttempt.json.error.message, /stage_actions/)
+
+const dismiss1 = await callMcp(rawTokenA, 'tools/call', {
+  name: 'dismiss_communication_draft',
+  arguments: { draft_id: leadDraftRef.id, reason: 'Older outreach template' },
+})
+assert.equal(dismiss1.status, 200)
+const dismiss1Sc = dismiss1.json.result.structuredContent
+assert.equal(dismiss1Sc.dismissed, true)
+assert.equal(dismiss1Sc.already_dismissed, false)
+assert.equal(dismiss1Sc.status, 'rejected')
+assert.equal(leadDraftRef.status, 'rejected')
+
+const dismiss2 = await callMcp(rawTokenA, 'tools/call', {
+  name: 'dismiss_communication_draft',
+  arguments: { draft_id: leadDraftRef.id },
+})
+assert.equal(dismiss2.status, 200)
+assert.equal(dismiss2.json.result.structuredContent.already_dismissed, true)
+
+const missingDismiss = await callMcp(rawTokenA, 'tools/call', {
+  name: 'dismiss_communication_draft',
+  arguments: { draft_id: '00000000-0000-4000-8000-000000000000' },
+})
+assert.equal(missingDismiss.status, 400)
+assert.match(missingDismiss.json.error.message, /draft_id not found in authenticated workspace/)
+
+leadDraftRef.delivery_status = 'sent'
+const sentDismissAttempt = await callMcp(rawTokenA, 'tools/call', {
+  name: 'dismiss_communication_draft',
+  arguments: { draft_id: leadDraftRef.id },
+})
+assert.equal(sentDismissAttempt.status, 400)
+assert.match(sentDismissAttempt.json.error.message, /Sent communication drafts cannot be dismissed/)
+leadDraftRef.delivery_status = 'not_sent'
+leadDraftRef.status = 'draft'
 
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([

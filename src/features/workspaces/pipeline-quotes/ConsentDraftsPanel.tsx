@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  Archive,
   CheckCircle2,
   MailPlus,
   Send,
@@ -34,6 +35,14 @@ import { useToast } from '../../../components/ui/Toast'
 
 const PAGE_SIZE = 20
 
+type DraftQueueFilter = 'pending' | 'approved' | 'dismissed'
+
+const DRAFT_STATUS_BY_FILTER: Readonly<Record<DraftQueueFilter, OpsCommunicationDraft['status']>> = {
+  pending: 'draft',
+  approved: 'approved',
+  dismissed: 'rejected',
+}
+
 export interface DraftPrefillRequest {
   customerId: string
   opportunityId: string
@@ -66,6 +75,7 @@ export function ConsentDraftsPanel({
   const toast = useToast()
 
   const [page, setPage] = useState(0)
+  const [draftFilter, setDraftFilter] = useState<DraftQueueFilter>('pending')
   const [drafts, setDrafts] = useState<OpsCommunicationDraft[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -106,6 +116,9 @@ export function ConsentDraftsPanel({
         pageSize: PAGE_SIZE,
         orderBy: 'created_at',
         ascending: false,
+        filters: {
+          status: DRAFT_STATUS_BY_FILTER[draftFilter],
+        },
       })
       if (reqSeqRef.current !== seq) return
       setDrafts(rows)
@@ -119,7 +132,7 @@ export function ConsentDraftsPanel({
         setLoading(false)
       }
     }
-  }, [workspaceId, page])
+  }, [workspaceId, page, draftFilter])
 
   useEffect(() => {
     void loadDraftsPage()
@@ -210,10 +223,15 @@ export function ConsentDraftsPanel({
         { id: draft.id, status: decision },
         createIdempotencyKey(),
       )
-      toast.success(
-        decision === 'approved' ? 'Draft marked approved' : 'Draft rejected',
-        draft.subject,
-      )
+      if (decision === 'rejected') {
+        setDrafts(prev => prev.filter(item => item.id !== draft.id))
+        toast.success(
+          'Draft dismissed & archived',
+          'Removed from active queue; audit history preserved.',
+        )
+      } else {
+        toast.success('Draft marked approved', draft.subject)
+      }
       await loadDraftsPage()
       await onConsentOrDraftsChanged()
     } catch (err) {
@@ -338,20 +356,57 @@ export function ConsentDraftsPanel({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                composeKeyRef.current = createIdempotencyKey()
-                setComposeCustomerId(customers[0]?.id ?? '')
-                setComposeSubject('')
-                setComposeMessage('')
-                setComposeOpen(true)
-              }}
-              className="exec-btn-primary !px-3.5 !py-2 !text-xs touch-target"
-            >
-              <MailPlus className="h-3.5 w-3.5" aria-hidden="true" />
-              New Draft
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                role="tablist"
+                aria-label="Draft status filter"
+                className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold"
+              >
+                {(
+                  [
+                    { id: 'pending', label: 'Pending' },
+                    { id: 'approved', label: 'Approved' },
+                    { id: 'dismissed', label: 'Dismissed' },
+                  ] as const
+                ).map(item => {
+                  const selected = draftFilter === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => {
+                        setDraftFilter(item.id)
+                        setPage(0)
+                      }}
+                      className={`rounded-lg px-2.5 py-1.5 transition ${
+                        selected
+                          ? 'bg-[#c2410c] text-white shadow-xs'
+                          : 'text-slate-700 hover:bg-white'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  composeKeyRef.current = createIdempotencyKey()
+                  setComposeCustomerId(customers[0]?.id ?? '')
+                  setComposeSubject('')
+                  setComposeMessage('')
+                  setComposeOpen(true)
+                }}
+                className="exec-btn-primary !px-3.5 !py-2 !text-xs touch-target"
+              >
+                <MailPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                New Draft
+              </button>
+            </div>
           </div>
 
           {loadError ? (
@@ -370,7 +425,13 @@ export function ConsentDraftsPanel({
             <div className="p-6">
               <EmptyState
                 icon={<MailPlus className="h-5 w-5" />}
-                title="No communication drafts in queue"
+                title={
+                  draftFilter === 'pending'
+                    ? 'No pending drafts awaiting review'
+                    : draftFilter === 'approved'
+                      ? 'No approved drafts'
+                      : 'No dismissed drafts'
+                }
                 description="Prepare an internal customer follow-up draft or let coordination events generate drafts for your review."
               />
             </div>
@@ -380,6 +441,9 @@ export function ConsentDraftsPanel({
                 const cust = customersById.get(draft.customer_id)
                 const latest = getLatestConsent(draft.customer_id, draft.channel)
                 const consentGranted = latest?.decision === 'granted'
+                const canDismiss =
+                  draft.status === 'draft' ||
+                  (draft.status === 'approved' && draft.delivery_status === 'not_sent')
                 const blockReason = !latest
                   ? `Blocked: No recorded ${draft.channel.toUpperCase()} opt-in on file`
                   : latest.decision !== 'granted'
@@ -401,11 +465,11 @@ export function ConsentDraftsPanel({
                             draft.status === 'approved'
                               ? 'emerald'
                               : draft.status === 'rejected'
-                                ? 'rose'
+                                ? 'neutral'
                                 : 'amber'
                           }
                         >
-                          {draft.status}
+                          {draft.status === 'rejected' ? 'dismissed' : draft.status}
                         </Badge>
                         <Badge tone={consentGranted ? 'emerald' : 'rose'}>
                           {consentGranted ? (
@@ -454,25 +518,27 @@ export function ConsentDraftsPanel({
                       </button>
 
                       {draft.status === 'draft' ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={!consentGranted || reviewingId === draft.id}
-                            onClick={() => void handleReviewDraft(draft, 'approved')}
-                            className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                            Approve Draft Only
-                          </button>
-                          <button
-                            type="button"
-                            disabled={reviewingId === draft.id}
-                            onClick={() => void handleReviewDraft(draft, 'rejected')}
-                            className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
-                          >
-                            Reject
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          disabled={!consentGranted || reviewingId === draft.id}
+                          onClick={() => void handleReviewDraft(draft, 'approved')}
+                          className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          Approve Draft Only
+                        </button>
+                      ) : null}
+
+                      {canDismiss ? (
+                        <button
+                          type="button"
+                          disabled={reviewingId === draft.id}
+                          onClick={() => void handleReviewDraft(draft, 'rejected')}
+                          className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                        >
+                          <Archive className="h-3.5 w-3.5" aria-hidden="true" />
+                          Dismiss
+                        </button>
                       ) : null}
                     </div>
                   </li>

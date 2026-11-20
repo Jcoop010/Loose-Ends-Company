@@ -113,6 +113,7 @@ export async function fetchWorkspacePage<T>(params: {
   select?: string
   orderBy?: string
   ascending?: boolean
+  filters?: Readonly<Record<string, string | number | boolean>>
 }): Promise<T[]> {
   assertSupabaseConfigured()
   const {
@@ -123,6 +124,7 @@ export async function fetchWorkspacePage<T>(params: {
     select = '*',
     orderBy = 'created_at',
     ascending = false,
+    filters,
   } = params
 
   if (!UUID_PATTERN.test(workspaceId)) {
@@ -134,12 +136,14 @@ export async function fetchWorkspacePage<T>(params: {
   const start = safePage * safeSize
   const end = start + safeSize - 1
 
-  const { data, error } = await supabase
-    .from(table)
-    .select(select)
-    .eq('workspace_id', workspaceId)
-    .order(orderBy, { ascending })
-    .range(start, end)
+  let query = supabase.from(table).select(select).eq('workspace_id', workspaceId)
+  if (filters) {
+    for (const [col, val] of Object.entries(filters)) {
+      query = query.eq(col, val)
+    }
+  }
+
+  const { data, error } = await query.order(orderBy, { ascending }).range(start, end)
 
   if (error) throw error
   return (data ?? []) as T[]

@@ -653,6 +653,28 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
     },
   },
   {
+    name: "dismiss_communication_draft",
+    requiredScope: "stage_actions",
+    description:
+      "Write-narrow (staged): Archive/dismiss an unsent communication draft in public.ops_communication_drafts (sets status='rejected') so it leaves the active approval queue while preserving full audit history.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["draft_id"],
+      properties: {
+        draft_id: {
+          type: "string",
+          description:
+            "UUID of the ops_communication_drafts row in the authenticated workspace.",
+        },
+        reason: {
+          type: "string",
+          description: "Optional short audit reason for dismissing the draft.",
+        },
+      },
+    },
+  },
+  {
     name: "stage_ops_action",
     requiredScope: "stage_actions",
     description:
@@ -919,6 +941,15 @@ function buildSanitizedAuditOutput(
       delivery_status: draft?.delivery_status ?? "not_sent",
     };
   }
+  if (toolName === "dismiss_communication_draft") {
+    const draft = toolResult.draft as { id?: string; status?: string } | null;
+    return {
+      draft_id: draft?.id ?? null,
+      status: draft?.status ?? "rejected",
+      already_dismissed: Boolean(toolResult.already_dismissed),
+      reason: toolResult.reason ?? null,
+    };
+  }
   if (toolName === "stage_ops_action") {
     const staged = toolResult.staged_action as {
       id?: string;
@@ -1006,7 +1037,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "1.5.0",
+        version: "1.6.0",
         workspace_id: workspaceId,
       },
     });
@@ -1925,6 +1956,74 @@ Deno.serve(async (req: Request) => {
         staged_action: stagedRow,
         status: "pending_approval",
       };
+    } else if (toolName === "dismiss_communication_draft") {
+      auditBotRole = "qa";
+      const draftId = typeof args.draft_id === "string" ? args.draft_id.trim() : "";
+      if (!draftId) {
+        throw new Error("draft_id is required");
+      }
+      const reason =
+        typeof args.reason === "string" && args.reason.trim()
+          ? args.reason.trim().slice(0, 300)
+          : "Dismissed by owner / MCP review";
+
+      const { data: existingData, error: lookupErr } = await admin
+        .from("ops_communication_drafts")
+        .select("id, workspace_id, status, delivery_status, approved_at")
+        .eq("workspace_id", workspaceId)
+        .eq("id", draftId)
+        .maybeSingle();
+
+      if (lookupErr || !existingData) {
+        throw new Error("draft_id not found in authenticated workspace");
+      }
+
+      const existing = existingData as {
+        id: string;
+        workspace_id: string;
+        status: string;
+        delivery_status: string;
+        approved_at: string | null;
+      };
+
+      if (existing.delivery_status === "sent") {
+        throw new Error("Sent communication drafts cannot be dismissed");
+      }
+
+      if (existing.status === "rejected") {
+        toolResult = {
+          draft: existing,
+          dismissed: true,
+          already_dismissed: true,
+          status: "rejected",
+          delivery_status: existing.delivery_status,
+          reason,
+        };
+      } else {
+        const { data: updatedDraft, error: updateErr } = await admin
+          .from("ops_communication_drafts")
+          .update({
+            status: "rejected",
+            approved_at: new Date().toISOString(),
+          })
+          .eq("workspace_id", workspaceId)
+          .eq("id", draftId)
+          .select("*")
+          .single();
+
+        if (updateErr || !updatedDraft) {
+          throw new Error("Failed to dismiss communication draft");
+        }
+
+        toolResult = {
+          draft: updatedDraft,
+          dismissed: true,
+          already_dismissed: false,
+          status: "rejected",
+          delivery_status: (updatedDraft as { delivery_status?: string }).delivery_status ?? "not_sent",
+          reason,
+        };
+      }
     }
 
     await admin.from("bot_runs").insert({

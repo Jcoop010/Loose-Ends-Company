@@ -1,5 +1,6 @@
 import React from 'react'
 import { AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react'
+import { captureSentryException } from '../../lib/sentry'
 
 export interface ErrorBoundaryProps {
   children: React.ReactNode
@@ -30,6 +31,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   override componentDidCatch(error: Error, info: React.ErrorInfo): void {
     console.error('[LooseEnds ErrorBoundary]', error, info.componentStack)
+    captureSentryException(error, { componentStack: info.componentStack })
   }
 
   private handleReset = (): void => {
