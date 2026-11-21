@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const CANONICAL_ORIGIN = "https://loose-ends-os.vercel.app";
+const CANONICAL_ORIGIN = "https://looseendsos.app";
 const corsHeaders = (origin: string) => ({
   "Access-Control-Allow-Origin": origin,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -9,7 +9,11 @@ const corsHeaders = (origin: string) => ({
   "Vary": "Origin",
 });
 // Production Supabase APIs are not exposed to ephemeral Vercel preview deployments.
-const ALLOWED_BROWSER_ORIGINS = new Set([CANONICAL_ORIGIN]);
+const ALLOWED_BROWSER_ORIGINS = new Set([
+  CANONICAL_ORIGIN,
+  "https://www.looseendsos.app",
+  "https://loose-ends-os.vercel.app",
+]);
 function allowedBrowserOrigin(origin: string): string | null {
   if (!origin) return CANONICAL_ORIGIN;
   try {

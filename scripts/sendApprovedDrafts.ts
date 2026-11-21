@@ -286,7 +286,7 @@ async function sendApprovedDrafts(): Promise<void> {
   const smtpPass = (process.env.SMTP_PASS ?? '').trim();
   const fromEmail =
     (process.env.OUTREACH_FROM_EMAIL ?? '').trim() ||
-    'Loose Ends Operations <operations@looseends.co>';
+    'Loose Ends Operations <operations@looseendsos.app>';
 
   const hasResend = Boolean(resendKey) && !isPlaceholderValue(resendKey);
   const hasSmtp =

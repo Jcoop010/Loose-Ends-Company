@@ -20,7 +20,7 @@ try {
 }
 
 const AUTHORITATIVE_SUPABASE_URL = 'https://uehfvpnnoitgybsmdgef.supabase.co';
-const AUTHORITATIVE_APP_URL = 'https://loose-ends-os.vercel.app';
+const AUTHORITATIVE_APP_URL = 'https://looseendsos.app';
 const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434';
 const DEFAULT_OLLAMA_MODEL = 'gemma4:e2b';
 

@@ -6,7 +6,7 @@
  *
  * Authoritative Repository: Jcoop010/Loose-Ends-Company
  * Authoritative Supabase  : https://uehfvpnnoitgybsmdgef.supabase.co
- * Authoritative App       : https://loose-ends-os.vercel.app/
+ * Authoritative App       : https://looseendsos.app/
  *
  * Capabilities:
  *   1. Paid API Adapters (when configured): Google Places API (v1) & Serper.dev Places
@@ -1409,7 +1409,7 @@ async function queryOverpass(query: string): Promise<OverpassElement[]> {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'LooseEndsOS-SMBScout/1.2 (contact@looseends.co)',
+          'User-Agent': 'LooseEndsOS-SMBScout/1.2 (contact@looseendsos.app)',
         },
         body: `data=${encodeURIComponent(query)}`,
         signal: AbortSignal.timeout(4000),
@@ -1446,7 +1446,7 @@ async function queryNominatimBounded(
         `&format=jsonv2&extratags=1&addressdetails=1&limit=40&viewbox=${viewbox}&bounded=1`;
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'LooseEndsOS-SMBScout/1.2 (https://loose-ends-os.vercel.app)',
+          'User-Agent': 'LooseEndsOS-SMBScout/1.2 (https://looseendsos.app)',
           Accept: 'application/json',
         },
         signal: AbortSignal.timeout(6000),

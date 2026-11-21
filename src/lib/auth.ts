@@ -10,7 +10,7 @@ function defaultDashboardRedirect(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}/dashboard`
   }
-  return 'https://loose-ends-os.vercel.app/dashboard'
+  return 'https://looseendsos.app/dashboard'
 }
 
 /**
