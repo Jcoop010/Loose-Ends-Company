@@ -1,7 +1,9 @@
 import {createClient} from "https://esm.sh/@supabase/supabase-js@2.57.0";
-const headers={"Access-Control-Allow-Origin":"https://loose-ends-os.vercel.app","Access-Control-Allow-Headers":"authorization,apikey,content-type","Access-Control-Allow-Methods":"POST,OPTIONS","Content-Type":"application/json"};
-const reply=(status:number,body:unknown)=>new Response(JSON.stringify(body),{status,headers});
+const ALLOWED_ORIGINS=["https://looseendsos.app","https://www.looseendsos.app","https://loose-ends-os.vercel.app"];
+const corsHeaders=(origin)=>{const allowed=ALLOWED_ORIGINS.includes(origin)?origin:"https://www.looseendsos.app";return{"Access-Control-Allow-Origin":allowed,"Access-Control-Allow-Headers":"authorization,apikey,content-type","Access-Control-Allow-Methods":"POST,OPTIONS","Vary":"Origin","Content-Type":"application/json"};};
 Deno.serve(async(req)=>{
+ const headers=corsHeaders(req.headers.get("origin")||"");
+ const reply=(status:number,body:unknown)=>new Response(JSON.stringify(body),{status,headers});
  if(req.method==="OPTIONS")return new Response(null,{status:204,headers});
  if(req.method!=="POST")return reply(405,{error:"Method not allowed"});
  try{

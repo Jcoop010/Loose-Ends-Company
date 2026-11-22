@@ -1,7 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
-const cors={"Access-Control-Allow-Origin":"https://loose-ends-os.vercel.app","Access-Control-Allow-Headers":"authorization, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS"};
-const respond=(status:number,data:unknown)=>new Response(JSON.stringify(data),{status,headers:{...cors,"Content-Type":"application/json"}});
+const ALLOWED_ORIGINS=["https://looseendsos.app","https://www.looseendsos.app","https://loose-ends-os.vercel.app"];
+const corsHeaders=(origin:string)=>{const allowed=ALLOWED_ORIGINS.includes(origin)?origin:"https://www.looseendsos.app";return{"Access-Control-Allow-Origin":allowed,"Access-Control-Allow-Headers":"authorization, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS","Vary":"Origin"};};
 Deno.serve(async(req)=>{
+ const cors=corsHeaders(req.headers.get("Origin")||"");
+ const respond=(status:number,data:unknown)=>new Response(JSON.stringify(data),{status,headers:{...cors,"Content-Type":"application/json"}});
  if(req.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
  if(req.method!=="POST")return respond(405,{error:"Method not allowed"});
  try{

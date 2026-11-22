@@ -203,6 +203,7 @@ async function isRecipientSuppressed(
 async function sendViaResend(params: {
   apiKey: string;
   fromEmail: string;
+  replyTo: string;
   toEmail: string;
   subject: string;
   text: string;
@@ -215,6 +216,7 @@ async function sendViaResend(params: {
     },
     body: JSON.stringify({
       from: params.fromEmail,
+      reply_to: params.replyTo,
       to: [params.toEmail],
       subject: params.subject,
       text: params.text,
@@ -237,6 +239,7 @@ async function sendViaSmtpConfig(params: {
   smtpUser: string;
   smtpPass: string;
   fromEmail: string;
+  replyTo: string;
   toEmail: string;
   subject: string;
   text: string;
@@ -258,6 +261,7 @@ async function sendViaSmtpConfig(params: {
     },
     body: JSON.stringify({
       from: params.fromEmail,
+      reply_to: params.replyTo,
       to: params.toEmail,
       subject: params.subject,
       text: params.text,
@@ -286,7 +290,16 @@ async function sendApprovedDrafts(): Promise<void> {
   const smtpPass = (process.env.SMTP_PASS ?? '').trim();
   const fromEmail =
     (process.env.OUTREACH_FROM_EMAIL ?? '').trim() ||
-    'Loose Ends Operations <operations@looseendsos.app>';
+    'Justin Cooper <justin@looseendsos.app>';
+  const rawReplyTo = (
+    process.env.RESEND_REPLY_TO ??
+    process.env.OUTREACH_REPLY_TO ??
+    ''
+  ).trim();
+  const replyTo =
+    rawReplyTo && !isPlaceholderValue(rawReplyTo)
+      ? rawReplyTo
+      : 'jhcoop010@gmail.com';
 
   const hasResend = Boolean(resendKey) && !isPlaceholderValue(resendKey);
   const hasSmtp =
@@ -393,6 +406,7 @@ async function sendApprovedDrafts(): Promise<void> {
       ? await sendViaResend({
           apiKey: resendKey,
           fromEmail,
+          replyTo,
           toEmail: recipientEmail,
           subject: draft.subject,
           text: draft.message,
@@ -402,6 +416,7 @@ async function sendApprovedDrafts(): Promise<void> {
           smtpUser,
           smtpPass,
           fromEmail,
+          replyTo,
           toEmail: recipientEmail,
           subject: draft.subject,
           text: draft.message,
