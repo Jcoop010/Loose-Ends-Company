@@ -44,7 +44,9 @@ export function BillingSubscriptionCard({
   const [openingPortal, setOpeningPortal] = useState(false)
 
   const status = subscription?.status ?? null
-  const isAlreadyActive = status === 'active' || status === 'trialing'
+  const hasProviderSubscription = Boolean(subscription?.provider_subscription_id)
+  const isAlreadyActive =
+    hasProviderSubscription && (status === 'active' || status === 'trialing')
   const hasCustomerRecord = Boolean(subscription?.provider_customer_id)
 
   const handleStartSubscription = async () => {
@@ -106,7 +108,11 @@ export function BillingSubscriptionCard({
                   : 'amber'
             }
           >
-            {status ? `Status: ${status}` : 'No Active Subscription'}
+            {status === 'trialing' && !hasProviderSubscription
+              ? 'Trial — Subscribe to Activate'
+              : status
+                ? `Status: ${status}`
+                : 'No Active Subscription'}
           </Badge>
         </div>
 
@@ -154,7 +160,7 @@ export function BillingSubscriptionCard({
               </button>
             ) : null}
 
-            {(isAlreadyActive || hasCustomerRecord) ? (
+            {hasCustomerRecord ? (
               <button
                 type="button"
                 disabled={openingPortal}

@@ -47,8 +47,16 @@ const billingCard = readSrc('src/features/workspaces/autopilot-billing/BillingSu
 
 assert.match(edgeFn, /supabase\.functions\.invoke\('create-subscription-checkout'/)
 assert.match(edgeFn, /planKey:\s*BillingPlanKey\s*=\s*'revenue_recovery'/)
-assert.match(billingCard, /const isAlreadyActive = status === 'active' \|\| status === 'trialing'/)
+assert.match(
+  billingCard,
+  /const hasProviderSubscription = Boolean\(subscription\?\.provider_subscription_id\)/,
+)
+assert.match(
+  billingCard,
+  /const isAlreadyActive =\s*hasProviderSubscription && \(status === 'active' \|\| status === 'trialing'\)/,
+)
 assert.match(billingCard, /\{!isAlreadyActive \?/)
+assert.match(billingCard, /\{hasCustomerRecord \?/)
 assert.match(billingCard, /!isAdminOrOwner/)
 
 console.log('Launch-center onboarding and billing regression checks passed')

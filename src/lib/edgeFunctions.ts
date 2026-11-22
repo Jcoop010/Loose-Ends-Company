@@ -55,6 +55,53 @@ export async function bootstrapWorkspace(params?: {
   return { workspace: (data?.workspace as Workspace | undefined) ?? null }
 }
 
+async function extractFunctionErrorMessage(
+  data: unknown,
+  error: unknown,
+  fallback: string,
+): Promise<string> {
+  if (
+    typeof data === 'object' &&
+    data !== null &&
+    'error' in data &&
+    typeof (data as { error?: unknown }).error === 'string' &&
+    (data as { error: string }).error.trim()
+  ) {
+    return (data as { error: string }).error
+  }
+
+  if (typeof error === 'object' && error !== null && 'context' in error) {
+    const context = (error as { context?: unknown }).context
+    if (
+      typeof context === 'object' &&
+      context !== null &&
+      'clone' in context &&
+      typeof (context as { clone?: unknown }).clone === 'function'
+    ) {
+      try {
+        const cloned = (context as { clone: () => { json: () => Promise<unknown> } }).clone()
+        const body = await cloned.json().catch(() => null)
+        if (
+          typeof body === 'object' &&
+          body !== null &&
+          'error' in body &&
+          typeof (body as { error?: unknown }).error === 'string' &&
+          (body as { error: string }).error.trim()
+        ) {
+          return (body as { error: string }).error
+        }
+      } catch {
+        // Fall through to error.message
+      }
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
 export async function createSubscriptionCheckout(
   workspaceId: string,
   planKey: BillingPlanKey = 'revenue_recovery',
@@ -71,7 +118,7 @@ export async function createSubscriptionCheckout(
     },
   })
   if (error) {
-    throw new Error((data as { error?: string } | null)?.error || error.message || 'Checkout unavailable.')
+    throw new Error(await extractFunctionErrorMessage(data, error, 'Checkout unavailable.'))
   }
   const url = (data as { url?: string } | null)?.url
   if (!url) throw new Error('Stripe did not return a checkout URL.')
@@ -92,9 +139,7 @@ export async function createBillingPortalSession(workspaceId: string): Promise<{
     body: { workspace_id: workspaceId },
   })
   if (error) {
-    throw new Error(
-      (data as { error?: string } | null)?.error || error.message || 'Billing portal unavailable.',
-    )
+    throw new Error(await extractFunctionErrorMessage(data, error, 'Billing portal unavailable.'))
   }
   const url = (data as { url?: string } | null)?.url
   if (!url) throw new Error('Stripe did not return a billing portal URL.')
