@@ -398,6 +398,30 @@ const state = {
       created_at: '2026-11-22T11:00:00Z',
     },
   ],
+  collection_touches: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `col-a-${idx + 1}`,
+      workspace_id: wsA,
+      invoice_id: `inv-a-${idx + 1}`,
+      stage: idx === 0 ? 'day_21_owner_escalation' : idx < 4 ? 'day_10_split_offer' : 'day_3_nudge',
+      status: idx === 10 ? 'paused_paid' : 'staged',
+      amount_due_cents: 25000,
+      portal_url: `/portal/qpt_demo_${idx + 1}`,
+      proof_summary: `Overdue touch proof ${idx + 1}`,
+      created_at: '2026-11-22T09:00:00Z',
+    })),
+    {
+      id: 'col-b-secret',
+      workspace_id: wsB,
+      invoice_id: 'inv-b-secret',
+      stage: 'day_21_owner_escalation',
+      status: 'staged',
+      amount_due_cents: 9999900,
+      portal_url: '/portal/secret_b',
+      proof_summary: 'Secret tenant touch',
+      created_at: '2026-11-22T10:00:00Z',
+    },
+  ],
   invoices: [
     ...Array.from({ length: 11 }, (_, idx) => ({
       id: `inv-a-${idx + 1}`,
@@ -691,19 +715,19 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. initialize returns v2.3.0 and tools/list returns all 25 tools including Shadow Mode tool
+// B. initialize returns v2.4.0 and tools/list returns all 27 tools including Release 4A CPA & Collections tools
 const initRes = await callMcp(rawTokenA, 'initialize', {
   protocolVersion: '2024-11-05',
   capabilities: {},
   clientInfo: { name: 'qa-client', version: '1.0.0' },
 })
 assert.equal(initRes.status, 200)
-assert.equal(initRes.json.result.serverInfo.version, '2.3.0')
+assert.equal(initRes.json.result.serverInfo.version, '2.4.0')
 
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 25)
+assert.equal(toolNames.length, 27)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
@@ -721,6 +745,8 @@ for (const reqTool of [
   'stage_compliance_notice',
   'upsert_living_sop',
   'get_shadow_leak_summary',
+  'get_cpa_audit_summary',
+  'get_collections_queue',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -1239,6 +1265,29 @@ assert.equal(shadowSc.open_finding_count, 11)
 assert.equal(shadowSc.findings.length, 10, 'get_shadow_leak_summary must strictly cap findings at <= 10')
 assert.ok(shadowSc.findings.every(f => f.workspace_id === wsA && typeof f.proof_summary === 'string'))
 
+const cpaAuditRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_cpa_audit_summary',
+  arguments: { opening_cash_cents: 1000000 },
+})
+assert.equal(cpaAuditRes.status, 200)
+const cpaSc = cpaAuditRes.json.result.structuredContent
+assert.equal(cpaSc.workspace_id, wsA)
+assert.equal(cpaSc.trial_balance.variance_cents, 0, 'CPA trial balance must reconcile with 0c variance')
+assert.equal(cpaSc.trial_balance.is_balanced, true)
+assert.equal(cpaSc.balance_sheet.is_balanced, true)
+
+const collectionsRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_collections_queue',
+  arguments: { limit: 10 },
+})
+assert.equal(collectionsRes.status, 200)
+const colSc = collectionsRes.json.result.structuredContent
+assert.equal(colSc.workspace_id, wsA)
+assert.equal(colSc.total_touch_count, 11)
+assert.equal(colSc.total_staged_cents, 250000)
+assert.equal(colSc.touches.length, 10, 'get_collections_queue must strictly cap touches at <= 10')
+assert.ok(colSc.touches.every(t => t.workspace_id === wsA))
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -1257,6 +1306,7 @@ const workspaceTables = new Set([
   'living_sops',
   'shadow_sessions',
   'shadow_findings',
+  'collection_touches',
   'ops_readiness_audits',
   'staged_ops_actions',
   'staged_ledger_entries',

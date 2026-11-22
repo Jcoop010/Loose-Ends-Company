@@ -1,14 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Mail, ReceiptText, RefreshCw } from 'lucide-react'
 import {
+  CheckCircle2,
+  Mail,
+  PauseCircle,
+  PlayCircle,
+  ReceiptText,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
+} from 'lucide-react'
+import {
+  COLLECTION_STAGE_LABELS,
+  COLLECTION_STATUS_LABELS,
   computeArSummary,
   DEFAULT_AUTONOMY_CONFIG,
+  evaluateAutonomousCollections,
   formatCents,
+  formatCents as formatExactCents,
+  type AgentActionLedgerEntry,
   type AutonomousInvoice,
+  type CollectionTouchRecord,
   type InvoiceStatus,
   type WorkspaceAutonomyConfig,
 } from '../../../lib/autonomousOs'
 import * as autonomousQueries from '../../../lib/autonomousOs/queries'
+import * as release4Queries from '../../../lib/autonomousOs/release4Queries'
 import { useSession } from '../../../state/SessionContext'
 import { Badge, EmptyState, Skeleton } from '../../../components/ui/MetricCard'
 import { useToast } from '../../../components/ui/Toast'
@@ -22,21 +38,33 @@ export function InvoicesArPage(): React.ReactElement {
   const workspaceId = workspace?.id ?? null
   const [loading, setLoading] = useState(true)
   const [invoices, setInvoices] = useState<AutonomousInvoice[]>([])
+  const [collectionTouches, setCollectionTouches] = useState<CollectionTouchRecord[]>([])
+  const [portalTokenByQuoteId, setPortalTokenByQuoteId] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  )
+  const [disputedInvoiceIds, setDisputedInvoiceIds] = useState<string[]>([])
+  const [latestRunLedger, setLatestRunLedger] = useState<AgentActionLedgerEntry | null>(null)
   const [autonomyConfig, setAutonomyConfig] =
     useState<WorkspaceAutonomyConfig>(DEFAULT_AUTONOMY_CONFIG)
   const [filter, setFilter] = useState<ArFilter>('all')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [stagingCollections, setStagingCollections] = useState(false)
+  const [undoingCollections, setUndoingCollections] = useState(false)
 
   const loadData = useCallback(async () => {
     if (!workspaceId) return
     setLoading(true)
     try {
-      const [invRes, configRes] = await Promise.all([
+      const [invRes, configRes, touchesRes, portalMapRes] = await Promise.all([
         autonomousQueries.fetchInvoicesAndItems(workspaceId),
         autonomousQueries.fetchWorkspaceAutonomySettings(workspaceId),
+        release4Queries.fetchCollectionTouches(workspaceId),
+        release4Queries.fetchQuotePortalTokensByQuoteId(workspaceId),
       ])
       setInvoices(invRes.invoices)
       setAutonomyConfig(configRes)
+      setCollectionTouches(touchesRes)
+      setPortalTokenByQuoteId(portalMapRes)
     } catch (err) {
       toast.error(
         'Could not load invoices',
@@ -53,6 +81,102 @@ export function InvoicesArPage(): React.ReactElement {
 
   const summary = useMemo(() => computeArSummary(invoices), [invoices])
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const collectionsPlan = useMemo(
+    () =>
+      workspaceId
+        ? evaluateAutonomousCollections({
+            workspaceId,
+            invoices,
+            existingTouches: collectionTouches,
+            disputedInvoiceIds,
+            portalTokenByQuoteId,
+            config: autonomyConfig,
+            asOfDate: todayIso,
+          })
+        : null,
+    [
+      workspaceId,
+      invoices,
+      collectionTouches,
+      disputedInvoiceIds,
+      portalTokenByQuoteId,
+      autonomyConfig,
+      todayIso,
+    ],
+  )
+
+  const handleStageCollectionsRun = async () => {
+    if (!workspaceId || stagingCollections) return
+    setStagingCollections(true)
+    try {
+      const res = await release4Queries.stageCollectionsRunInDb({
+        workspaceId,
+        invoices,
+        existingTouches: collectionTouches,
+        disputedInvoiceIds,
+        portalTokenByQuoteId,
+        config: autonomyConfig,
+      })
+      setCollectionTouches(res.touches)
+      setLatestRunLedger(res.ledgerEntry)
+      toast.success(
+        'Autonomous Collections Run Staged',
+        `${res.plan.staged_candidates.length} overdue cadence touch(es) staged safely (${formatExactCents(res.plan.total_staged_cents)}).`,
+      )
+    } catch (err) {
+      toast.error(
+        'Collections run failed',
+        err instanceof Error ? err.message : 'Retry staging collections.',
+      )
+    } finally {
+      setStagingCollections(false)
+    }
+  }
+
+  const handleUndoCollectionsRun = async () => {
+    if (!workspaceId || !latestRunLedger || undoingCollections) return
+    setUndoingCollections(true)
+    try {
+      const reversed = await autonomousQueries.reverseLedgerEntryInDb({
+        workspaceId,
+        entry: latestRunLedger,
+      })
+      setLatestRunLedger(reversed)
+      await loadData()
+      toast.info('1-Click Undo completed', 'Collections touches reverted cleanly.')
+    } catch (err) {
+      toast.error('Undo failed', err instanceof Error ? err.message : 'Retry 1-Click Undo.')
+    } finally {
+      setUndoingCollections(false)
+    }
+  }
+
+  const handleToggleTouchPause = async (touch: CollectionTouchRecord) => {
+    if (!workspaceId || busyId) return
+    setBusyId(touch.id)
+    try {
+      const pause = touch.status === 'staged'
+      const updated = await release4Queries.toggleCollectionTouchPauseInDb({
+        workspaceId,
+        touch,
+        paused: pause,
+      })
+      setCollectionTouches(prev => prev.map(t => (t.id === touch.id ? updated : t)))
+      if (pause) {
+        setDisputedInvoiceIds(prev => (prev.includes(touch.invoice_id) ? prev : [...prev, touch.invoice_id]))
+      } else {
+        setDisputedInvoiceIds(prev => prev.filter(id => id !== touch.invoice_id))
+      }
+      toast.info(
+        pause ? 'Collections paused (Disputed)' : 'Collections resumed (Staged)',
+        updated.proof_summary,
+      )
+    } catch (err) {
+      toast.error('Pause toggle failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const filteredInvoices = useMemo(() => {
     if (filter === 'all') return invoices
@@ -264,6 +388,163 @@ export function InvoicesArPage(): React.ReactElement {
           </ul>
         )}
       </div>
+
+      {/* Autonomous Collections Engine Panel */}
+      <section className="exec-surface p-5 sm:p-6 space-y-4 text-slate-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-bold text-slate-50">
+                Autonomous Collections Engine (Day 3 / Day 10 Split / Day 21 Escalation)
+              </h3>
+              <Badge tone="brand">
+                Autonomy: {autonomyConfig.autonomy_rules.send_invoice_reminder}
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-400">
+              Auto-pauses immediately on paid or disputed invoices and logs reversible runs to Agent Action Ledger (no live customer emails sent).
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {latestRunLedger && latestRunLedger.status === 'executed' ? (
+              <button
+                type="button"
+                disabled={undoingCollections}
+                onClick={() => void handleUndoCollectionsRun()}
+                className="exec-btn-secondary !px-3 !py-2 !text-xs border-amber-500/40 text-amber-300 touch-target"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                {undoingCollections ? 'Reversing…' : '1-Click Undo Run'}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              disabled={loading || stagingCollections}
+              onClick={() => void handleStageCollectionsRun()}
+              className="exec-btn-primary !px-3.5 !py-2 !text-xs touch-target"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              {stagingCollections ? 'Staging Run…' : 'Stage Collections Run'}
+            </button>
+          </div>
+        </div>
+
+        {collectionsPlan ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-xs tabular-nums">
+            <div className="rounded-xl border border-slate-800 bg-[#0b1320] p-3">
+              <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                Day 3+ Friendly Nudge
+              </p>
+              <p className="mt-1 text-lg font-bold text-white">
+                {collectionsPlan.stage_counts.day_3_nudge} invoice(s)
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-[#0b1320] p-3">
+              <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                Day 10+ 2-Part Split Offer
+              </p>
+              <p className="mt-1 text-lg font-bold text-[#fb923c]">
+                {collectionsPlan.stage_counts.day_10_split_offer} invoice(s)
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-[#0b1320] p-3">
+              <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                Day 21+ Owner Escalation
+              </p>
+              <p className="mt-1 text-lg font-bold text-rose-300">
+                {collectionsPlan.stage_counts.day_21_owner_escalation} invoice(s)
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {collectionTouches.length > 0 ? (
+          <div className="space-y-2.5">
+            {collectionTouches.map(touch => {
+              const canPauseResume =
+                touch.status === 'staged' || touch.status === 'paused_disputed'
+              return (
+                <div
+                  key={touch.id}
+                  className="rounded-xl border border-slate-800 bg-[#0b1320]/90 p-3.5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        tone={
+                          touch.stage === 'day_21_owner_escalation'
+                            ? 'rose'
+                            : touch.stage === 'day_10_split_offer'
+                              ? 'amber'
+                              : 'brand'
+                        }
+                      >
+                        {COLLECTION_STAGE_LABELS[touch.stage]}
+                      </Badge>
+                      <Badge
+                        tone={
+                          touch.status === 'paused_paid'
+                            ? 'emerald'
+                            : touch.status === 'paused_disputed' || touch.status === 'reversed'
+                              ? 'neutral'
+                              : 'amber'
+                        }
+                      >
+                        {COLLECTION_STATUS_LABELS[touch.status]}
+                      </Badge>
+                      {touch.portal_url ? (
+                        <span className="font-mono text-[11px] text-slate-300">
+                          {touch.portal_url}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-200">{touch.proof_summary}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <span className="text-sm font-bold text-white tabular-nums">
+                      {formatExactCents(touch.amount_due_cents)}
+                    </span>
+                    {canPauseResume ? (
+                      <button
+                        type="button"
+                        disabled={busyId === touch.id}
+                        onClick={() => void handleToggleTouchPause(touch)}
+                        className="exec-btn-secondary !px-3 !py-1.5 !text-xs"
+                      >
+                        {touch.status === 'staged' ? (
+                          <>
+                            <PauseCircle className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />
+                            Pause
+                          </>
+                        ) : (
+                          <>
+                            <PlayCircle className="h-3.5 w-3.5 text-emerald-300" aria-hidden="true" />
+                            Resume
+                          </>
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : collectionsPlan && collectionsPlan.candidates.length > 0 ? (
+          <p className="text-xs text-slate-400">
+            {collectionsPlan.staged_candidates.length} overdue invoice(s) ready to stage (
+            {formatExactCents(collectionsPlan.total_staged_cents)}) and{' '}
+            {collectionsPlan.paused_candidates.length} auto-paused. Click{' '}
+            <strong className="text-slate-200">Stage Collections Run</strong> above.
+          </p>
+        ) : (
+          <p className="text-xs text-slate-400">
+            No overdue receivables past Day 3 threshold or all open AR is current.
+          </p>
+        )}
+      </section>
     </div>
   )
 }

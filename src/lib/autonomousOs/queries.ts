@@ -394,6 +394,14 @@ export async function markInvoicePaidInDb(params: {
     throw error ?? new Error('Unable to mark invoice paid.')
   }
 
+  const nowIso = new Date().toISOString()
+  await supabase
+    .from('collection_touches')
+    .update({ status: 'paused_paid', updated_at: nowIso })
+    .eq('workspace_id', workspaceId)
+    .eq('invoice_id', invoice.id)
+    .eq('status', 'staged')
+
   await supabase.from('agent_action_ledger').insert({
     workspace_id: workspaceId,
     agent_name: 'AR Collections Agent',
@@ -697,6 +705,23 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', after.shadow_session_id)
+  }
+
+  if (entry.action_type === 'stage_collections_run') {
+    const touchIds = Array.isArray(after.touch_ids)
+      ? after.touch_ids.filter((id): id is string => typeof id === 'string')
+      : []
+
+    if (touchIds.length > 0) {
+      await supabase
+        .from('collection_touches')
+        .update({
+          status: 'reversed',
+          updated_at: updatedEntry.reversed_at,
+        })
+        .eq('workspace_id', workspaceId)
+        .in('id', touchIds)
+    }
   }
 
   const { data, error } = await supabase

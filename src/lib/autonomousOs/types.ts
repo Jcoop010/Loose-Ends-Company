@@ -825,3 +825,138 @@ export interface SampleQuickBooksExport {
   description: string
 }
 
+// Release 4A: 1-Click CPA Tax & Audit Packet + Autonomous Collections Engine
+
+export type CpaAccountCode = '1000' | '1200' | '2000' | '3000' | '4000' | '5000' | '6000'
+
+export type CpaAccountCategory = 'asset' | 'liability' | 'equity' | 'revenue' | 'cogs' | 'expense'
+
+export interface CpaJournalLine {
+  line_id: string
+  occurred_on: string
+  source_type: 'opening' | 'ledger_entry' | 'invoice' | 'vendor_bill'
+  source_ref: string
+  description: string
+  account_code: CpaAccountCode
+  account_name: string
+  category: CpaAccountCategory
+  debit_cents: number
+  credit_cents: number
+}
+
+export interface CpaTrialBalanceRow {
+  account_code: CpaAccountCode
+  account_name: string
+  category: CpaAccountCategory
+  debit_cents: number
+  credit_cents: number
+  net_balance_cents: number
+  normal_side: 'debit' | 'credit'
+}
+
+export interface CpaTrialBalanceReport {
+  rows: CpaTrialBalanceRow[]
+  total_debits_cents: number
+  total_credits_cents: number
+  variance_cents: number
+  is_balanced: boolean
+}
+
+export interface CpaProfitAndLossReport {
+  revenue_cents: number
+  cogs_cents: number
+  gross_profit_cents: number
+  operating_expenses_cents: number
+  net_income_cents: number
+  gross_margin_bps: number
+}
+
+export interface CpaBalanceSheetReport {
+  cash_cents: number
+  accounts_receivable_cents: number
+  total_assets_cents: number
+  accounts_payable_cents: number
+  total_liabilities_cents: number
+  opening_equity_cents: number
+  current_period_net_income_cents: number
+  total_equity_cents: number
+  liabilities_plus_equity_cents: number
+  balance_sheet_variance_cents: number
+  is_balanced: boolean
+}
+
+export interface CpaAuditPacket {
+  workspace_name: string
+  as_of_date: string
+  period_label: string
+  generated_at: string
+  entry_count: number
+  invoice_count: number
+  vendor_bill_count: number
+  trial_balance: CpaTrialBalanceReport
+  profit_and_loss: CpaProfitAndLossReport
+  balance_sheet: CpaBalanceSheetReport
+  general_ledger: CpaJournalLine[]
+  proof_summary: string
+}
+
+export type CollectionTouchStage =
+  | 'day_3_nudge'
+  | 'day_10_split_offer'
+  | 'day_21_owner_escalation'
+
+export type CollectionTouchStatus =
+  | 'staged'
+  | 'paused_paid'
+  | 'paused_disputed'
+  | 'sent'
+  | 'reversed'
+
+export interface CollectionTouchRecord {
+  id: string
+  workspace_id: string
+  invoice_id: string
+  stage: CollectionTouchStage
+  status: CollectionTouchStatus
+  amount_due_cents: number
+  portal_url: string | null
+  proof_summary: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface EvaluatedCollectionCandidate {
+  invoice_id: string
+  invoice_number: string
+  customer_name: string
+  customer_email: string | null
+  due_date: string
+  days_overdue: number
+  stage: CollectionTouchStage
+  status: CollectionTouchStatus
+  amount_due_cents: number
+  split_part_1_cents: number | null
+  split_part_2_cents: number | null
+  portal_url: string | null
+  autonomy_decision: AutonomyGateDecision
+  should_stage: boolean
+  auto_paused_reason: 'paid' | 'disputed' | null
+  message_subject: string
+  message_preview: string
+  proof_summary: string
+}
+
+export interface CollectionsRunPlan {
+  as_of_date: string
+  candidates: EvaluatedCollectionCandidate[]
+  staged_candidates: EvaluatedCollectionCandidate[]
+  paused_candidates: EvaluatedCollectionCandidate[]
+  total_staged_cents: number
+  total_paused_cents: number
+  stage_counts: Record<CollectionTouchStage, number>
+  existing_touch_ids_to_pause_paid: string[]
+  existing_touch_ids_to_pause_disputed: string[]
+  ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+

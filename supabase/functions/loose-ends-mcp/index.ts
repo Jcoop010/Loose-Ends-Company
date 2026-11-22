@@ -1294,6 +1294,41 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "get_cpa_audit_summary",
+    requiredScope: "read_all",
+    description:
+      "Read-only CPA tax & audit reconciliation across workspace ledger_entries, invoices, and vendor_bills verifying Debits === Credits (variance_cents === 0) plus P&L and Balance Sheet in integer cents.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        as_of_date: { type: "string" },
+        opening_cash_cents: { type: "integer", minimum: 0 },
+      },
+    },
+  },
+  {
+    name: "get_collections_queue",
+    requiredScope: "read_all",
+    description:
+      "Read-only summary of workspace Autonomous Collections touches across day_3_nudge, day_10_split_offer, and day_21_owner_escalation (including auto-paused paid/disputed statuses), capped at limit <= 10.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        stage: {
+          type: "string",
+          enum: ["day_3_nudge", "day_10_split_offer", "day_21_owner_escalation"],
+        },
+        status: {
+          type: "string",
+          enum: ["staged", "paused_paid", "paused_disputed", "sent", "reversed"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1584,6 +1619,20 @@ function buildSanitizedAuditOutput(
       finding_count: Array.isArray(toolResult.findings) ? toolResult.findings.length : 0,
     };
   }
+  if (toolName === "get_cpa_audit_summary") {
+    const tb = toolResult.trial_balance as { variance_cents?: number; total_debits_cents?: number } | null;
+    return {
+      variance_cents: tb?.variance_cents ?? 0,
+      total_debits_cents: tb?.total_debits_cents ?? 0,
+      gl_line_count: toolResult.gl_line_count ?? 0,
+    };
+  }
+  if (toolName === "get_collections_queue") {
+    return {
+      total_staged_cents: toolResult.total_staged_cents ?? 0,
+      touch_count: Array.isArray(toolResult.touches) ? toolResult.touches.length : 0,
+    };
+  }
   if (toolName === "upsert_public_lead") {
     const lead = toolResult.lead as { id?: string; status?: string } | null;
     return {
@@ -1657,7 +1706,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "2.3.0",
+        version: "2.4.0",
         workspace_id: workspaceId,
       },
     });
@@ -3990,6 +4039,223 @@ Deno.serve(async (req: Request) => {
         by_category_cents: byCategoryCents,
         finding_counts_by_category: countsByCategory,
         findings: visibleFindings.slice(0, limit),
+      };
+    } else if (toolName === "get_cpa_audit_summary") {
+      auditBotRole = "cash_applications";
+      const asOfDate =
+        typeof args.as_of_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.as_of_date.trim())
+          ? args.as_of_date.trim()
+          : new Date().toISOString().slice(0, 10);
+      const openingCashCents =
+        typeof args.opening_cash_cents === "number" &&
+        Number.isSafeInteger(args.opening_cash_cents) &&
+        args.opening_cash_cents >= 0
+          ? args.opening_cash_cents
+          : 0;
+
+      const [ledgerRes, invRes, billRes] = await Promise.all([
+        admin
+          .from("ledger_entries")
+          .select("id, entry_type, category, description, amount_cents, occurred_on, source_ref")
+          .eq("workspace_id", workspaceId)
+          .order("occurred_on", { ascending: false })
+          .limit(500),
+        admin
+          .from("invoices")
+          .select("id, invoice_number, status, total_cents, amount_paid_cents, created_at")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+        admin
+          .from("vendor_bills")
+          .select("id, invoice_number, match_status, total_cents, due_date, created_at")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+      ]);
+
+      if (ledgerRes.error || invRes.error || billRes.error) {
+        throw new Error("Failed to query workspace accounting records for CPA summary");
+      }
+
+      const debitSums: Record<string, number> = {
+        "1000": 0, "1200": 0, "2000": 0, "3000": 0, "4000": 0, "5000": 0, "6000": 0,
+      };
+      const creditSums: Record<string, number> = {
+        "1000": 0, "1200": 0, "2000": 0, "3000": 0, "4000": 0, "5000": 0, "6000": 0,
+      };
+      let glPairCount = 0;
+
+      const postPair = (dr: string, cr: string, cents: number) => {
+        const amt = Number.isFinite(cents) ? Math.max(0, Math.trunc(cents)) : 0;
+        if (amt === 0) return;
+        debitSums[dr] += amt;
+        creditSums[cr] += amt;
+        glPairCount += 1;
+      };
+
+      if (openingCashCents > 0) {
+        postPair("1000", "3000", openingCashCents);
+      }
+
+      const ledgerRows = (ledgerRes.data ?? []) as Array<{
+        entry_type?: string;
+        amount_cents?: number;
+        source_ref?: string | null;
+      }>;
+      const seenRefs = new Set<string>();
+
+      for (const row of ledgerRows) {
+        if (typeof row.source_ref === "string" && row.source_ref.trim()) {
+          seenRefs.add(row.source_ref.trim().toLowerCase());
+        }
+        const amt = Math.abs(Math.trunc(row.amount_cents ?? 0));
+        if (row.entry_type === "revenue") postPair("1000", "4000", amt);
+        else if (row.entry_type === "cogs") postPair("5000", "1000", amt);
+        else if (row.entry_type === "ap_scheduled") postPair("6000", "2000", amt);
+        else postPair("6000", "1000", amt);
+      }
+
+      const invoiceRows = (invRes.data ?? []) as Array<{
+        invoice_number?: string;
+        status?: string;
+        total_cents?: number;
+        amount_paid_cents?: number;
+      }>;
+      for (const inv of invoiceRows) {
+        if (inv.status === "void") continue;
+        const total = Math.max(0, Math.trunc(inv.total_cents ?? 0));
+        const paid =
+          inv.status === "paid"
+            ? Math.max(total, Math.trunc(inv.amount_paid_cents ?? 0))
+            : Math.min(total, Math.max(0, Math.trunc(inv.amount_paid_cents ?? 0)));
+        const openAr = Math.max(0, total - paid);
+        const key = String(inv.invoice_number ?? "").trim().toLowerCase();
+        if (paid > 0 && !seenRefs.has(key)) postPair("1000", "4000", paid);
+        if (openAr > 0) postPair("1200", "4000", openAr);
+      }
+
+      const billRows = (billRes.data ?? []) as Array<{
+        invoice_number?: string;
+        match_status?: string;
+        total_cents?: number;
+      }>;
+      for (const bill of billRows) {
+        if (bill.match_status === "disputed" || bill.match_status === "exception_flagged") continue;
+        const amt = Math.max(0, Math.trunc(bill.total_cents ?? 0));
+        const key = String(bill.invoice_number ?? "").trim().toLowerCase();
+        if (bill.match_status === "paid") {
+          if (!seenRefs.has(key)) postPair("5000", "1000", amt);
+        } else {
+          postPair("5000", "2000", amt);
+        }
+      }
+
+      const totalDebits = Object.values(debitSums).reduce((a, b) => a + b, 0);
+      const totalCredits = Object.values(creditSums).reduce((a, b) => a + b, 0);
+      const cashCents = debitSums["1000"] - creditSums["1000"];
+      const arCents = debitSums["1200"] - creditSums["1200"];
+      const apCents = creditSums["2000"] - debitSums["2000"];
+      const equityCents = creditSums["3000"] - debitSums["3000"];
+      const revCents = creditSums["4000"] - debitSums["4000"];
+      const cogsCents = debitSums["5000"] - creditSums["5000"];
+      const opExCents = debitSums["6000"] - creditSums["6000"];
+      const netIncomeCents = revCents - cogsCents - opExCents;
+
+      toolResult = {
+        workspace_id: workspaceId,
+        as_of_date: asOfDate,
+        gl_line_count: glPairCount * 2,
+        trial_balance: {
+          total_debits_cents: totalDebits,
+          total_credits_cents: totalCredits,
+          variance_cents: totalDebits - totalCredits,
+          is_balanced: totalDebits === totalCredits,
+        },
+        profit_and_loss: {
+          revenue_cents: revCents,
+          cogs_cents: cogsCents,
+          gross_profit_cents: revCents - cogsCents,
+          operating_expenses_cents: opExCents,
+          net_income_cents: netIncomeCents,
+        },
+        balance_sheet: {
+          cash_cents: cashCents,
+          accounts_receivable_cents: arCents,
+          total_assets_cents: cashCents + arCents,
+          accounts_payable_cents: apCents,
+          total_equity_cents: equityCents + netIncomeCents,
+          balance_sheet_variance_cents: cashCents + arCents - (apCents + equityCents + netIncomeCents),
+          is_balanced: cashCents + arCents === apCents + equityCents + netIncomeCents,
+        },
+      };
+    } else if (toolName === "get_collections_queue") {
+      auditBotRole = "collections";
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+      const stageArg =
+        typeof args.stage === "string" && args.stage.trim() ? args.stage.trim() : null;
+      const statusArg =
+        typeof args.status === "string" && args.status.trim() ? args.status.trim() : null;
+
+      let touchesQuery = admin
+        .from("collection_touches")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (stageArg) touchesQuery = touchesQuery.eq("stage", stageArg);
+      if (statusArg) touchesQuery = touchesQuery.eq("status", statusArg);
+
+      const { data: touchRows, error: touchErr } = await touchesQuery;
+      if (touchErr) {
+        throw new Error("Failed to query collection_touches");
+      }
+
+      const typedTouches = (touchRows ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        invoice_id: string;
+        stage: string;
+        status: string;
+        amount_due_cents: number;
+        portal_url?: string | null;
+        proof_summary?: string;
+        created_at?: string;
+      }>;
+
+      const stageCounts: Record<string, number> = {
+        day_3_nudge: 0,
+        day_10_split_offer: 0,
+        day_21_owner_escalation: 0,
+      };
+      const statusCounts: Record<string, number> = {
+        staged: 0,
+        paused_paid: 0,
+        paused_disputed: 0,
+        sent: 0,
+        reversed: 0,
+      };
+      let totalStagedCents = 0;
+
+      for (const row of typedTouches) {
+        if (Object.prototype.hasOwnProperty.call(stageCounts, row.stage)) {
+          stageCounts[row.stage] += 1;
+        }
+        if (Object.prototype.hasOwnProperty.call(statusCounts, row.status)) {
+          statusCounts[row.status] += 1;
+        }
+        if (row.status === "staged") {
+          totalStagedCents += Math.max(0, Math.trunc(row.amount_due_cents ?? 0));
+        }
+      }
+
+      toolResult = {
+        workspace_id: workspaceId,
+        total_touch_count: typedTouches.length,
+        total_staged_cents: totalStagedCents,
+        stage_counts: stageCounts,
+        status_counts: statusCounts,
+        touches: typedTouches.slice(0, limit),
       };
     }
 

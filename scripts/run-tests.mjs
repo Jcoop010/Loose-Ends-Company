@@ -48,6 +48,7 @@ const testFiles = [
   'tests/release3-enterprise-vault-sops.test.mjs',
   'tests/can-spam-guardrail.test.mjs',
   'tests/shadow-mode-engine.test.mjs',
+  'tests/cpa-packet-and-collections.test.mjs',
 ]
 
 execFileSync(process.execPath, [path.join(repoRoot, 'scripts', 'precompile-test-src.mjs')], {

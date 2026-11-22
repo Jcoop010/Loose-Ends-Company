@@ -507,6 +507,7 @@ export async function fetchBookkeepingData(workspaceId: string): Promise<{
   vendorBills: VendorBillRecord[]
   ledgerEntries: LedgerEntryRecord[]
   openInvoices: AutonomousInvoice[]
+  allInvoices: AutonomousInvoice[]
 }> {
   const [vendorBills, ledgerEntries, invoices] = await Promise.all([
     fetchAllWorkspaceRows<VendorBillRecord>({
@@ -529,10 +530,12 @@ export async function fetchBookkeepingData(workspaceId: string): Promise<{
     }),
   ])
 
+  const validInvoices = (invoices ?? []).filter(inv => inv.status !== 'void')
   return {
     vendorBills: vendorBills ?? [],
     ledgerEntries: ledgerEntries ?? [],
-    openInvoices: (invoices ?? []).filter(inv => inv.status !== 'paid' && inv.status !== 'void'),
+    openInvoices: validInvoices.filter(inv => inv.status !== 'paid'),
+    allInvoices: validInvoices,
   }
 }
 

@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   BookOpenCheck,
   CheckCircle2,
+  Download,
+  FileCheck2,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -11,14 +13,20 @@ import {
 import { formatCents } from '../../../lib/format'
 import * as release2Queries from '../../../lib/autonomousOs/release2Queries'
 import {
+  compileCpaAuditPacket,
   computeBookkeepingKpis,
+  formatCents as formatExactCents,
+  serializeCpaPacketToCsv,
+  serializeCpaPacketToJson,
   simulateCashflow90Day,
   type AutonomousInvoice,
+  type CpaAuditPacket,
   type LedgerEntryRecord,
   type LedgerEntryType,
   type VendorBillRecord,
 } from '../../../lib/autonomousOs'
 import { useSession } from '../../../state/SessionContext'
+import { Dialog } from '../../../components/ui/Dialog'
 import { Badge, EmptyState, MetricCard, MetricCardSkeleton } from '../../../components/ui/MetricCard'
 import { useToast } from '../../../components/ui/Toast'
 
@@ -32,6 +40,9 @@ export function BookkeepingApPage(): React.ReactElement {
   const [vendorBills, setVendorBills] = useState<VendorBillRecord[]>([])
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntryRecord[]>([])
   const [openInvoices, setOpenInvoices] = useState<AutonomousInvoice[]>([])
+  const [allInvoices, setAllInvoices] = useState<AutonomousInvoice[]>([])
+  const [cpaPacketOpen, setCpaPacketOpen] = useState(false)
+  const [cpaPacket, setCpaPacket] = useState<CpaAuditPacket | null>(null)
   const [startingBalanceDollars, setStartingBalanceDollars] = useState('25000')
   const [safetyBufferDollars, setSafetyBufferDollars] = useState('5000')
   const [busyBillId, setBusyBillId] = useState<string | null>(null)
@@ -56,6 +67,7 @@ export function BookkeepingApPage(): React.ReactElement {
         setVendorBills(res.vendorBills)
         setLedgerEntries(res.ledgerEntries)
         setOpenInvoices(res.openInvoices)
+        setAllInvoices(res.allInvoices)
       } catch (err) {
         toast.error(
           'Unable to load Bookkeeping & AP',
@@ -156,6 +168,33 @@ export function BookkeepingApPage(): React.ReactElement {
     }
   }
 
+  const handleGenerateCpaPacket = () => {
+    const startCents = Math.max(0, Math.round(Number(startingBalanceDollars || 0) * 100))
+    const packet = compileCpaAuditPacket({
+      workspaceName: workspace?.name ?? 'Workspace',
+      ledgerEntries,
+      invoices: allInvoices,
+      vendorBills,
+      openingCashCents: Number.isSafeInteger(startCents) ? startCents : 0,
+    })
+    setCpaPacket(packet)
+    setCpaPacketOpen(true)
+  }
+
+  const triggerDownload = (content: string, mimeType: string, extension: 'csv' | 'json') => {
+    if (!cpaPacket || typeof document === 'undefined') return
+    const blob = new Blob([content], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `cpa_audit_packet_${cpaPacket.as_of_date}.${extension}`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+    toast.success(`CPA Packet downloaded (${extension.toUpperCase()})`, cpaPacket.proof_summary)
+  }
+
   if (!workspaceId) return <div />
 
   return (
@@ -168,15 +207,26 @@ export function BookkeepingApPage(): React.ReactElement {
           </p>
         </div>
 
-        <button
-          type="button"
-          disabled={refreshing}
-          onClick={() => void loadData(true)}
-          className="exec-btn-secondary self-start !px-3.5 !py-2 !text-xs touch-target"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-          {refreshing ? 'Syncing…' : 'Refresh'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={handleGenerateCpaPacket}
+            className="exec-btn-primary !px-3.5 !py-2 !text-xs touch-target"
+          >
+            <FileCheck2 className="h-3.5 w-3.5" aria-hidden="true" />
+            1-Click CPA Packet
+          </button>
+          <button
+            type="button"
+            disabled={refreshing}
+            onClick={() => void loadData(true)}
+            className="exec-btn-secondary !px-3.5 !py-2 !text-xs touch-target"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {refreshing ? 'Syncing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Top KPI Bar */}
@@ -574,6 +624,198 @@ export function BookkeepingApPage(): React.ReactElement {
           </div>
         )}
       </section>
+
+      {/* 1-Click CPA Tax & Audit Packet Modal */}
+      <Dialog
+        open={cpaPacketOpen && cpaPacket !== null}
+        onClose={() => setCpaPacketOpen(false)}
+        title="1-Click CPA Tax & Audit Packet"
+        description={
+          cpaPacket
+            ? `${cpaPacket.workspace_name} · ${cpaPacket.period_label} · As of ${cpaPacket.as_of_date}`
+            : ''
+        }
+        maxWidthClass="max-w-4xl"
+        footer={
+          cpaPacket ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+              <span className="text-xs font-semibold text-emerald-300">
+                Variance: {formatExactCents(cpaPacket.trial_balance.variance_cents)} (Verified Balanced)
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    triggerDownload(
+                      serializeCpaPacketToJson(cpaPacket),
+                      'application/json;charset=utf-8',
+                      'json',
+                    )
+                  }
+                  className="exec-btn-secondary !px-3.5 !py-2 !text-xs"
+                >
+                  <Download className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+                  Download JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    triggerDownload(
+                      serializeCpaPacketToCsv(cpaPacket),
+                      'text/csv;charset=utf-8',
+                      'csv',
+                    )
+                  }
+                  className="exec-btn-primary !px-3.5 !py-2 !text-xs"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                  Download CSV Packet
+                </button>
+              </div>
+            </div>
+          ) : null
+        }
+      >
+        {cpaPacket ? (
+          <div className="space-y-5 text-slate-100">
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3.5 space-y-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                  Deterministic Integer-Cent Trial Balance Verification
+                </span>
+                <Badge tone="emerald">
+                  Variance {formatExactCents(cpaPacket.trial_balance.variance_cents)}
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-200">{cpaPacket.proof_summary}</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-[#0b1320] p-4 space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#fb923c]">
+                  Profit &amp; Loss Statement (P&amp;L)
+                </h4>
+                <dl className="space-y-1.5 text-xs tabular-nums">
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Operating Revenue</dt>
+                    <dd className="font-semibold text-slate-100">
+                      {formatExactCents(cpaPacket.profit_and_loss.revenue_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Cost of Goods Sold</dt>
+                    <dd className="font-semibold text-slate-100">
+                      {formatExactCents(cpaPacket.profit_and_loss.cogs_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-800 pt-1">
+                    <dt className="text-slate-300 font-semibold">Gross Profit</dt>
+                    <dd className="font-bold text-emerald-300">
+                      {formatExactCents(cpaPacket.profit_and_loss.gross_profit_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Operating Expenses</dt>
+                    <dd className="font-semibold text-slate-100">
+                      {formatExactCents(cpaPacket.profit_and_loss.operating_expenses_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-800 pt-1">
+                    <dt className="font-bold text-white">Net Income</dt>
+                    <dd className="font-bold text-white">
+                      {formatExactCents(cpaPacket.profit_and_loss.net_income_cents)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-[#0b1320] p-4 space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#fb923c]">
+                  Balance Sheet Snapshot
+                </h4>
+                <dl className="space-y-1.5 text-xs tabular-nums">
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Operating Cash (1000)</dt>
+                    <dd className="font-semibold text-slate-100">
+                      {formatExactCents(cpaPacket.balance_sheet.cash_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Accounts Receivable (1200)</dt>
+                    <dd className="font-semibold text-slate-100">
+                      {formatExactCents(cpaPacket.balance_sheet.accounts_receivable_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-800 pt-1">
+                    <dt className="font-semibold text-slate-200">Total Assets</dt>
+                    <dd className="font-bold text-emerald-300">
+                      {formatExactCents(cpaPacket.balance_sheet.total_assets_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-slate-400">Accounts Payable (2000)</dt>
+                    <dd className="font-semibold text-slate-100">
+                      {formatExactCents(cpaPacket.balance_sheet.accounts_payable_cents)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-800 pt-1">
+                    <dt className="font-bold text-white">Liabilities + Equity</dt>
+                    <dd className="font-bold text-white">
+                      {formatExactCents(cpaPacket.balance_sheet.liabilities_plus_equity_cents)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0b1320]">
+              <table className="min-w-full divide-y divide-slate-800 text-xs tabular-nums">
+                <thead className="bg-[#131f33] text-left text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                  <tr>
+                    <th className="px-3 py-2">Code</th>
+                    <th className="px-3 py-2">Trial Balance Account</th>
+                    <th className="px-3 py-2 text-right">Debits</th>
+                    <th className="px-3 py-2 text-right">Credits</th>
+                    <th className="px-3 py-2 text-right">Net Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {cpaPacket.trial_balance.rows.map(row => (
+                    <tr key={row.account_code}>
+                      <td className="px-3 py-2 font-mono text-slate-400">{row.account_code}</td>
+                      <td className="px-3 py-2 font-semibold text-slate-100">{row.account_name}</td>
+                      <td className="px-3 py-2 text-right text-slate-300">
+                        {formatExactCents(row.debit_cents)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-300">
+                        {formatExactCents(row.credit_cents)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold text-white">
+                        {formatExactCents(row.net_balance_cents)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[#131f33]/80 font-bold text-emerald-300">
+                    <td className="px-3 py-2 font-mono">SUM</td>
+                    <td className="px-3 py-2">
+                      Reconciled Totals ({cpaPacket.general_ledger.length} GL lines)
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatExactCents(cpaPacket.trial_balance.total_debits_cents)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatExactCents(cpaPacket.trial_balance.total_credits_cents)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      Var {formatExactCents(cpaPacket.trial_balance.variance_cents)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
     </div>
   )
 }

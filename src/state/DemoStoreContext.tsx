@@ -3,10 +3,12 @@ import {
   analyzeShadowCsv,
   buildShadowPromotionPlan,
   calculateLineTotals,
+  compileCpaAuditPacket,
   computeArSummary,
   convertSignedQuoteToInvoice,
   DEFAULT_AUTONOMY_CONFIG,
   evaluateAutonomyGate,
+  evaluateAutonomousCollections,
   evaluateComplianceDeadlines,
   formatCents as formatOsCents,
   loadSampleQuickBooksExport,
@@ -21,13 +23,18 @@ import {
   type AutonomousInvoiceItem,
   type AutonomousQuote,
   type AutonomousQuoteItem,
+  type CollectionTouchRecord,
+  type CollectionsRunPlan,
   type CommandRouterSnapshot,
   type ComplianceVaultItem,
+  type CpaAuditPacket,
+  type LedgerEntryRecord,
   type LivingSopRecord,
   type Release2InventoryItem,
   type ShadowFinding,
   type ShadowSession,
   type ThreeWayMatchResult,
+  type VendorBillRecord,
   type WorkspaceAutonomyConfig,
   type WorkspaceModuleKey,
 } from '../lib/autonomousOs'
@@ -161,6 +168,12 @@ export interface DemoSandboxState {
   osShadowSession: ShadowSession | null
   osShadowFindings: ShadowFinding[]
   osShadowPromotionLedgerId: string | null
+  osLedgerEntries: LedgerEntryRecord[]
+  osVendorBills: VendorBillRecord[]
+  osCpaPacket: CpaAuditPacket | null
+  osCollectionTouches: CollectionTouchRecord[]
+  osDisputedInvoiceIds: string[]
+  osCollectionsRunLedgerId: string | null
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1438,10 +1451,30 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       tax_cents: 0,
       total_cents: 185000,
       amount_paid_cents: 0,
-      due_date: isoOffsetFrom(anchorMs, -9 * DAY_MS).slice(0, 10),
+      due_date: isoOffsetFrom(anchorMs, -12 * DAY_MS).slice(0, 10),
       stripe_checkout_url: null,
       status: 'overdue',
-      created_at: isoOffsetFrom(anchorMs, -24 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -26 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000i312',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: null,
+      lead_id: null,
+      customer_id: customers[2]?.id ?? null,
+      invoice_number: 'INV-3012',
+      title: 'Commercial Chiller Condenser Retrofit',
+      customer_name: 'Cascade Precision Parts',
+      customer_email: 'ap@cascadeprecision.invalid',
+      subtotal_cents: 240000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 240000,
+      amount_paid_cents: 0,
+      due_date: isoOffsetFrom(anchorMs, -24 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'overdue',
+      created_at: isoOffsetFrom(anchorMs, -40 * DAY_MS),
     },
     {
       id: '00000000-0000-4000-8000-00000000i309',
@@ -1608,6 +1641,58 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     },
   ]
 
+  const osLedgerEntries: LedgerEntryRecord[] = [
+    {
+      id: 'le-demo-1',
+      workspace_id: DEMO_WORKSPACE_ID,
+      entry_type: 'revenue',
+      category: 'Verified Settlements',
+      description: 'Redwood Coast Goods paid sprint (INV-3009)',
+      amount_cents: 89000,
+      occurred_on: isoOffsetFrom(anchorMs, -8 * DAY_MS).slice(0, 10),
+      source_ref: 'INV-3009',
+    },
+    {
+      id: 'le-demo-2',
+      workspace_id: DEMO_WORKSPACE_ID,
+      entry_type: 'cogs',
+      category: 'Supplier Parts',
+      description: 'Carrier OEM blower & refrigerant kit stock batch',
+      amount_cents: 112000,
+      occurred_on: isoOffsetFrom(anchorMs, -6 * DAY_MS).slice(0, 10),
+      source_ref: 'VB-9010',
+    },
+    {
+      id: 'le-demo-3',
+      workspace_id: DEMO_WORKSPACE_ID,
+      entry_type: 'expense',
+      category: 'Field Fleet Fuel & SaaS',
+      description: 'Monthly dispatch software & fleet card settlement',
+      amount_cents: 45000,
+      occurred_on: isoOffsetFrom(anchorMs, -3 * DAY_MS).slice(0, 10),
+      source_ref: 'EXP-1102',
+    },
+  ]
+
+  const osVendorBills: VendorBillRecord[] = [
+    {
+      id: 'vb-demo-1',
+      workspace_id: DEMO_WORKSPACE_ID,
+      po_id: null,
+      vendor_name: 'Apex Industrial Supply',
+      invoice_number: 'VB-9040',
+      subtotal_cents: 64000,
+      tax_cents: 0,
+      total_cents: 64000,
+      due_date: isoOffsetFrom(anchorMs, 12 * DAY_MS).slice(0, 10),
+      items_json: [],
+      match_status: 'matched_clean',
+      match_variance_cents: 0,
+      discrepancy_summary: null,
+      created_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+    },
+  ]
+
   return {
     workspace,
     settings,
@@ -1654,6 +1739,12 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osShadowSession: null,
     osShadowFindings: [],
     osShadowPromotionLedgerId: null,
+    osLedgerEntries,
+    osVendorBills,
+    osCpaPacket: null,
+    osCollectionTouches: [],
+    osDisputedInvoiceIds: [],
+    osCollectionsRunLedgerId: null,
   }
 }
 
@@ -1749,6 +1840,13 @@ export interface DemoStoreContextValue {
   runDemoShadowCsv: (csvText: string, fileName?: string) => { session: ShadowSession; findings: ShadowFinding[] }
   dismissDemoShadowFinding: (findingId: string) => void
   promoteDemoShadowSession: () => { ledgerId: string; promotedCount: number } | null
+  generateDemoCpaPacket: () => CpaAuditPacket
+  runDemoAutonomousCollections: () => {
+    plan: CollectionsRunPlan
+    touches: CollectionTouchRecord[]
+    ledgerId: string | null
+  }
+  toggleDemoInvoiceDisputed: (invoiceId: string) => void
   commandSnapshot: CommandRouterSnapshot
   resetDemo: () => void
 }
@@ -2975,6 +3073,25 @@ export function DemoStoreProvider({
         }
       }
 
+      let nextCollectionTouches = prev.osCollectionTouches
+      let nextCollectionsRunLedgerId = prev.osCollectionsRunLedgerId
+
+      if (target.action_type === 'stage_collections_run') {
+        const touchIds = new Set(
+          Array.isArray(target.after_state?.touch_ids)
+            ? (target.after_state?.touch_ids as unknown[]).filter(
+                (id): id is string => typeof id === 'string',
+              )
+            : [],
+        )
+        nextCollectionTouches = prev.osCollectionTouches.map(t =>
+          touchIds.has(t.id) ? { ...t, status: 'reversed', updated_at: nowIso } : t,
+        )
+        if (prev.osCollectionsRunLedgerId === entryId) {
+          nextCollectionsRunLedgerId = null
+        }
+      }
+
       return {
         ...prev,
         osQuotes: nextQuotes,
@@ -2985,6 +3102,8 @@ export function DemoStoreProvider({
         osShadowSession: nextShadowSession,
         osShadowFindings: nextShadowFindings,
         osShadowPromotionLedgerId: nextShadowPromotionLedgerId,
+        osCollectionTouches: nextCollectionTouches,
+        osCollectionsRunLedgerId: nextCollectionsRunLedgerId,
       }
     })
   }, [])
@@ -3098,6 +3217,17 @@ export function DemoStoreProvider({
           i.id === invoiceId
             ? { ...i, status: 'paid', amount_paid_cents: i.total_cents, updated_at: nowIso }
             : i,
+        ),
+        osCollectionTouches: prev.osCollectionTouches.map(t =>
+          t.invoice_id === invoiceId && t.status === 'staged'
+            ? {
+                ...t,
+                status: 'paused_paid',
+                amount_due_cents: 0,
+                proof_summary: `Auto-paused (Paid): ${target.invoice_number} settled in full ($0.00 remaining).`,
+                updated_at: nowIso,
+              }
+            : t,
         ),
         osAgentLedger: [ledger, ...prev.osAgentLedger],
       }
@@ -3293,6 +3423,121 @@ export function DemoStoreProvider({
     return { ledgerId, promotedCount: plan.openFindingIds.length }
   }, [state.osShadowSession, state.osShadowFindings])
 
+  const generateDemoCpaPacket = useCallback((): CpaAuditPacket => {
+    const packet = compileCpaAuditPacket({
+      workspaceName: state.workspace.name,
+      ledgerEntries: state.osLedgerEntries,
+      invoices: state.osInvoices,
+      vendorBills: state.osVendorBills,
+      openingCashCents: 2500000,
+    })
+    setState(prev => ({
+      ...prev,
+      osCpaPacket: packet,
+    }))
+    return packet
+  }, [state.workspace.name, state.osLedgerEntries, state.osInvoices, state.osVendorBills])
+
+  const runDemoAutonomousCollections = useCallback(() => {
+    const nowIso = new Date().toISOString()
+    const portalMap = new Map<string, string>()
+    for (const q of state.osQuotes) {
+      if (q.portal_token) {
+        portalMap.set(q.id, q.portal_token)
+      }
+    }
+
+    const plan = evaluateAutonomousCollections({
+      workspaceId: DEMO_WORKSPACE_ID,
+      invoices: state.osInvoices,
+      existingTouches: state.osCollectionTouches,
+      disputedInvoiceIds: state.osDisputedInvoiceIds,
+      portalTokenByQuoteId: portalMap,
+      config: state.osAutonomyConfig,
+      asOfDate: nowIso.slice(0, 10),
+    })
+
+    const touches: CollectionTouchRecord[] = plan.candidates.map((cand, idx) => ({
+      id: `col_demo_${cand.invoice_id.slice(-4)}_${idx + 1}_${Date.now()}`,
+      workspace_id: DEMO_WORKSPACE_ID,
+      invoice_id: cand.invoice_id,
+      stage: cand.stage,
+      status: cand.status,
+      amount_due_cents: cand.amount_due_cents,
+      portal_url: cand.portal_url,
+      proof_summary: cand.proof_summary,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }))
+
+    const stagedTouchIds = touches.filter(t => t.status === 'staged').map(t => t.id)
+    let ledgerId: string | null = null
+    let ledgerEntry: AgentActionLedgerEntry | null = null
+
+    if (stagedTouchIds.length > 0) {
+      ledgerId = `led_col_${Date.now()}`
+      ledgerEntry = {
+        ...plan.ledger_draft,
+        id: ledgerId,
+        after_state: {
+          ...(plan.ledger_draft.after_state ?? {}),
+          touch_ids: stagedTouchIds,
+        },
+        created_at: nowIso,
+      }
+    }
+
+    setState(prev => ({
+      ...prev,
+      osCollectionTouches: touches,
+      osCollectionsRunLedgerId: ledgerId,
+      osAgentLedger: ledgerEntry ? [ledgerEntry, ...prev.osAgentLedger] : prev.osAgentLedger,
+    }))
+
+    return { plan, touches, ledgerId }
+  }, [
+    state.osQuotes,
+    state.osInvoices,
+    state.osCollectionTouches,
+    state.osDisputedInvoiceIds,
+    state.osAutonomyConfig,
+  ])
+
+  const toggleDemoInvoiceDisputed = useCallback((invoiceId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => {
+      const currentlyDisputed = prev.osDisputedInvoiceIds.includes(invoiceId)
+      const nextDisputed = currentlyDisputed
+        ? prev.osDisputedInvoiceIds.filter(id => id !== invoiceId)
+        : [...prev.osDisputedInvoiceIds, invoiceId]
+      const inv = prev.osInvoices.find(i => i.id === invoiceId)
+
+      return {
+        ...prev,
+        osDisputedInvoiceIds: nextDisputed,
+        osCollectionTouches: prev.osCollectionTouches.map(t => {
+          if (t.invoice_id !== invoiceId) return t
+          if (!currentlyDisputed && t.status === 'staged') {
+            return {
+              ...t,
+              status: 'paused_disputed',
+              proof_summary: `Auto-paused (disputed): ${inv?.invoice_number ?? invoiceId} held until owner resolves dispute.`,
+              updated_at: nowIso,
+            }
+          }
+          if (currentlyDisputed && t.status === 'paused_disputed') {
+            return {
+              ...t,
+              status: 'staged',
+              updated_at: nowIso,
+            }
+          }
+          return t
+        }),
+      }
+    })
+  }, [])
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -3341,6 +3586,9 @@ export function DemoStoreProvider({
       runDemoShadowCsv,
       dismissDemoShadowFinding,
       promoteDemoShadowSession,
+      generateDemoCpaPacket,
+      runDemoAutonomousCollections,
+      toggleDemoInvoiceDisputed,
       commandSnapshot,
       resetDemo,
     }),
@@ -3387,6 +3635,9 @@ export function DemoStoreProvider({
       runDemoShadowCsv,
       dismissDemoShadowFinding,
       promoteDemoShadowSession,
+      generateDemoCpaPacket,
+      runDemoAutonomousCollections,
+      toggleDemoInvoiceDisputed,
       commandSnapshot,
       resetDemo,
     ],

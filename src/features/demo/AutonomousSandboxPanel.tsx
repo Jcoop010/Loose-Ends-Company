@@ -3,12 +3,15 @@ import {
   AlertTriangle,
   BellRing,
   CheckCircle2,
+  Download,
   EyeOff,
   FileCheck2,
   FileSignature,
   FileSpreadsheet,
   FileText,
   Lock,
+  PauseCircle,
+  PlayCircle,
   Radar,
   ReceiptText,
   RotateCcw,
@@ -17,8 +20,12 @@ import {
 } from 'lucide-react'
 import {
   AUTONOMY_ACTION_META,
+  COLLECTION_STAGE_LABELS,
+  COLLECTION_STATUS_LABELS,
   evaluateComplianceDeadlines,
   formatCents as formatExactCents,
+  serializeCpaPacketToCsv,
+  serializeCpaPacketToJson,
   SHADOW_CATEGORY_LABELS,
   SHADOW_SOURCE_LABELS,
   WORKSPACE_MODULE_META,
@@ -55,9 +62,27 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const shadowSession = demo.state.osShadowSession
   const shadowFindings = demo.state.osShadowFindings
   const shadowPromotionLedgerId = demo.state.osShadowPromotionLedgerId
+  const cpaPacket = demo.state.osCpaPacket
+  const collectionTouches = demo.state.osCollectionTouches
+  const collectionsRunLedgerId = demo.state.osCollectionsRunLedgerId
+  const disputedInvoiceIds = demo.state.osDisputedInvoiceIds
   const visibleShadowFindings = shadowFindings.filter(item =>
     shadowCategoryFilter === 'all' ? true : item.category === shadowCategoryFilter,
   )
+
+  const downloadDemoCpaFile = (content: string, mimeType: string, ext: 'csv' | 'json') => {
+    if (!cpaPacket || typeof document === 'undefined') return
+    const blob = new Blob([content], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `ridgeway_cpa_packet_${cpaPacket.as_of_date}.${ext}`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success(`Downloaded CPA ${ext.toUpperCase()} Packet`, cpaPacket.proof_summary)
+  }
 
   return (
     <section
@@ -840,6 +865,249 @@ export function AutonomousSandboxPanel(): React.ReactElement {
             </div>
           </div>
         ) : null}
+      </div>
+
+      {/* Release 4A: 1-Click CPA Tax & Audit Packet + Autonomous Collections Engine */}
+      <div
+        id="release-4a-sandbox"
+        className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start"
+      >
+        {/* Card 1: 1-Click CPA Tax & Audit Packet */}
+        <div className="lg:col-span-6 rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                  <FileCheck2 className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                  1-Click CPA Tax &amp; Audit Packet
+                </span>
+                <Badge tone="emerald">Double-Entry Proof</Badge>
+              </div>
+              <p className="mt-1 text-xs text-slate-300">
+                Compiles Trial Balance, P&amp;L, Balance Sheet &amp; General Ledger in exact integer cents.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const pkt = demo.generateDemoCpaPacket()
+                toast.success(
+                  'CPA Audit Packet Compiled',
+                  `Variance ${formatExactCents(pkt.trial_balance.variance_cents)} across ${pkt.general_ledger.length} GL lines.`,
+                )
+              }}
+              className="exec-btn-primary !px-3.5 !py-2 !text-xs"
+            >
+              <FileCheck2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Generate 1-Click CPA Packet
+            </button>
+          </div>
+
+          {cpaPacket ? (
+            <div className="space-y-3 border-t border-slate-800 pt-3">
+              <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+                    Debits === Credits Verified
+                  </span>
+                  <Badge tone="emerald">
+                    Variance: {formatExactCents(cpaPacket.trial_balance.variance_cents)}
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-slate-200 leading-snug">{cpaPacket.proof_summary}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5 text-xs tabular-nums">
+                <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                    Trial Balance Totals
+                  </p>
+                  <p className="mt-1 font-bold text-white">
+                    {formatExactCents(cpaPacket.trial_balance.total_debits_cents)} Dr / Cr
+                  </p>
+                  <p className="text-[11px] text-emerald-300">
+                    Variance {formatExactCents(cpaPacket.trial_balance.variance_cents)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                    P&amp;L · Net Income
+                  </p>
+                  <p className="mt-1 font-bold text-white">
+                    {formatExactCents(cpaPacket.profit_and_loss.net_income_cents)}
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Rev {formatExactCents(cpaPacket.profit_and_loss.revenue_cents)} · Assets{' '}
+                    {formatExactCents(cpaPacket.balance_sheet.total_assets_cents)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadDemoCpaFile(
+                      serializeCpaPacketToJson(cpaPacket),
+                      'application/json;charset=utf-8',
+                      'json',
+                    )
+                  }
+                  className="exec-btn-secondary !px-3 !py-1.5 !text-xs"
+                >
+                  <Download className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+                  Download JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadDemoCpaFile(
+                      serializeCpaPacketToCsv(cpaPacket),
+                      'text/csv;charset=utf-8',
+                      'csv',
+                    )
+                  }
+                  className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                  Download CSV
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Card 2: Autonomous Collections Engine */}
+        <div className="lg:col-span-6 rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                  <ShieldCheck className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                  Autonomous Collections Engine
+                </span>
+                <Badge tone="brand">
+                  Dial: {config.autonomy_rules.send_invoice_reminder}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-slate-300">
+                Day 3 portal nudge, Day 10 2-part split, Day 21 owner escalation — auto-pauses on paid/disputed.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {collectionsRunLedgerId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    demo.undoDemoLedgerAction(collectionsRunLedgerId)
+                    toast.info('1-Click Undo Collections Run', 'Collections touches reversed cleanly.')
+                  }}
+                  className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  1-Click Undo Collections Run
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const res = demo.runDemoAutonomousCollections()
+                  toast.success(
+                    'Autonomous Collections Run Staged',
+                    `${res.plan.staged_candidates.length} staged (${formatExactCents(res.plan.total_staged_cents)}) · ${res.plan.paused_candidates.length} auto-paused.`,
+                  )
+                }}
+                className="exec-btn-primary !px-3.5 !py-2 !text-xs"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Run Autonomous Collections
+              </button>
+            </div>
+          </div>
+
+          {collectionTouches.length > 0 ? (
+            <div className="space-y-2 border-t border-slate-800 pt-3">
+              {collectionTouches.map(touch => {
+                const inv = invoices.find(i => i.id === touch.invoice_id)
+                const isDisputed = disputedInvoiceIds.includes(touch.invoice_id)
+                const canToggleDispute =
+                  touch.status === 'staged' || touch.status === 'paused_disputed'
+                return (
+                  <div
+                    key={touch.id}
+                    className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3 space-y-1.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-[11px] font-bold text-slate-200">
+                          {inv?.invoice_number ?? touch.invoice_id}
+                        </span>
+                        <Badge
+                          tone={
+                            touch.stage === 'day_21_owner_escalation'
+                              ? 'rose'
+                              : touch.stage === 'day_10_split_offer'
+                                ? 'amber'
+                                : 'brand'
+                          }
+                        >
+                          {COLLECTION_STAGE_LABELS[touch.stage]}
+                        </Badge>
+                        <Badge
+                          tone={
+                            touch.status === 'paused_paid'
+                              ? 'emerald'
+                              : touch.status === 'paused_disputed' || touch.status === 'reversed'
+                                ? 'neutral'
+                                : 'amber'
+                          }
+                        >
+                          {COLLECTION_STATUS_LABELS[touch.status]}
+                        </Badge>
+                      </div>
+                      <span className="text-xs font-bold text-white tabular-nums">
+                        {formatExactCents(touch.amount_due_cents)}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-300 leading-snug">{touch.proof_summary}</p>
+
+                    {canToggleDispute ? (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            demo.toggleDemoInvoiceDisputed(touch.invoice_id)
+                            toast.info(
+                              isDisputed ? 'Dispute cleared' : 'Auto-Paused (Disputed)',
+                              inv?.invoice_number ?? touch.invoice_id,
+                            )
+                          }}
+                          className="exec-btn-secondary !px-2.5 !py-1 !text-[11px]"
+                        >
+                          {isDisputed ? (
+                            <>
+                              <PlayCircle className="h-3 w-3 text-emerald-300" aria-hidden="true" />
+                              Resume Collections
+                            </>
+                          ) : (
+                            <>
+                              <PauseCircle className="h-3 w-3 text-amber-300" aria-hidden="true" />
+                              Mark Disputed (Auto-Pause)
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   )
