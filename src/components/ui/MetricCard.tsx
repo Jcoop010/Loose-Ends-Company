@@ -11,7 +11,7 @@ export type BadgeTone =
   | 'obsidian'
 
 const BADGE_CLASSES: Record<BadgeTone, string> = {
-  neutral: 'bg-slate-100 text-slate-700 border border-slate-200',
+  neutral: 'bg-slate-800/90 text-slate-200 border border-slate-700',
   brand: 'pill-brand',
   emerald: 'pill-emerald',
   amber: 'pill-amber',
@@ -49,7 +49,7 @@ export interface MetricCardProps {
 }
 
 const ACCENT_TOP_BAR: Record<NonNullable<MetricCardProps['accent']>, string> = {
-  slate: 'bg-slate-800',
+  slate: 'bg-slate-600',
   brand: 'bg-[#ea580c]',
   emerald: 'bg-emerald-600',
   amber: 'bg-amber-500',
@@ -71,7 +71,7 @@ export function MetricCard({
       <div className={`h-1 w-full ${ACCENT_TOP_BAR[accent]}`} aria-hidden="true" />
       <div className="p-4 sm:p-5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             {label}
           </span>
           {icon ? (
@@ -81,13 +81,13 @@ export function MetricCard({
           ) : null}
         </div>
         <div className="mt-2 flex items-baseline justify-between gap-2">
-          <span className="text-2xl sm:text-[1.65rem] font-bold tracking-tight text-slate-900 tabular-nums">
+          <span className="text-2xl sm:text-[1.65rem] font-bold tracking-tight text-slate-50 tabular-nums">
             {value}
           </span>
           {badge ? <Badge tone={badge.tone}>{badge.text}</Badge> : null}
         </div>
         {subtitle ? (
-          <p className="mt-1.5 text-xs text-slate-600 leading-snug">{subtitle}</p>
+          <p className="mt-1.5 text-xs text-slate-300 leading-snug">{subtitle}</p>
         ) : null}
       </div>
     </>
@@ -98,7 +98,7 @@ export function MetricCard({
       <button
         type="button"
         onClick={onClick}
-        className="exec-surface group relative overflow-hidden text-left w-full transition-shadow hover:border-slate-300 hover:shadow-md"
+        className="exec-surface group relative overflow-hidden text-left w-full transition-shadow hover:border-slate-600 hover:shadow-md"
       >
         {content}
       </button>

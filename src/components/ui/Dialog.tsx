@@ -144,15 +144,15 @@ export function Dialog({
       <div
         aria-hidden="true"
         onClick={onClose}
-        className="fixed inset-0 bg-slate-950/55 backdrop-blur-[1px] transition-opacity"
+        className="fixed inset-0 bg-slate-950/75 backdrop-blur-[2px] transition-opacity"
       />
 
       {/* Dialog Container */}
       <div
         className={
           isDrawer
-            ? 'relative z-10 ml-auto flex h-full w-full max-w-xl flex-col bg-white shadow-2xl border-l border-slate-200'
-            : 'relative z-10 m-auto flex max-h-[90vh] w-[calc(100vw-1.5rem)] flex-col rounded-2xl bg-white shadow-2xl border border-slate-200 ' +
+            ? 'relative z-10 ml-auto flex h-full w-full max-w-xl flex-col bg-[#0e1726] shadow-2xl border-l border-slate-800'
+            : 'relative z-10 m-auto flex max-h-[90vh] w-[calc(100vw-1.5rem)] flex-col rounded-2xl bg-[#0e1726] shadow-2xl border border-slate-800 ' +
               maxWidthClass
         }
         ref={panelRef}
@@ -162,13 +162,13 @@ export function Dialog({
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 id={titleId} className="text-base sm:text-lg font-semibold text-slate-900">
+            <h2 id={titleId} className="text-base sm:text-lg font-semibold text-slate-50">
               {title}
             </h2>
             {description ? (
-              <p id={descId} className="mt-1 text-xs sm:text-sm text-slate-600">
+              <p id={descId} className="mt-1 text-xs sm:text-sm text-slate-300">
                 {description}
               </p>
             ) : null}
@@ -177,7 +177,7 @@ export function Dialog({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="touch-target -mr-2 -mt-1 inline-flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            className="touch-target -mr-2 -mt-1 inline-flex items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -186,7 +186,7 @@ export function Dialog({
         <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6">{children}</div>
 
         {footer ? (
-          <div className="border-t border-slate-200 bg-slate-50/80 px-5 py-3.5 sm:px-6 flex flex-wrap items-center justify-end gap-2.5 rounded-b-2xl">
+          <div className="border-t border-slate-800 bg-[#0b1320]/90 px-5 py-3.5 sm:px-6 flex flex-wrap items-center justify-end gap-2.5 rounded-b-2xl">
             {footer}
           </div>
         ) : null}

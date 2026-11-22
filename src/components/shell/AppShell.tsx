@@ -116,7 +116,7 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[var(--surface-canvas)] text-slate-900">
+    <div className="min-h-screen flex flex-col md:flex-row bg-[var(--surface-canvas)] text-slate-100">
       <a href="#main-workspace-content" className="skip-link">
         Skip to main content
       </a>
@@ -355,11 +355,11 @@ export function AppShell({
       {/* Main Content Area */}
       <div className="flex min-w-0 flex-1 flex-col pb-20 md:pb-0">
         {/* Sticky Executive Top Header */}
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
+        <header className="sticky top-0 z-30 border-b border-slate-800 bg-[#0b1320]/95 backdrop-blur-xs">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="truncate text-base sm:text-lg font-bold text-slate-900">
+                <h1 className="truncate text-base sm:text-lg font-bold text-slate-50">
                   {activeNavTitle}
                 </h1>
                 {role ? (
@@ -368,7 +368,7 @@ export function AppShell({
                   </Badge>
                 ) : null}
               </div>
-              <p className="truncate text-xs text-slate-500">
+              <p className="truncate text-xs text-slate-400">
                 {workspace?.name ?? 'Workspace'}
               </p>
             </div>
@@ -379,7 +379,7 @@ export function AppShell({
                 type="button"
                 onClick={() => void handleSignOut()}
                 aria-label="Sign out"
-                className="md:hidden touch-target inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white p-2.5 text-slate-700 hover:bg-slate-50"
+                className="md:hidden touch-target inline-flex items-center justify-center rounded-xl border border-slate-700 bg-slate-900 p-2.5 text-slate-200 hover:bg-slate-800"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -388,15 +388,15 @@ export function AppShell({
         </header>
 
         {modules.inventory || modules.bookkeeping || modules.vault ? (
-          <div className="md:hidden border-b border-slate-200 bg-slate-50 px-4 py-2 flex flex-wrap gap-2">
+          <div className="md:hidden border-b border-slate-800 bg-[#0e1726] px-4 py-2 flex flex-wrap gap-2">
             {modules.inventory ? (
               <button
                 type="button"
                 onClick={() => navigateSection('inventory')}
                 className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
                   section === 'inventory'
-                    ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
-                    : 'border-slate-300 bg-white text-slate-700'
+                    ? 'border-[#fb923c]/40 bg-[rgba(234,88,12,0.16)] text-[#fdba74]'
+                    : 'border-slate-700 bg-slate-900 text-slate-300'
                 }`}
               >
                 <Boxes className="h-3.5 w-3.5" aria-hidden="true" />
@@ -409,8 +409,8 @@ export function AppShell({
                 onClick={() => navigateSection('bookkeeping')}
                 className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
                   section === 'bookkeeping'
-                    ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
-                    : 'border-slate-300 bg-white text-slate-700'
+                    ? 'border-[#fb923c]/40 bg-[rgba(234,88,12,0.16)] text-[#fdba74]'
+                    : 'border-slate-700 bg-slate-900 text-slate-300'
                 }`}
               >
                 <BookOpenCheck className="h-3.5 w-3.5" aria-hidden="true" />
@@ -424,8 +424,8 @@ export function AppShell({
                   onClick={() => navigateSection('vault')}
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
                     section === 'vault'
-                      ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
-                      : 'border-slate-300 bg-white text-slate-700'
+                      ? 'border-[#fb923c]/40 bg-[rgba(234,88,12,0.16)] text-[#fdba74]'
+                      : 'border-slate-700 bg-slate-900 text-slate-300'
                   }`}
                 >
                   <Lock className="h-3.5 w-3.5" aria-hidden="true" />
@@ -436,8 +436,8 @@ export function AppShell({
                   onClick={() => navigateSection('sops')}
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
                     section === 'sops'
-                      ? 'border-[#ea580c] bg-[#fff7ed] text-[#9a3412]'
-                      : 'border-slate-300 bg-white text-slate-700'
+                      ? 'border-[#fb923c]/40 bg-[rgba(234,88,12,0.16)] text-[#fdba74]'
+                      : 'border-slate-700 bg-slate-900 text-slate-300'
                   }`}
                 >
                   <FileText className="h-3.5 w-3.5" aria-hidden="true" />
@@ -460,7 +460,7 @@ export function AppShell({
       {/* Mobile 5-Tab Bottom Navigation Bar (44x44px minimum tap targets) */}
       <nav
         aria-label="Mobile workspace navigation"
-        className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/98 backdrop-blur-xs md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-800 bg-[#0b1320]/98 backdrop-blur-xs md:hidden"
       >
         <div className="grid grid-cols-5">
           {WORKSPACE_NAV_ITEMS.map(item => {
@@ -475,12 +475,12 @@ export function AppShell({
                 onClick={() => navigateSection(item.section)}
                 className={`touch-target flex flex-col items-center justify-center gap-1 py-2 px-1 text-[11px] font-semibold transition ${
                   isActive
-                    ? 'text-[#9a3412] bg-[#fff7ed] border-t-2 border-[#ea580c]'
-                    : 'text-slate-500 hover:text-slate-900 border-t-2 border-transparent'
+                    ? 'text-[#fdba74] bg-[rgba(234,88,12,0.16)] border-t-2 border-[#fb923c]'
+                    : 'text-slate-400 hover:text-slate-100 border-t-2 border-transparent'
                 }`}
               >
                 <Icon
-                  className={`h-4 w-4 ${isActive ? 'text-[#ea580c]' : 'text-slate-400'}`}
+                  className={`h-4 w-4 ${isActive ? 'text-[#fb923c]' : 'text-slate-400'}`}
                   aria-hidden="true"
                 />
                 <span className="truncate max-w-full">{item.mobileLabel}</span>

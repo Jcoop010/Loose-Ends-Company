@@ -106,21 +106,21 @@ export function ToastProvider({
           return (
             <div
               key={item.id}
-              className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-white p-3.5 shadow-lg ${
+              className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-[#0e1726] p-3.5 shadow-lg ${
                 isError
-                  ? 'border-rose-300'
+                  ? 'border-rose-500/40'
                   : isSuccess
-                    ? 'border-emerald-300'
-                    : 'border-orange-200'
+                    ? 'border-emerald-500/40'
+                    : 'border-orange-500/40'
               }`}
             >
               <span
                 className={`mt-0.5 shrink-0 ${
                   isError
-                    ? 'text-rose-600'
+                    ? 'text-rose-400'
                     : isSuccess
-                      ? 'text-emerald-600'
-                      : 'text-[#ea580c]'
+                      ? 'text-emerald-400'
+                      : 'text-[#fb923c]'
                 }`}
                 aria-hidden="true"
               >
@@ -133,16 +133,16 @@ export function ToastProvider({
                 )}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                <p className="text-sm font-semibold text-slate-50">{item.title}</p>
                 {item.description ? (
-                  <p className="mt-0.5 text-xs text-slate-600 leading-relaxed">{item.description}</p>
+                  <p className="mt-0.5 text-xs text-slate-300 leading-relaxed">{item.description}</p>
                 ) : null}
               </div>
               <button
                 type="button"
                 onClick={() => dismissToast(item.id)}
                 aria-label="Dismiss notification"
-                className="touch-target -m-1.5 inline-flex items-center justify-center rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                className="touch-target -m-1.5 inline-flex items-center justify-center rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
