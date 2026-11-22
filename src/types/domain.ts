@@ -251,10 +251,12 @@ export type ConsentDecision = 'granted' | 'revoked'
 export interface ConsentEvent {
   id: string
   workspace_id: string
-  customer_id: string
+  customer_id: string | null
   channel: ConsentChannel
   decision: ConsentDecision
   evidence_reference: string
+  email?: string | null
+  status?: string | null
   actor_user_id: string | null
   created_at: string
 }
@@ -471,7 +473,7 @@ export type CommunicationDraftStatus = 'draft' | 'approved' | 'rejected'
 export interface OpsCommunicationDraft {
   id: string
   workspace_id: string
-  customer_id: string
+  customer_id: string | null
   lead_id?: string | null
   recipient_email?: string | null
   recipient_name?: string | null

@@ -104,7 +104,71 @@ assert.equal(invokedFunctions.length, 1)
 assert.equal(invokedFunctions[0].fnName, 'recovery-delivery-preflight')
 assert.equal(invokedFunctions[0].body.action, 'enqueue_draft')
 
+// 3. Strict separation: SMS without opt-in is blocked even with CAN-SPAM footer;
+// B2B email without opt-in is allowed ONLY when CAN-SPAM footer is present & recipient is not opted out.
+latestConsentRows = []
+await assert.rejects(
+  () =>
+    edgeMod.approveAndEnqueueRecoveryDraft({
+      workspaceId: wsId,
+      opportunityId: oppId,
+      customerId: custId,
+      channel: 'sms',
+      consentEvidenceReference: 'CAN-SPAM-B2B-FOOTER-VERIFIED',
+      message:
+        'Hi — quick note.\n\nReply STOP to opt out · Loose Ends · 421 Hill Street, Parkersburg, WV 26104',
+    }),
+  /missing, mismatched, or revoked/,
+)
+
+await assert.rejects(
+  () =>
+    edgeMod.approveAndEnqueueRecoveryDraft({
+      workspaceId: wsId,
+      opportunityId: oppId,
+      customerId: custId,
+      channel: 'email',
+      consentEvidenceReference: 'CAN-SPAM-B2B-FOOTER-VERIFIED',
+      message: 'Quick question without physical address or unsubscribe link.',
+    }),
+  /421 Hill Street, Parkersburg, WV 26104/,
+)
+
+const b2bRes = await edgeMod.approveAndEnqueueRecoveryDraft({
+  workspaceId: wsId,
+  opportunityId: oppId,
+  customerId: custId,
+  channel: 'email',
+  consentEvidenceReference: 'CAN-SPAM-B2B-FOOTER-VERIFIED',
+  recipientEmail: 'owner@example.invalid',
+  message:
+    'Hi Sam,\n\nQuick follow-up.\n\nUnsubscribe or reply STOP to opt out · 421 Hill Street, Parkersburg, WV 26104',
+})
+assert.equal(b2bRes.queued, true)
+assert.equal(insertedAudits.at(-1).metadata.consent_basis, 'can_spam_b2b')
+assert.equal(insertedAudits.at(-1).metadata.consent_event_id, null)
+
+// 4. Opted-out recipient email or revoked consent strictly blocks B2B email even with valid CAN-SPAM footer
+latestConsentRows = [{ id: 'consent-3', decision: 'granted', status: 'opted_out', evidence_reference: 'X' }]
+await assert.rejects(
+  () =>
+    edgeMod.approveAndEnqueueRecoveryDraft({
+      workspaceId: wsId,
+      opportunityId: oppId,
+      customerId: custId,
+      channel: 'email',
+      consentEvidenceReference: 'CAN-SPAM-B2B-FOOTER-VERIFIED',
+      recipientEmail: 'owner@example.invalid',
+      message:
+        'Hi Sam,\n\nReply STOP to unsubscribe · 421 Hill Street, Parkersburg, WV 26104',
+    }),
+  /opted out|revoked/i,
+)
+
+const guardCode = readSrc('src/lib/canSpamGuard.ts')
+assert.match(guardCode, /CAN-SPAM Ready \(B2B\)/)
 const uiCode = readSrc('src/features/workspaces/pipeline-quotes/ConsentDraftsPanel.tsx')
+assert.match(uiCode, /compliance\.badgeLabel/)
 assert.doesNotMatch(
   uiCode,
   /fetch\(['"]https?:\/\/[^'"]+\/messages/,

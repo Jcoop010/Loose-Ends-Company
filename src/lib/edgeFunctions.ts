@@ -7,6 +7,12 @@ import type {
   StagedLedgerLineItem,
   Workspace,
 } from '../types/domain'
+import {
+  CAN_SPAM_B2B_EVIDENCE_REF,
+  CAN_SPAM_PHYSICAL_ADDRESS,
+  isCanSpamFooterCompliant,
+  isConsentEventSuppressed,
+} from './canSpamGuard'
 import { assertSupabaseConfigured, supabase } from './supabase'
 
 export const CUSTOMER_IMPORT_BATCH_SIZE = 100
@@ -286,10 +292,11 @@ export async function approveAndEnqueueRecoveryDraft(params: {
   customerId: string
   channel: ConsentChannel
   consentEvidenceReference: string
+  recipientEmail?: string | null
   message: string
 }): Promise<RecoveryPreflightResult> {
   assertSupabaseConfigured()
-  const { workspaceId, opportunityId, customerId, channel, message } = params
+  const { workspaceId, opportunityId, customerId, channel, recipientEmail, message } = params
   const evidenceReference = params.consentEvidenceReference.trim()
 
   if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(opportunityId) || !UUID_PATTERN.test(customerId)) {
@@ -298,7 +305,11 @@ export async function approveAndEnqueueRecoveryDraft(params: {
   if (!['sms', 'email', 'call'].includes(channel)) {
     throw new Error('Select a valid communication channel (sms, email, or call).')
   }
-  if (evidenceReference.length < 8) {
+  const canTryCanSpamB2b =
+    channel === 'email' &&
+    isCanSpamFooterCompliant(message) &&
+    (evidenceReference === '' || evidenceReference === CAN_SPAM_B2B_EVIDENCE_REF)
+  if (!canTryCanSpamB2b && evidenceReference.length < 8) {
     throw new Error('Provide a consent evidence reference of at least 8 characters.')
   }
   if (!message.trim()) {
@@ -312,7 +323,7 @@ export async function approveAndEnqueueRecoveryDraft(params: {
 
   const { data: consentRows, error: consentError } = await supabase
     .from('customer_contact_consent_events')
-    .select('id,decision,evidence_reference')
+    .select('id,decision,status,evidence_reference')
     .eq('workspace_id', workspaceId)
     .eq('customer_id', customerId)
     .eq('channel', channel)
@@ -322,15 +333,45 @@ export async function approveAndEnqueueRecoveryDraft(params: {
 
   if (consentError) throw consentError
   const latestConsent = consentRows?.[0] as
-    | { id: string; decision: string; evidence_reference: string }
+    | { id: string; decision: string; status?: string | null; evidence_reference: string }
     | undefined
 
+  let emailSuppressed = false
+  const normalizedRecipientEmail = recipientEmail?.trim().toLowerCase() ?? ''
+  if (channel === 'email' && normalizedRecipientEmail) {
+    const { data: emailRows, error: emailError } = await supabase
+      .from('customer_contact_consent_events')
+      .select('id,decision,status')
+      .eq('workspace_id', workspaceId)
+      .eq('email', normalizedRecipientEmail)
+      .limit(25)
+    if (emailError) throw emailError
+    emailSuppressed = (emailRows ?? []).some(row =>
+      isConsentEventSuppressed(row as { decision?: string | null; status?: string | null }),
+    )
+  }
+
+  const suppressed = emailSuppressed || isConsentEventSuppressed(latestConsent)
+  const isCanSpamB2b =
+    channel === 'email' &&
+    !suppressed &&
+    !latestConsent &&
+    isCanSpamFooterCompliant(message)
+
   if (
-    !latestConsent ||
-    latestConsent.decision !== 'granted' ||
-    latestConsent.evidence_reference !== evidenceReference
+    suppressed ||
+    (!isCanSpamB2b &&
+      (!latestConsent ||
+        latestConsent.decision !== 'granted' ||
+        latestConsent.evidence_reference !== evidenceReference))
   ) {
-    throw new Error('Current recorded channel consent is missing, mismatched, or revoked. Approval blocked.')
+    throw new Error(
+      suppressed
+        ? 'Current recorded channel consent is missing, mismatched, or revoked (recipient opted out). Approval blocked.'
+        : channel === 'email' && !latestConsent
+          ? `B2B email requires physical address (${CAN_SPAM_PHYSICAL_ADDRESS}) and unsubscribe/opt-out instruction, or recorded EMAIL opt-in.`
+          : 'Current recorded channel consent is missing, mismatched, or revoked. Approval blocked.',
+    )
   }
 
   const { data: auditRow, error: auditError } = await supabase
@@ -343,10 +384,11 @@ export async function approveAndEnqueueRecoveryDraft(params: {
       action: 'recovery_draft_approved',
       metadata: {
         channel,
-        consent_reference: evidenceReference,
-        consent_event_id: latestConsent.id,
-        consent_basis: 'recorded_consent',
+        consent_reference: isCanSpamB2b ? CAN_SPAM_B2B_EVIDENCE_REF : evidenceReference,
+        consent_event_id: isCanSpamB2b ? null : latestConsent!.id,
+        consent_basis: isCanSpamB2b ? 'can_spam_b2b' : 'recorded_consent',
         customer_id: customerId,
+        recipient_email: normalizedRecipientEmail || null,
         message: message.trim(),
         delivery_status: 'not_sent',
       },

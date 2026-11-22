@@ -17,6 +17,11 @@
 
 import { resolve } from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {
+  CAN_SPAM_PHYSICAL_ADDRESS,
+  isCanSpamFooterCompliant,
+  isConsentEventSuppressed,
+} from '../src/lib/canSpamGuard.ts';
 
 const seenEnvFiles = new Set<string>();
 const repoEnvLocal = resolve(
@@ -176,14 +181,7 @@ async function isRecipientSuppressed(
       .eq('email', normalizedEmail);
 
     const typedDirect = (directEvents ?? []) as ConsentSuppressionRow[];
-    if (
-      typedDirect.some(
-        (evt) =>
-          evt.status === 'opted_out' ||
-          evt.status === 'revoked' ||
-          evt.decision === 'revoked'
-      )
-    ) {
+    if (typedDirect.some((evt) => isConsentEventSuppressed(evt))) {
       return true;
     }
   }
@@ -195,20 +193,124 @@ async function isRecipientSuppressed(
       .eq('customer_id', customerId)
       .eq('channel', 'email')
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(1);
 
     const latestCust = ((custEvents ?? []) as ConsentSuppressionRow[])[0];
-    if (
-      latestCust &&
-      (latestCust.status === 'opted_out' ||
-        latestCust.status === 'revoked' ||
-        latestCust.decision === 'revoked')
-    ) {
+    if (isConsentEventSuppressed(latestCust)) {
       return true;
     }
   }
 
   return false;
+}
+
+async function hasGrantedEmailConsent(
+  supabase: SupabaseClient,
+  customerId: string | null
+): Promise<boolean> {
+  if (!customerId) return false;
+  const { data } = await supabase
+    .from('customer_contact_consent_events')
+    .select('id, status, decision')
+    .eq('customer_id', customerId)
+    .eq('channel', 'email')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1);
+
+  const latest = ((data ?? []) as ConsentSuppressionRow[])[0];
+  return Boolean(latest && latest.decision === 'granted' && !isConsentEventSuppressed(latest));
+}
+
+interface OutboundDraftInspection {
+  recipientEmail: string;
+  companyLabel: string;
+  allowed: boolean;
+  basis: 'recorded_consent' | 'can_spam_b2b' | 'blocked';
+  shouldAutoReject: boolean;
+  reason: string;
+}
+
+async function inspectOutboundEmailDraft(
+  supabase: SupabaseClient,
+  draft: ApprovedDraftRow
+): Promise<OutboundDraftInspection> {
+  let recipientEmail = (draft.recipient_email ?? '').trim().toLowerCase();
+  let companyLabel = (draft.company_name ?? '').trim();
+
+  if ((!recipientEmail || !companyLabel) && draft.customer_id) {
+    const { data: custData } = await supabase
+      .from('customers')
+      .select('id, email, first_name, last_name')
+      .eq('id', draft.customer_id)
+      .maybeSingle();
+
+    const cust = custData as CustomerEmailRow | null;
+    if (cust) {
+      if (!recipientEmail && cust.email) {
+        recipientEmail = cust.email.trim().toLowerCase();
+      }
+      if (!companyLabel) {
+        companyLabel = (cust.last_name ?? cust.first_name).trim();
+      }
+    }
+  }
+
+  if (!recipientEmail) {
+    return {
+      recipientEmail: '',
+      companyLabel,
+      allowed: false,
+      basis: 'blocked',
+      shouldAutoReject: false,
+      reason: 'no recipient email on file',
+    };
+  }
+
+  const suppressed = await isRecipientSuppressed(supabase, recipientEmail, draft.customer_id);
+  if (suppressed) {
+    return {
+      recipientEmail,
+      companyLabel,
+      allowed: false,
+      basis: 'blocked',
+      shouldAutoReject: true,
+      reason: 'consent revocation / opt-out recorded',
+    };
+  }
+
+  const granted = await hasGrantedEmailConsent(supabase, draft.customer_id);
+  if (granted) {
+    return {
+      recipientEmail,
+      companyLabel,
+      allowed: true,
+      basis: 'recorded_consent',
+      shouldAutoReject: false,
+      reason: 'recorded email opt-in verified',
+    };
+  }
+
+  if (isCanSpamFooterCompliant(draft.message)) {
+    return {
+      recipientEmail,
+      companyLabel,
+      allowed: true,
+      basis: 'can_spam_b2b',
+      shouldAutoReject: false,
+      reason: 'CAN-SPAM B2B physical address + opt-out footer verified',
+    };
+  }
+
+  return {
+    recipientEmail,
+    companyLabel,
+    allowed: false,
+    basis: 'blocked',
+    shouldAutoReject: false,
+    reason: `missing physical address (${CAN_SPAM_PHYSICAL_ADDRESS}) or opt-out/unsubscribe footer`,
+  };
 }
 
 async function sendViaResend(params: {
@@ -370,67 +472,46 @@ async function sendApprovedDrafts(): Promise<void> {
   const typedDrafts = (drafts ?? []) as ApprovedDraftRow[];
 
   if (isDryRun) {
-    let pendingCount = 0;
     let pendingQuery = supabase
       .from('ops_communication_drafts')
-      .select('id', { count: 'exact', head: true })
+      .select('*')
       .eq('status', 'draft')
       .eq('delivery_status', 'not_sent')
-      .eq('channel', 'email');
+      .eq('channel', 'email')
+      .order('created_at', { ascending: true })
+      .limit(100);
     if (workspaceId) {
       pendingQuery = pendingQuery.eq('workspace_id', workspaceId);
     }
-    const { count } = await pendingQuery;
-    pendingCount = count ?? 0;
+    const { data: pendingRows } = await pendingQuery;
+    const pendingDrafts = (pendingRows ?? []) as ApprovedDraftRow[];
+    let pendingReadyCount = 0;
+    for (const pending of pendingDrafts) {
+      const check = await inspectOutboundEmailDraft(supabase, pending);
+      if (check.allowed) pendingReadyCount += 1;
+    }
 
     let readyCount = 0;
     let skippedCount = 0;
 
     for (const draft of typedDrafts) {
-      let recipientEmail = (draft.recipient_email ?? '').trim().toLowerCase();
-      let companyLabel = (draft.company_name ?? '').trim();
-
-      if ((!recipientEmail || !companyLabel) && draft.customer_id) {
-        const { data: custData } = await supabase
-          .from('customers')
-          .select('id, email, first_name, last_name')
-          .eq('id', draft.customer_id)
-          .maybeSingle();
-
-        const cust = custData as CustomerEmailRow | null;
-        if (cust) {
-          if (!recipientEmail && cust.email) {
-            recipientEmail = cust.email.trim().toLowerCase();
-          }
-          if (!companyLabel) {
-            companyLabel = (cust.last_name ?? cust.first_name).trim();
-          }
-        }
-      }
-
-      if (!recipientEmail) {
+      const check = await inspectOutboundEmailDraft(supabase, draft);
+      if (!check.allowed) {
         skippedCount += 1;
-        console.log(`⏭️  [DRY-RUN] Skip draft ${draft.id} (${companyLabel || draft.subject}): no recipient email.`);
-        continue;
-      }
-
-      const suppressed = await isRecipientSuppressed(
-        supabase,
-        recipientEmail,
-        draft.customer_id
-      );
-      if (suppressed) {
-        skippedCount += 1;
-        console.log(`🛑 [DRY-RUN] Suppressed draft ${draft.id} (${recipientEmail}): consent opt-out recorded.`);
+        console.log(
+          `🛑 [DRY-RUN] Blocked draft ${draft.id} (${check.companyLabel || draft.subject}): ${check.reason}.`
+        );
         continue;
       }
 
       readyCount += 1;
-      console.log(`✅ [DRY-RUN] Ready draft ${draft.id}: "${draft.subject}" -> <${recipientEmail}>`);
+      console.log(
+        `✅ [DRY-RUN] Ready draft ${draft.id} (${check.basis}): "${draft.subject}" -> <${check.recipientEmail}>`
+      );
     }
 
     console.log(
-      `\n🧪 DRY-RUN PREFLIGHT PASS | Approved Ready: ${readyCount} | Skipped/Suppressed: ${skippedCount} | Pending Approval: ${pendingCount} | Live Emails Sent: 0`
+      `\n🧪 DRY-RUN PREFLIGHT PASS | Approved Ready: ${readyCount} | Skipped/Blocked: ${skippedCount} | Pending Approval: ${pendingDrafts.length} (${pendingReadyCount} CAN-SPAM/Consent ready) | Live Emails Sent: 0`
     );
     return;
   }
@@ -443,50 +524,26 @@ async function sendApprovedDrafts(): Promise<void> {
   let sentCount = 0;
 
   for (const draft of typedDrafts) {
-    let recipientEmail = (draft.recipient_email ?? '').trim().toLowerCase();
-    let companyLabel = (draft.company_name ?? '').trim();
-
-    if ((!recipientEmail || !companyLabel) && draft.customer_id) {
-      const { data: custData } = await supabase
-        .from('customers')
-        .select('id, email, first_name, last_name')
-        .eq('id', draft.customer_id)
-        .maybeSingle();
-
-      const cust = custData as CustomerEmailRow | null;
-      if (cust) {
-        if (!recipientEmail && cust.email) {
-          recipientEmail = cust.email.trim().toLowerCase();
-        }
-        if (!companyLabel) {
-          companyLabel = (cust.last_name ?? cust.first_name).trim();
-        }
+    const check = await inspectOutboundEmailDraft(supabase, draft);
+    if (!check.allowed) {
+      if (check.shouldAutoReject) {
+        console.warn(
+          `🛑 Consent revocation / opt-out detected for ${check.recipientEmail}. Rejecting draft ${draft.id}.`
+        );
+        await supabase
+          .from('ops_communication_drafts')
+          .update({ status: 'rejected' })
+          .eq('id', draft.id);
+      } else {
+        console.warn(
+          `⏭️  Blocking approved draft ${draft.id} (${check.companyLabel || draft.subject}): ${check.reason}.`
+        );
       }
-    }
-
-    if (!recipientEmail) {
-      console.warn(
-        `⏭️  Skipping approved draft ${draft.id} (${companyLabel || draft.subject}): no recipient email on file.`
-      );
       continue;
     }
 
-    // Re-verify consent events before sending
-    const suppressed = await isRecipientSuppressed(
-      supabase,
-      recipientEmail,
-      draft.customer_id
-    );
-    if (suppressed) {
-      console.warn(
-        `🛑 Consent revocation / opt-out detected for ${recipientEmail}. Rejecting draft ${draft.id}.`
-      );
-      await supabase
-        .from('ops_communication_drafts')
-        .update({ status: 'rejected' })
-        .eq('id', draft.id);
-      continue;
-    }
+    const recipientEmail = check.recipientEmail;
+    const companyLabel = check.companyLabel;
 
     const sendResult = hasResend
       ? await sendViaResend({

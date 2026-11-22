@@ -8,6 +8,11 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from 'lucide-react'
+import {
+  CAN_SPAM_B2B_EVIDENCE_REF,
+  evaluateDraftCompliance,
+  isConsentEventSuppressed,
+} from '../../../lib/canSpamGuard'
 import { approveAndEnqueueRecoveryDraft } from '../../../lib/edgeFunctions'
 import { customerDisplayName, formatDateTime } from '../../../lib/format'
 import { createIdempotencyKey, opsCommand } from '../../../lib/opsCommand'
@@ -156,6 +161,7 @@ export function ConsentDraftsPanel({
   const latestConsentMap = useMemo(() => {
     const map = new Map<string, ConsentEvent>()
     for (const ev of consentEvents) {
+      if (!ev.customer_id) continue
       const key = `${ev.customer_id}:${ev.channel}`
       if (!map.has(key)) {
         map.set(key, ev)
@@ -164,10 +170,48 @@ export function ConsentDraftsPanel({
     return map
   }, [consentEvents])
 
+  const suppressedEmailsSet = useMemo(() => {
+    const set = new Set<string>()
+    for (const ev of consentEvents) {
+      if (!isConsentEventSuppressed(ev)) continue
+      if (ev.email?.trim()) {
+        set.add(ev.email.trim().toLowerCase())
+      }
+      if (ev.customer_id) {
+        const custEmail = customersById.get(ev.customer_id)?.email?.trim().toLowerCase()
+        if (custEmail) set.add(custEmail)
+      }
+    }
+    for (const [key, ev] of latestConsentMap.entries()) {
+      if (!key.endsWith(':email') || !isConsentEventSuppressed(ev) || !ev.customer_id) continue
+      const custEmail = customersById.get(ev.customer_id)?.email?.trim().toLowerCase()
+      if (custEmail) set.add(custEmail)
+    }
+    return set
+  }, [consentEvents, customersById, latestConsentMap])
+
   const getLatestConsent = (
-    customerId: string,
+    customerId: string | null | undefined,
     channel: ConsentChannel,
-  ): ConsentEvent | undefined => latestConsentMap.get(`${customerId}:${channel}`)
+  ): ConsentEvent | undefined =>
+    customerId ? latestConsentMap.get(`${customerId}:${channel}`) : undefined
+
+  const isDraftEmailSuppressed = (draft: OpsCommunicationDraft): boolean => {
+    if (draft.channel !== 'email') return false
+    const custEmail = draft.customer_id
+      ? customersById.get(draft.customer_id)?.email
+      : undefined
+    const resolved = (draft.recipient_email ?? custEmail ?? '').trim().toLowerCase()
+    return Boolean(resolved && suppressedEmailsSet.has(resolved))
+  }
+
+  const getDraftCompliance = (draft: OpsCommunicationDraft) =>
+    evaluateDraftCompliance({
+      channel: draft.channel,
+      message: draft.message,
+      latestConsent: getLatestConsent(draft.customer_id, draft.channel),
+      emailSuppressed: isDraftEmailSuppressed(draft),
+    })
 
   const handleSaveDraft = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -206,11 +250,12 @@ export function ConsentDraftsPanel({
     decision: 'approved' | 'rejected',
   ) => {
     if (reviewingId) return
-    const latest = getLatestConsent(draft.customer_id, draft.channel)
-    if (decision === 'approved' && (!latest || latest.decision !== 'granted')) {
+    const compliance = getDraftCompliance(draft)
+    if (decision === 'approved' && !compliance.allowed) {
       toast.error(
-        'Approval blocked by Consent Guard',
-        `Record granted ${draft.channel.toUpperCase()} consent for this customer before approving.`,
+        'Approval blocked by Compliance Guard',
+        compliance.blockReason ??
+          `Verify consent or CAN-SPAM footer requirements before approving.`,
       )
       return
     }
@@ -272,7 +317,45 @@ export function ConsentDraftsPanel({
     }
   }
 
-  const openPreflightModal = (draft: OpsCommunicationDraft) => {
+  const openPreflightModal = async (draft: OpsCommunicationDraft) => {
+    const compliance = getDraftCompliance(draft)
+    if (!compliance.allowed) {
+      toast.error(
+        'Preflight blocked',
+        compliance.blockReason ?? 'Draft does not meet channel compliance requirements.',
+      )
+      return
+    }
+
+    // Lead-backed B2B email drafts (customer_id = null) do not link to a CRM customer/opportunity row,
+    // so Approve & Preflight verifies CAN-SPAM compliance server-side via ops_command('draft_review').
+    if (!draft.customer_id) {
+      if (reviewingId) return
+      setReviewingId(draft.id)
+      try {
+        await opsCommand(
+          workspaceId,
+          'draft_review',
+          { id: draft.id, status: 'approved' },
+          createIdempotencyKey(),
+        )
+        toast.success(
+          'Approved & CAN-SPAM B2B preflight verified',
+          `${draft.subject} queued at delivery_status: not_sent.`,
+        )
+        await loadDraftsPage()
+        await onConsentOrDraftsChanged()
+      } catch (err) {
+        toast.error(
+          'Preflight approval failed',
+          err instanceof Error ? err.message : 'Retry.',
+        )
+      } finally {
+        setReviewingId(null)
+      }
+      return
+    }
+
     const customerOpps = opportunities.filter(
       o => o.customer_id === draft.customer_id && o.status !== 'dismissed',
     )
@@ -282,16 +365,46 @@ export function ConsentDraftsPanel({
 
   const handleRunPreflight = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!preflightDraft) return
-    const latest = getLatestConsent(preflightDraft.customer_id, preflightDraft.channel)
-    if (!latest || latest.decision !== 'granted') {
+    if (!preflightDraft || !preflightDraft.customer_id) return
+    const compliance = getDraftCompliance(preflightDraft)
+    if (!compliance.allowed) {
       toast.error(
         'Preflight blocked',
-        'Latest channel consent must be granted before recovery-delivery-preflight.',
+        compliance.blockReason ??
+          'Draft must pass channel opt-in or CAN-SPAM B2B verification before preflight.',
       )
       return
     }
+    const latest = getLatestConsent(preflightDraft.customer_id, preflightDraft.channel)
     if (!preflightOpportunityId) {
+      if (compliance.basis === 'can_spam_b2b') {
+        setEnqueueing(true)
+        try {
+          if (preflightDraft.status === 'draft') {
+            await opsCommand(
+              workspaceId,
+              'draft_review',
+              { id: preflightDraft.id, status: 'approved' },
+              createIdempotencyKey(),
+            )
+          }
+          setPreflightDraft(null)
+          toast.success(
+            'Approved & CAN-SPAM B2B preflight verified',
+            `${preflightDraft.subject} queued at delivery_status: not_sent.`,
+          )
+          await loadDraftsPage()
+          await onConsentOrDraftsChanged()
+        } catch (err) {
+          toast.error(
+            'Preflight verification failed',
+            err instanceof Error ? err.message : 'Could not approve draft.',
+          )
+        } finally {
+          setEnqueueing(false)
+        }
+        return
+      }
       toast.error('Select an opportunity', 'Link this recovery draft to an active opportunity.')
       return
     }
@@ -307,12 +420,17 @@ export function ConsentDraftsPanel({
         )
       }
 
+      const custEmail = customersById.get(preflightDraft.customer_id)?.email
       const res = await approveAndEnqueueRecoveryDraft({
         workspaceId,
         opportunityId: preflightOpportunityId,
         customerId: preflightDraft.customer_id,
         channel: preflightDraft.channel,
-        consentEvidenceReference: latest.evidence_reference,
+        consentEvidenceReference:
+          latest?.decision === 'granted'
+            ? latest.evidence_reference
+            : CAN_SPAM_B2B_EVIDENCE_REF,
+        recipientEmail: preflightDraft.recipient_email ?? custEmail ?? null,
         message: preflightDraft.message,
       })
 
@@ -336,6 +454,7 @@ export function ConsentDraftsPanel({
   const preflightConsent = preflightDraft
     ? getLatestConsent(preflightDraft.customer_id, preflightDraft.channel)
     : undefined
+  const preflightCompliance = preflightDraft ? getDraftCompliance(preflightDraft) : null
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -351,8 +470,10 @@ export function ConsentDraftsPanel({
                 Consent-Gated Communication Drafts
               </h2>
               <p className="text-xs text-slate-600">
-                Every draft stays internal (<code>delivery_status = &apos;not_sent&apos;</code>) and
-                requires active channel opt-in before approval or preflight enqueue.
+                Every draft stays internal (<code>delivery_status = &apos;not_sent&apos;</code>).
+                SMS strictly requires active channel opt-in before approval; B2B email allows
+                CAN-SPAM compliance (physical address + opt-out footer) when the recipient is not
+                opted out.
               </p>
             </div>
 
@@ -438,17 +559,12 @@ export function ConsentDraftsPanel({
           ) : (
             <ul className="divide-y divide-slate-200">
               {drafts.map(draft => {
-                const cust = customersById.get(draft.customer_id)
+                const cust = draft.customer_id ? customersById.get(draft.customer_id) : undefined
                 const latest = getLatestConsent(draft.customer_id, draft.channel)
-                const consentGranted = latest?.decision === 'granted'
+                const compliance = getDraftCompliance(draft)
                 const canDismiss =
                   draft.status === 'draft' ||
                   (draft.status === 'approved' && draft.delivery_status === 'not_sent')
-                const blockReason = !latest
-                  ? `Blocked: No recorded ${draft.channel.toUpperCase()} opt-in on file`
-                  : latest.decision !== 'granted'
-                    ? `Blocked: Customer ${draft.channel.toUpperCase()} consent was revoked (${latest.evidence_reference})`
-                    : null
 
                 return (
                   <li key={draft.id} className="p-4 sm:p-5 space-y-2.5">
@@ -471,18 +587,13 @@ export function ConsentDraftsPanel({
                         >
                           {draft.status === 'rejected' ? 'dismissed' : draft.status}
                         </Badge>
-                        <Badge tone={consentGranted ? 'emerald' : 'rose'}>
-                          {consentGranted ? (
-                            <>
-                              <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-                              Consent Granted
-                            </>
+                        <Badge tone={compliance.badgeTone}>
+                          {compliance.allowed ? (
+                            <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                           ) : (
-                            <>
-                              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-                              {latest ? 'Consent Revoked' : 'Consent Missing'}
-                            </>
+                            <ShieldAlert className="h-3 w-3" aria-hidden="true" />
                           )}
+                          {compliance.badgeLabel}
                         </Badge>
                       </div>
                       <span className="text-[11px] text-slate-400 tabular-nums">
@@ -495,11 +606,15 @@ export function ConsentDraftsPanel({
                       {draft.message}
                     </p>
 
-                    {blockReason ? (
+                    {compliance.blockReason ? (
                       <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50/70 px-3 py-1.5 text-xs text-rose-900">
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600" aria-hidden="true" />
-                        <span>{blockReason}</span>
+                        <span>{compliance.blockReason}</span>
                       </div>
+                    ) : compliance.basis === 'can_spam_b2b' ? (
+                      <p className="text-[11px] text-emerald-800 font-mono">
+                        CAN-SPAM B2B ready · Physical address + opt-out footer verified · Not opted out
+                      </p>
                     ) : latest ? (
                       <p className="text-[11px] text-emerald-800 font-mono">
                         Verified consent ref: {latest.evidence_reference}
@@ -509,8 +624,8 @@ export function ConsentDraftsPanel({
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       <button
                         type="button"
-                        disabled={!consentGranted || draft.status === 'rejected'}
-                        onClick={() => openPreflightModal(draft)}
+                        disabled={!compliance.allowed || draft.status === 'rejected' || reviewingId === draft.id}
+                        onClick={() => void openPreflightModal(draft)}
                         className="exec-btn-emerald !px-3 !py-1.5 !text-xs touch-target"
                       >
                         <Send className="h-3.5 w-3.5" aria-hidden="true" />
@@ -520,7 +635,7 @@ export function ConsentDraftsPanel({
                       {draft.status === 'draft' ? (
                         <button
                           type="button"
-                          disabled={!consentGranted || reviewingId === draft.id}
+                          disabled={!compliance.allowed || reviewingId === draft.id}
                           onClick={() => void handleReviewDraft(draft, 'approved')}
                           className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
                         >
@@ -658,12 +773,12 @@ export function ConsentDraftsPanel({
           ) : (
             <ul className="divide-y divide-slate-100 text-xs">
               {consentEvents.slice(0, 6).map(ev => {
-                const cust = customersById.get(ev.customer_id)
+                const cust = ev.customer_id ? customersById.get(ev.customer_id) : undefined
                 return (
                   <li key={ev.id} className="py-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-slate-900">
-                        {cust ? customerDisplayName(cust) : 'Customer'} ({ev.channel.toUpperCase()})
+                        {cust ? customerDisplayName(cust) : ev.email ?? 'Recipient'} ({ev.channel.toUpperCase()})
                       </p>
                       <p className="truncate font-mono text-[11px] text-slate-500">
                         {ev.evidence_reference}
@@ -785,8 +900,14 @@ export function ConsentDraftsPanel({
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs space-y-1">
               <p className="font-bold text-slate-900">{preflightDraft.subject}</p>
               <p className="text-slate-600">
-                Channel: <strong>{preflightDraft.channel.toUpperCase()}</strong> · Evidence:{' '}
-                <code>{preflightConsent?.evidence_reference ?? 'MISSING'}</code>
+                Channel: <strong>{preflightDraft.channel.toUpperCase()}</strong> · Basis:{' '}
+                <code>
+                  {preflightConsent?.decision === 'granted'
+                    ? preflightConsent.evidence_reference
+                    : preflightCompliance?.basis === 'can_spam_b2b'
+                      ? CAN_SPAM_B2B_EVIDENCE_REF
+                      : 'MISSING'}
+                </code>
               </p>
             </div>
 
@@ -796,7 +917,7 @@ export function ConsentDraftsPanel({
               </label>
               <select
                 id="preflight-opp"
-                required
+                required={preflightCompliance?.basis !== 'can_spam_b2b'}
                 value={preflightOpportunityId}
                 onChange={e => setPreflightOpportunityId(e.target.value)}
                 className="exec-input"
@@ -820,7 +941,7 @@ export function ConsentDraftsPanel({
               </button>
               <button
                 type="submit"
-                disabled={enqueueing || preflightConsent?.decision !== 'granted'}
+                disabled={enqueueing || !preflightCompliance?.allowed}
                 className="exec-btn-emerald touch-target"
               >
                 {enqueueing ? 'Verifying & Enqueueing…' : 'Confirm Preflight Enqueue'}

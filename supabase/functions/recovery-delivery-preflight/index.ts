@@ -21,11 +21,27 @@ Deno.serve(async(req)=>{
  const approval=await client.from("audit_events").select("id,entity_id,metadata,action,actor_user_id").eq("id",body.approval_id).eq("workspace_id",body.workspace_id).maybeSingle();
  if(approval.error||!approval.data||approval.data.action!=="recovery_draft_approved")return respond(404,{error:"Approval not found"});
  const a=approval.data,meta=a.metadata||{},channel=meta.channel;
- if(!["sms","email","call"].includes(channel)||!meta.consent_event_id||!meta.customer_id||meta.delivery_status!=="not_sent")return respond(409,{error:"Approval missing delivery prerequisites"});
+ const isCanSpamB2b=channel==="email"&&meta.consent_basis==="can_spam_b2b";
+ if(!["sms","email","call"].includes(channel)||(!isCanSpamB2b&&!meta.consent_event_id)||!meta.customer_id||meta.delivery_status!=="not_sent")return respond(409,{error:"Approval missing delivery prerequisites"});
  const opportunity=await client.from("opportunities").select("id,customer_id").eq("workspace_id",body.workspace_id).eq("id",a.entity_id).maybeSingle();
  if(opportunity.error||!opportunity.data||opportunity.data.customer_id!==meta.customer_id)return respond(409,{error:"Opportunity/customer mismatch"});
- const consent=await client.from("customer_contact_consent_events").select("id,decision,evidence_reference").eq("workspace_id",body.workspace_id).eq("customer_id",meta.customer_id).eq("channel",channel).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1);
- if(consent.error||!consent.data?.length||consent.data[0].decision!=="granted"||consent.data[0].id!==meta.consent_event_id||consent.data[0].evidence_reference!==meta.consent_reference)return respond(409,{error:"Consent missing, superseded or revoked"});
+ const consent=await client.from("customer_contact_consent_events").select("id,decision,status,evidence_reference").eq("workspace_id",body.workspace_id).eq("customer_id",meta.customer_id).eq("channel",channel).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1);
+ if(consent.error)return respond(503,{error:"Consent verification unavailable"});
+ const latestConsent=consent.data?.[0];
+ if(isCanSpamB2b){
+   const rawMsg=String(meta.message||"");
+   const normMsg=rawMsg.toLowerCase().replace(/\s+/g," ");
+   const hasAddress=normMsg.includes("421 hill street, parkersburg, wv 26104");
+   const hasOptOut=/\b(unsubscribe|opt[\s-]?out)\b/i.test(rawMsg);
+   if(!hasAddress||!hasOptOut)return respond(409,{error:"B2B email requires physical address and opt-out instruction"});
+   if(latestConsent&&(latestConsent.decision==="revoked"||latestConsent.status==="opted_out"||latestConsent.status==="revoked"))return respond(409,{error:"Consent revoked or opted out"});
+   if(typeof meta.recipient_email==="string"&&meta.recipient_email.trim()){
+     const sup=await client.from("customer_contact_consent_events").select("id,decision,status").eq("workspace_id",body.workspace_id).eq("email",meta.recipient_email.trim().toLowerCase()).limit(25);
+     if(sup.error||sup.data?.some((r)=>r.decision==="revoked"||r.status==="opted_out"||r.status==="revoked"))return respond(409,{error:"Recipient opted out or suppressed"});
+   }
+ }else{
+   if(!consent.data?.length||consent.data[0].decision!=="granted"||consent.data[0].id!==meta.consent_event_id||consent.data[0].evidence_reference!==meta.consent_reference)return respond(409,{error:"Consent missing, superseded or revoked"});
+ }
  // Queuing is explicitly opt-in and has no delivery consumer or provider connection.
  if(body.action==="enqueue_draft"){
    const serviceKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
