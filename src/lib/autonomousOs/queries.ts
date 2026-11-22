@@ -663,6 +663,42 @@ export async function reverseLedgerEntryInDb(params: {
       .eq('id', after.vault_item_id)
   }
 
+  if (
+    entry.action_type === 'promote_shadow_session' &&
+    typeof after.shadow_session_id === 'string' &&
+    after.shadow_session_id
+  ) {
+    const prevSessionStatus =
+      restoredState && typeof restoredState.session_status === 'string'
+        ? restoredState.session_status
+        : 'ready'
+    const openIds =
+      restoredState && Array.isArray(restoredState.open_finding_ids)
+        ? restoredState.open_finding_ids.filter((id): id is string => typeof id === 'string')
+        : []
+
+    if (openIds.length > 0) {
+      await supabase
+        .from('shadow_findings')
+        .update({
+          status: 'open',
+          updated_at: updatedEntry.reversed_at,
+        })
+        .eq('workspace_id', workspaceId)
+        .eq('session_id', after.shadow_session_id)
+        .in('id', openIds)
+    }
+
+    await supabase
+      .from('shadow_sessions')
+      .update({
+        status: prevSessionStatus,
+        updated_at: updatedEntry.reversed_at,
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('id', after.shadow_session_id)
+  }
+
   const { data, error } = await supabase
     .from('agent_action_ledger')
     .update({

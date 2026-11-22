@@ -17,6 +17,7 @@ import { InvoicesArPage } from './features/workspaces/invoices-ar/InvoicesArPage
 import { LivingSopsPage } from './features/workspaces/living-sops/LivingSopsPage'
 import { PipelineQuotesPage } from './features/workspaces/pipeline-quotes/PipelineQuotesPage'
 import { QuotesESignPage } from './features/workspaces/quotes-esign/QuotesESignPage'
+import { ShadowModePage } from './features/workspaces/shadow-mode/ShadowModePage'
 import { DemoStoreProvider } from './state/DemoStoreContext'
 import { RouterProvider, useAppRouter } from './state/RouterContext'
 import { SessionProvider } from './state/SessionContext'
@@ -43,6 +44,8 @@ function AuthenticatedWorkspaceSwitch(): React.ReactElement {
       return <ComplianceVaultPage />
     case 'sops':
       return <LivingSopsPage />
+    case 'shadow':
+      return <ShadowModePage />
     case 'autopilot':
       return <AutopilotBillingPage />
     case 'command':

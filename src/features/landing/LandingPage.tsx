@@ -155,18 +155,19 @@ export function LandingPage(): React.ReactElement {
             <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-center">
               <div className="lg:col-span-7 space-y-6">
                 <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#fb923c]/40 bg-[rgba(234,88,12,0.14)] px-3.5 py-1 text-xs font-semibold text-[#fdba74]">
-                  <span>All-in-One Autonomous Business OS · Agencies, E-Commerce, Wholesale, Clinics &amp; Services</span>
+                  <span>Zero-Migration Shadow Mode · QuickBooks, Zoho &amp; Stripe CSV Leak Audit</span>
                 </div>
 
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-[1.12]">
-                  CRM, quotes &amp; e-sign, invoices &amp; autonomous agents in one ledger.
+                  The Autonomous Business OS That Pays for Itself Before You Migrate.
                 </h1>
 
                 <p className="max-w-2xl text-base sm:text-lg text-slate-300 leading-relaxed">
-                  Growing agencies, e-commerce brands, wholesalers, clinics, and service teams lose
-                  margin when quotes stall, invoices sit uncollected, and tools don&apos;t talk.
-                  Loose Ends OS runs your revenue-to-cash workflow autonomously—with Manual, 1-Tap,
-                  or Full Auto controls and 1-Click Undo—for a flat{' '}
+                  Drop in a QuickBooks, Zoho, or Stripe CSV in{' '}
+                  <strong className="text-white font-semibold">Read-Only Shadow Mode</strong> to
+                  catch unbilled quotes, overdue AR, duplicate vendor charges, and creeping
+                  subscriptions with exact cent-level proof before moving a single live ledger row
+                  — all for a flat{' '}
                   <strong className="text-white font-semibold tabular-nums">$199/month</strong> per
                   workspace.
                 </p>
@@ -178,7 +179,7 @@ export function LandingPage(): React.ReactElement {
                     className="exec-btn-primary whitespace-nowrap !px-5 !py-3 !text-sm sm:!text-base touch-target shadow-lg"
                   >
                     <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    Launch Live Sandbox (/demo)
+                    Try Shadow Mode in /demo
                   </button>
                   <button
                     type="button"
@@ -190,18 +191,39 @@ export function LandingPage(): React.ReactElement {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-800/90 max-w-xl">
-                  <div>
-                    <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">$199/mo</p>
-                    <p className="text-xs text-slate-400">Flat per workspace · unlimited seats</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-slate-800/90">
+                  <div className="rounded-xl border border-slate-800 bg-[#0e1726]/90 p-3.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[#fb923c]">
+                      1. Zero Migration Risk
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-white">
+                      Start in Read-Only Shadow Mode
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      Prove ROI on your CSV export while live books stay untouched.
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-xl sm:text-2xl font-bold text-[#fb923c] tabular-nums">$0</p>
-                    <p className="text-xs text-slate-400">Setup fees · month-to-month</p>
+                  <div className="rounded-xl border border-slate-800 bg-[#0e1726]/90 p-3.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      2. Zero AI Credit Traps
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-white tabular-nums">
+                      $199/mo flat, unlimited seats
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      No per-user markups, metered tokens, or onboarding lock-in.
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-xl sm:text-2xl font-bold text-white tabular-nums">100%</p>
-                    <p className="text-xs text-slate-400">Reversible &amp; consent-gated</p>
+                  <div className="rounded-xl border border-slate-800 bg-[#0e1726]/90 p-3.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                      3. Zero Black-Box Mistakes
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-white">
+                      Deterministic cent math + 1-Click Undo
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      Every catch carries integer-cent proof and instant reversal.
+                    </p>
                   </div>
                 </div>
               </div>

@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import {
+  analyzeShadowCsv,
+  buildShadowPromotionPlan,
   calculateLineTotals,
   computeArSummary,
   convertSignedQuoteToInvoice,
@@ -7,6 +9,8 @@ import {
   evaluateAutonomyGate,
   evaluateComplianceDeadlines,
   formatCents as formatOsCents,
+  loadSampleQuickBooksExport,
+  recomputeShadowLeakTotalCents,
   reverseLedgerAction,
   runThreeWayMatch,
   type AgentActionLedgerEntry,
@@ -21,6 +25,8 @@ import {
   type ComplianceVaultItem,
   type LivingSopRecord,
   type Release2InventoryItem,
+  type ShadowFinding,
+  type ShadowSession,
   type ThreeWayMatchResult,
   type WorkspaceAutonomyConfig,
   type WorkspaceModuleKey,
@@ -152,6 +158,9 @@ export interface DemoSandboxState {
   osThreeWaySimulation: DemoThreeWaySimulation | null
   osComplianceItems: ComplianceVaultItem[]
   osLivingSops: LivingSopRecord[]
+  osShadowSession: ShadowSession | null
+  osShadowFindings: ShadowFinding[]
+  osShadowPromotionLedgerId: string | null
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1642,6 +1651,9 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osThreeWaySimulation: null,
     osComplianceItems,
     osLivingSops,
+    osShadowSession: null,
+    osShadowFindings: [],
+    osShadowPromotionLedgerId: null,
   }
 }
 
@@ -1733,6 +1745,10 @@ export interface DemoStoreContextValue {
   markDemoInvoicePaid: (invoiceId: string) => void
   simulateShortShipmentThreeWayMatch: () => DemoThreeWaySimulation
   stageDemoComplianceNotice: (itemId: string) => { subject: string } | null
+  runDemoShadowSample: () => { session: ShadowSession; findings: ShadowFinding[] }
+  runDemoShadowCsv: (csvText: string, fileName?: string) => { session: ShadowSession; findings: ShadowFinding[] }
+  dismissDemoShadowFinding: (findingId: string) => void
+  promoteDemoShadowSession: () => { ledgerId: string; promotedCount: number } | null
   commandSnapshot: CommandRouterSnapshot
   resetDemo: () => void
 }
@@ -2927,6 +2943,38 @@ export function DemoStoreProvider({
         )
       }
 
+      let nextShadowSession = prev.osShadowSession
+      let nextShadowFindings = prev.osShadowFindings
+      let nextShadowPromotionLedgerId = prev.osShadowPromotionLedgerId
+
+      if (
+        target.action_type === 'promote_shadow_session' &&
+        prev.osShadowSession &&
+        restoredState &&
+        restoredState.shadow_session_id === prev.osShadowSession.id
+      ) {
+        const prevSessionStatus =
+          typeof restoredState.session_status === 'string'
+            ? (restoredState.session_status as ShadowSession['status'])
+            : 'ready'
+        const openIds = new Set(
+          Array.isArray(restoredState.open_finding_ids)
+            ? restoredState.open_finding_ids.filter((id): id is string => typeof id === 'string')
+            : [],
+        )
+        nextShadowSession = {
+          ...prev.osShadowSession,
+          status: prevSessionStatus,
+          updated_at: nowIso,
+        }
+        nextShadowFindings = prev.osShadowFindings.map(item =>
+          openIds.has(item.id) ? { ...item, status: 'open', updated_at: nowIso } : item,
+        )
+        if (prev.osShadowPromotionLedgerId === entryId) {
+          nextShadowPromotionLedgerId = null
+        }
+      }
+
       return {
         ...prev,
         osQuotes: nextQuotes,
@@ -2934,6 +2982,9 @@ export function DemoStoreProvider({
         osAgentLedger: prev.osAgentLedger.map(e => (e.id === entryId ? updatedEntry : e)),
         osThreeWaySimulation: nextThreeWaySim,
         osComplianceItems: nextComplianceItems,
+        osShadowSession: nextShadowSession,
+        osShadowFindings: nextShadowFindings,
+        osShadowPromotionLedgerId: nextShadowPromotionLedgerId,
       }
     })
   }, [])
@@ -3148,6 +3199,100 @@ export function DemoStoreProvider({
     [state.osComplianceItems],
   )
 
+  const runDemoShadowCsv = useCallback(
+    (csvText: string, fileName = 'custom_shadow_export.csv', asOfDate?: string) => {
+      const nowIso = new Date().toISOString()
+      const sessionId = `sh_demo_${Date.now()}`
+      const analysis = analyzeShadowCsv(csvText, {
+        workspaceId: DEMO_WORKSPACE_ID,
+        sessionId,
+        fileName,
+        asOfDate,
+      })
+
+      const session: ShadowSession = {
+        id: sessionId,
+        workspace_id: DEMO_WORKSPACE_ID,
+        source_system: analysis.source_system,
+        file_name: analysis.file_name,
+        row_count: analysis.row_count,
+        total_leak_cents: analysis.total_leak_cents,
+        status: 'ready',
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osShadowSession: session,
+        osShadowFindings: analysis.findings,
+        osShadowPromotionLedgerId: null,
+      }))
+
+      return { session, findings: analysis.findings }
+    },
+    [],
+  )
+
+  const runDemoShadowSample = useCallback(() => {
+    const sample = loadSampleQuickBooksExport()
+    return runDemoShadowCsv(sample.csv_text, sample.file_name, sample.as_of_date)
+  }, [runDemoShadowCsv])
+
+  const dismissDemoShadowFinding = useCallback((findingId: string) => {
+    const nowIso = new Date().toISOString()
+    setState(prev => {
+      if (!prev.osShadowSession) return prev
+      const nextFindings = prev.osShadowFindings.map(item =>
+        item.id === findingId && item.status === 'open'
+          ? { ...item, status: 'dismissed' as const, updated_at: nowIso }
+          : item,
+      )
+      const nextTotal = recomputeShadowLeakTotalCents(nextFindings)
+      return {
+        ...prev,
+        osShadowFindings: nextFindings,
+        osShadowSession: {
+          ...prev.osShadowSession,
+          total_leak_cents: nextTotal,
+          updated_at: nowIso,
+        },
+      }
+    })
+  }, [])
+
+  const promoteDemoShadowSession = useCallback((): {
+    ledgerId: string
+    promotedCount: number
+  } | null => {
+    if (!state.osShadowSession) return null
+    const nowIso = new Date().toISOString()
+    const plan = buildShadowPromotionPlan({
+      workspaceId: DEMO_WORKSPACE_ID,
+      session: state.osShadowSession,
+      findings: state.osShadowFindings,
+      nowIso,
+    })
+    if (plan.openFindingIds.length === 0) return null
+
+    const ledgerId = `led_shadow_${Date.now()}`
+    const ledgerEntry: AgentActionLedgerEntry = {
+      ...plan.ledgerDraft,
+      id: ledgerId,
+      created_at: nowIso,
+    }
+
+    setState(prev => ({
+      ...prev,
+      osShadowSession: plan.promotedSession,
+      osShadowFindings: plan.promotedFindings,
+      osShadowPromotionLedgerId: ledgerId,
+      osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+    }))
+
+    return { ledgerId, promotedCount: plan.openFindingIds.length }
+  }, [state.osShadowSession, state.osShadowFindings])
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -3192,6 +3337,10 @@ export function DemoStoreProvider({
       markDemoInvoicePaid,
       simulateShortShipmentThreeWayMatch,
       stageDemoComplianceNotice,
+      runDemoShadowSample,
+      runDemoShadowCsv,
+      dismissDemoShadowFinding,
+      promoteDemoShadowSession,
       commandSnapshot,
       resetDemo,
     }),
@@ -3234,6 +3383,10 @@ export function DemoStoreProvider({
       markDemoInvoicePaid,
       simulateShortShipmentThreeWayMatch,
       stageDemoComplianceNotice,
+      runDemoShadowSample,
+      runDemoShadowCsv,
+      dismissDemoShadowFinding,
+      promoteDemoShadowSession,
       commandSnapshot,
       resetDemo,
     ],

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Radar,
   ReceiptText,
   Settings2,
   ShieldCheck,
@@ -77,6 +78,7 @@ const ALL_SECTION_TITLES: Readonly<Record<DashboardSection, string>> = {
   bookkeeping: 'Bookkeeping & AP',
   vault: 'Compliance Vault',
   sops: 'Living SOPs',
+  shadow: 'Shadow Mode',
   autopilot: 'Billing, Policies & MCP',
 }
 
@@ -292,6 +294,24 @@ export function AppShell({
               </>
             ) : null}
 
+            {/* Zero-Migration Onboarding: Shadow Mode */}
+            <button
+              type="button"
+              aria-current={section === 'shadow' ? 'page' : undefined}
+              onClick={() => navigateSection('shadow')}
+              className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
+                section === 'shadow'
+                  ? 'bg-[rgba(234,88,12,0.14)] text-[#fdba74] border border-[#fb923c]/40 font-semibold'
+                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white border border-transparent'
+              }`}
+            >
+              <Radar
+                className={`h-4 w-4 shrink-0 ${section === 'shadow' ? 'text-[#fb923c]' : ''}`}
+                aria-hidden="true"
+              />
+              <span className="truncate">Shadow Mode</span>
+            </button>
+
             <div className="pt-2 mt-2 border-t border-slate-800/80 space-y-1">
               {modules.projects ? (
                 <button
@@ -445,6 +465,18 @@ export function AppShell({
                 </button>
               </>
             ) : null}
+            <button
+              type="button"
+              onClick={() => navigateSection('shadow')}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition ${
+                section === 'shadow'
+                  ? 'border-[#fb923c]/40 bg-[rgba(234,88,12,0.16)] text-[#fdba74]'
+                  : 'border-slate-700 bg-slate-900 text-slate-300'
+              }`}
+            >
+              <Radar className="h-3.5 w-3.5" aria-hidden="true" />
+              Shadow Mode
+            </button>
           </div>
         ) : null}
 

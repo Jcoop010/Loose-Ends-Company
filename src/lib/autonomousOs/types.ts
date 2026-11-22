@@ -749,3 +749,79 @@ export interface CommandRouteResult {
   primary_action: CommandActionPayload | null
   simulation: WhatIfCashflowResult | null
 }
+
+// Release 4: Shadow Mode (Zero-Migration Onboarding & Deterministic Leak Engine)
+
+export type ShadowSourceSystem = 'quickbooks' | 'zoho' | 'stripe' | 'generic'
+
+export type ShadowSessionStatus = 'analyzing' | 'ready' | 'promoted' | 'archived'
+
+export type ShadowFindingCategory =
+  | 'unbilled_quote'
+  | 'overdue_ar'
+  | 'duplicate_vendor_charge'
+  | 'recurring_creep'
+
+export type ShadowFindingStatus = 'open' | 'dismissed' | 'promoted'
+
+export interface ShadowSession {
+  id: string
+  workspace_id: string
+  source_system: ShadowSourceSystem
+  file_name: string
+  row_count: number
+  total_leak_cents: number
+  status: ShadowSessionStatus
+  created_at?: string
+  updated_at?: string
+}
+
+export type ShadowEvidenceValue = string | number | boolean | null
+
+export interface ShadowFinding {
+  id: string
+  workspace_id: string
+  session_id: string
+  category: ShadowFindingCategory
+  counterparty: string
+  amount_cents: number
+  proof_summary: string
+  evidence_json: Record<string, ShadowEvidenceValue>
+  status: ShadowFindingStatus
+  created_at?: string
+  updated_at?: string
+}
+
+export type ShadowCategoryBreakdown = Record<ShadowFindingCategory, number>
+
+export interface ShadowActionItem {
+  finding_id: string
+  category: ShadowFindingCategory
+  priority: 'high' | 'medium'
+  counterparty: string
+  amount_cents: number
+  title: string
+  recommended_action: string
+}
+
+export interface ShadowAnalysisResult {
+  file_name: string
+  source_system: ShadowSourceSystem
+  as_of_date: string
+  row_count: number
+  clean_row_count: number
+  total_leak_cents: number
+  by_category_cents: ShadowCategoryBreakdown
+  finding_counts_by_category: ShadowCategoryBreakdown
+  findings: ShadowFinding[]
+  action_items: ShadowActionItem[]
+  detected_columns: Record<string, string | null>
+}
+
+export interface SampleQuickBooksExport {
+  file_name: string
+  as_of_date: string
+  csv_text: string
+  description: string
+}
+

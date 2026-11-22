@@ -9,6 +9,7 @@ import {
   FileText,
   LayoutDashboard,
   Lock,
+  Radar,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -85,6 +86,13 @@ const WORKSPACE_QUICK_JUMPS: Array<{
     title: 'Living SOPs',
     subtitle: 'Versioned auto-compiled operational playbooks across modules',
     icon: <FileText className="h-4 w-4" />,
+  },
+  {
+    section: 'shadow',
+    route: '/dashboard/shadow',
+    title: 'Shadow Mode',
+    subtitle: 'Zero-migration QuickBooks/Zoho/Stripe CSV leak audit without touching live books',
+    icon: <Radar className="h-4 w-4" />,
   },
   {
     section: 'autonomy',

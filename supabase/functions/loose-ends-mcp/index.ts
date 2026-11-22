@@ -1275,6 +1275,25 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "get_shadow_leak_summary",
+    requiredScope: "read_all",
+    description:
+      "Read-only summary of workspace Shadow Mode zero-migration CSV scan sessions and recoverable leak findings (integer cents + proof_summary), capped at limit <= 10.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        session_id: { type: "string" },
+        category: {
+          type: "string",
+          enum: ["unbilled_quote", "overdue_ar", "duplicate_vendor_charge", "recurring_creep"],
+        },
+        include_dismissed: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1558,6 +1577,13 @@ function buildSanitizedAuditOutput(
       status: staged?.status ?? "pending_approval",
     };
   }
+  if (toolName === "get_shadow_leak_summary") {
+    return {
+      session_count: Array.isArray(toolResult.sessions) ? toolResult.sessions.length : 0,
+      total_leak_cents: toolResult.total_leak_cents ?? 0,
+      finding_count: Array.isArray(toolResult.findings) ? toolResult.findings.length : 0,
+    };
+  }
   if (toolName === "upsert_public_lead") {
     const lead = toolResult.lead as { id?: string; status?: string } | null;
     return {
@@ -1631,7 +1657,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "2.2.0",
+        version: "2.3.0",
         workspace_id: workspaceId,
       },
     });
@@ -3852,6 +3878,118 @@ Deno.serve(async (req: Request) => {
         sop: sopRow,
         created: nextVersion === 1,
         version: nextVersion,
+      };
+    } else if (toolName === "get_shadow_leak_summary") {
+      auditBotRole = "qa";
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+      const sessionIdArg =
+        typeof args.session_id === "string" && args.session_id.trim()
+          ? args.session_id.trim()
+          : null;
+      const categoryArg =
+        typeof args.category === "string" && args.category.trim()
+          ? args.category.trim()
+          : null;
+      const includeDismissed = args.include_dismissed === true;
+
+      let sessionsQuery = admin
+        .from("shadow_sessions")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (sessionIdArg) {
+        sessionsQuery = sessionsQuery.eq("id", sessionIdArg);
+      }
+
+      const { data: sessionRows, error: sessionsErr } = await sessionsQuery;
+      if (sessionsErr) {
+        throw new Error("Failed to query shadow_sessions");
+      }
+
+      const typedSessions = (sessionRows ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        source_system: string;
+        file_name: string;
+        row_count: number;
+        total_leak_cents: number;
+        status: string;
+        created_at: string;
+      }>;
+
+      const targetSessionId = sessionIdArg ?? (typedSessions[0]?.id ?? null);
+
+      let findingsQuery = admin
+        .from("shadow_findings")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("amount_cents", { ascending: false })
+        .limit(500);
+
+      if (targetSessionId) {
+        findingsQuery = findingsQuery.eq("session_id", targetSessionId);
+      }
+      if (categoryArg) {
+        findingsQuery = findingsQuery.eq("category", categoryArg);
+      }
+
+      const { data: findingRows, error: findingsErr } = await findingsQuery;
+      if (findingsErr) {
+        throw new Error("Failed to query shadow_findings");
+      }
+
+      const typedFindings = (findingRows ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        session_id: string;
+        category: string;
+        counterparty: string;
+        amount_cents: number;
+        proof_summary?: string;
+        status: string;
+        created_at?: string;
+      }>;
+
+      const visibleFindings = includeDismissed
+        ? typedFindings
+        : typedFindings.filter((item) => item.status !== "dismissed");
+
+      const byCategoryCents: Record<string, number> = {
+        unbilled_quote: 0,
+        overdue_ar: 0,
+        duplicate_vendor_charge: 0,
+        recurring_creep: 0,
+      };
+      const countsByCategory: Record<string, number> = {
+        unbilled_quote: 0,
+        overdue_ar: 0,
+        duplicate_vendor_charge: 0,
+        recurring_creep: 0,
+      };
+
+      let totalLeakCents = 0;
+      for (const item of typedFindings) {
+        if (item.status === "dismissed") continue;
+        const cents = Number.isFinite(item.amount_cents) ? Math.max(0, Math.trunc(item.amount_cents)) : 0;
+        totalLeakCents += cents;
+        if (Object.prototype.hasOwnProperty.call(byCategoryCents, item.category)) {
+          byCategoryCents[item.category] += cents;
+          countsByCategory[item.category] += 1;
+        }
+      }
+
+      toolResult = {
+        workspace_id: workspaceId,
+        sessions: typedSessions.slice(0, limit),
+        active_session_id: targetSessionId,
+        total_leak_cents: totalLeakCents,
+        open_finding_count: typedFindings.filter((item) => item.status === "open").length,
+        by_category_cents: byCategoryCents,
+        finding_counts_by_category: countsByCategory,
+        findings: visibleFindings.slice(0, limit),
       };
     }
 

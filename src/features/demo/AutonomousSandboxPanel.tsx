@@ -1,21 +1,29 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
   AlertTriangle,
   BellRing,
   CheckCircle2,
+  EyeOff,
   FileCheck2,
   FileSignature,
+  FileSpreadsheet,
   FileText,
   Lock,
+  Radar,
   ReceiptText,
   RotateCcw,
+  ShieldCheck,
   SlidersHorizontal,
 } from 'lucide-react'
 import {
   AUTONOMY_ACTION_META,
   evaluateComplianceDeadlines,
+  formatCents as formatExactCents,
+  SHADOW_CATEGORY_LABELS,
+  SHADOW_SOURCE_LABELS,
   WORKSPACE_MODULE_META,
   type AutonomyMode,
+  type ShadowFindingCategory,
 } from '../../lib/autonomousOs'
 import { formatCents, formatDateTime } from '../../lib/format'
 import { useDemoStore } from '../../state/DemoStoreContext'
@@ -31,7 +39,11 @@ const DEMO_MODES: ReadonlyArray<{ mode: AutonomyMode; label: string }> = [
 export function AutonomousSandboxPanel(): React.ReactElement {
   const demo = useDemoStore()
   const toast = useToast()
+  const shadowFileInputRef = useRef<HTMLInputElement | null>(null)
   const [signerName, setSignerName] = useState('Jordan Taylor (Managing Partner)')
+  const [shadowCategoryFilter, setShadowCategoryFilter] = useState<'all' | ShadowFindingCategory>(
+    'all',
+  )
 
   const quotes = demo.state.osQuotes
   const invoices = demo.state.osInvoices
@@ -40,6 +52,12 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const threeWaySim = demo.state.osThreeWaySimulation
   const complianceEval = evaluateComplianceDeadlines(demo.state.osComplianceItems)
   const livingSops = demo.state.osLivingSops
+  const shadowSession = demo.state.osShadowSession
+  const shadowFindings = demo.state.osShadowFindings
+  const shadowPromotionLedgerId = demo.state.osShadowPromotionLedgerId
+  const visibleShadowFindings = shadowFindings.filter(item =>
+    shadowCategoryFilter === 'all' ? true : item.category === shadowCategoryFilter,
+  )
 
   return (
     <section
@@ -584,6 +602,244 @@ export function AutonomousSandboxPanel(): React.ReactElement {
             ))}
           </ul>
         </div>
+      </div>
+
+      {/* Release 4: Shadow Mode Zero-Migration Onboarding Preview */}
+      <div
+        id="shadow-mode-sandbox"
+        className="rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                <Radar className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                Zero-Migration Shadow Mode (Read-Only CSV Leak Engine)
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+                <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                Shadow Mode Active — Live Books Untouched
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-300">
+              Audit QuickBooks, Zoho, Stripe, or bank CSV exports before migrating a single live ledger row.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={shadowFileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              aria-label="Upload CSV to Shadow Mode Sandbox"
+              onChange={async e => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (!f) return
+                try {
+                  const text = await f.text()
+                  const res = demo.runDemoShadowCsv(text, f.name)
+                  toast.success(
+                    'Shadow scan complete',
+                    `${formatExactCents(res.session.total_leak_cents)} detected across ${res.findings.length} finding(s).`,
+                  )
+                } catch (err) {
+                  toast.error(
+                    'CSV parse failed',
+                    err instanceof Error ? err.message : 'Check CSV header columns.',
+                  )
+                }
+              }}
+              className="sr-only"
+            />
+            <button
+              type="button"
+              onClick={() => shadowFileInputRef.current?.click()}
+              className="exec-btn-secondary !px-3 !py-1.5 !text-xs"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+              Upload CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const res = demo.runDemoShadowSample()
+                setShadowCategoryFilter('all')
+                toast.success(
+                  'Sample QuickBooks Export Analyzed',
+                  `${formatExactCents(res.session.total_leak_cents)} recoverable across ${res.findings.length} findings — live books untouched.`,
+                )
+              }}
+              className="exec-btn-primary !px-3.5 !py-2 !text-xs"
+            >
+              <Radar className="h-3.5 w-3.5" aria-hidden="true" />
+              Try Shadow Mode (QuickBooks CSV)
+            </button>
+          </div>
+        </div>
+
+        {shadowSession ? (
+          <div className="space-y-3 border-t border-slate-800 pt-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-800 bg-[#0e1726] p-3.5">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Total Recoverable Dollars ({SHADOW_SOURCE_LABELS[shadowSession.source_system]})
+                </p>
+                <div className="mt-0.5 flex flex-wrap items-baseline gap-2.5">
+                  <span className="text-2xl font-extrabold text-white tabular-nums">
+                    {formatExactCents(shadowSession.total_leak_cents)}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {shadowFindings.filter(f => f.status !== 'dismissed').length} active finding(s) ·{' '}
+                    {shadowSession.row_count} rows · {shadowSession.file_name}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {shadowPromotionLedgerId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      demo.undoDemoLedgerAction(shadowPromotionLedgerId)
+                      toast.info(
+                        '1-Click Undo completed',
+                        'Shadow Mode session restored cleanly to pre-promotion state.',
+                      )
+                    }}
+                    className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                    1-Click Undo Promotion
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  disabled={
+                    shadowSession.status === 'promoted' ||
+                    shadowFindings.every(f => f.status !== 'open')
+                  }
+                  onClick={() => {
+                    const res = demo.promoteDemoShadowSession()
+                    if (res) {
+                      toast.success(
+                        'Promoted Clean Records to Live OS',
+                        `${res.promotedCount} verified record(s) logged to Agent Ledger with 1-Click Undo.`,
+                      )
+                    }
+                  }}
+                  className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  {shadowSession.status === 'promoted'
+                    ? 'Promoted to Live OS'
+                    : 'Promote Clean Records to Live OS'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { key: 'all', label: 'All' },
+                  { key: 'unbilled_quote', label: 'Unbilled Quotes' },
+                  { key: 'overdue_ar', label: 'Overdue AR' },
+                  { key: 'duplicate_vendor_charge', label: 'Duplicate Charges' },
+                  { key: 'recurring_creep', label: 'Recurring Creep' },
+                ] as const
+              ).map(tab => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setShadowCategoryFilter(tab.key)}
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold border transition ${
+                    shadowCategoryFilter === tab.key
+                      ? 'border-[#fb923c]/50 bg-[rgba(234,88,12,0.18)] text-[#fdba74]'
+                      : 'border-slate-700 bg-[#0e1726] text-slate-300 hover:bg-[#131f33]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+              {visibleShadowFindings.map(item => (
+                <div
+                  key={item.id}
+                  className={`rounded-xl border p-3 space-y-2 ${
+                    item.status === 'dismissed'
+                      ? 'border-slate-800/80 bg-[#0e1726]/50 opacity-60'
+                      : 'border-slate-800 bg-[#131f33]/85'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge
+                          tone={
+                            item.category === 'unbilled_quote'
+                              ? 'brand'
+                              : item.category === 'overdue_ar'
+                                ? 'rose'
+                                : item.category === 'duplicate_vendor_charge'
+                                  ? 'amber'
+                                  : 'neutral'
+                          }
+                        >
+                          {SHADOW_CATEGORY_LABELS[item.category]}
+                        </Badge>
+                        <Badge
+                          tone={
+                            item.status === 'promoted'
+                              ? 'emerald'
+                              : item.status === 'dismissed'
+                                ? 'neutral'
+                                : 'amber'
+                          }
+                        >
+                          {item.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs font-bold text-slate-50">{item.counterparty}</p>
+                    </div>
+
+                    <span className="text-sm font-bold text-slate-50 tabular-nums shrink-0">
+                      {formatExactCents(item.amount_cents)}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-700/80 bg-[#0b1320] px-2.5 py-2 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      <span>Deterministic Cent Proof</span>
+                      <span className="font-mono text-[#fdba74] tabular-nums">
+                        {item.amount_cents.toLocaleString('en-US')} cents
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-200 leading-snug">{item.proof_summary}</p>
+                  </div>
+
+                  {item.status === 'open' ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          demo.dismissDemoShadowFinding(item.id)
+                          toast.info('Finding dismissed in Shadow Mode', item.counterparty)
+                        }}
+                        className="exec-btn-secondary !px-2.5 !py-1 !text-[11px]"
+                      >
+                        <EyeOff className="h-3 w-3" aria-hidden="true" />
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   )

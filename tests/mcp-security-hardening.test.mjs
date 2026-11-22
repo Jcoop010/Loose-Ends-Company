@@ -352,6 +352,52 @@ const state = {
       last_observed_at: '2026-11-18T08:00:00Z',
     },
   ],
+  shadow_sessions: [
+    {
+      id: 'sh-a-1',
+      workspace_id: wsA,
+      source_system: 'quickbooks',
+      file_name: 'qbo_nov2026.csv',
+      row_count: 11,
+      total_leak_cents: 485000,
+      status: 'ready',
+      created_at: '2026-11-22T10:00:00Z',
+    },
+    {
+      id: 'sh-b-secret',
+      workspace_id: wsB,
+      source_system: 'stripe',
+      file_name: 'secret_b.csv',
+      row_count: 25,
+      total_leak_cents: 9999900,
+      status: 'ready',
+      created_at: '2026-11-22T11:00:00Z',
+    },
+  ],
+  shadow_findings: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `sf-a-${idx + 1}`,
+      workspace_id: wsA,
+      session_id: 'sh-a-1',
+      category: idx % 2 === 0 ? 'overdue_ar' : 'unbilled_quote',
+      counterparty: `Shadow Client ${idx + 1}`,
+      amount_cents: idx === 0 ? 185000 : 30000,
+      proof_summary: `Proof summary row ${idx + 1}`,
+      status: 'open',
+      created_at: '2026-11-22T10:00:00Z',
+    })),
+    {
+      id: 'sf-b-secret',
+      workspace_id: wsB,
+      session_id: 'sh-b-secret',
+      category: 'duplicate_vendor_charge',
+      counterparty: 'Other Tenant Secret Vendor',
+      amount_cents: 9999900,
+      proof_summary: 'Secret tenant finding',
+      status: 'open',
+      created_at: '2026-11-22T11:00:00Z',
+    },
+  ],
   invoices: [
     ...Array.from({ length: 11 }, (_, idx) => ({
       id: `inv-a-${idx + 1}`,
@@ -645,19 +691,19 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. initialize returns v2.2.0 and tools/list returns all 24 tools including Release 3 tools
+// B. initialize returns v2.3.0 and tools/list returns all 25 tools including Shadow Mode tool
 const initRes = await callMcp(rawTokenA, 'initialize', {
   protocolVersion: '2024-11-05',
   capabilities: {},
   clientInfo: { name: 'qa-client', version: '1.0.0' },
 })
 assert.equal(initRes.status, 200)
-assert.equal(initRes.json.result.serverInfo.version, '2.2.0')
+assert.equal(initRes.json.result.serverInfo.version, '2.3.0')
 
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 24)
+assert.equal(toolNames.length, 25)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
@@ -674,6 +720,7 @@ for (const reqTool of [
   'list_expiring_compliance',
   'stage_compliance_notice',
   'upsert_living_sop',
+  'get_shadow_leak_summary',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -1180,6 +1227,18 @@ assert.equal(sop2Res.status, 200)
 assert.equal(sop2Res.json.result.structuredContent.version, 2)
 assert.equal(sop2Res.json.result.structuredContent.created, false)
 
+const shadowSummaryRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_shadow_leak_summary',
+  arguments: { limit: 10 },
+})
+assert.equal(shadowSummaryRes.status, 200)
+const shadowSc = shadowSummaryRes.json.result.structuredContent
+assert.equal(shadowSc.workspace_id, wsA)
+assert.equal(shadowSc.total_leak_cents, 485000)
+assert.equal(shadowSc.open_finding_count, 11)
+assert.equal(shadowSc.findings.length, 10, 'get_shadow_leak_summary must strictly cap findings at <= 10')
+assert.ok(shadowSc.findings.every(f => f.workspace_id === wsA && typeof f.proof_summary === 'string'))
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -1196,6 +1255,8 @@ const workspaceTables = new Set([
   'ledger_entries',
   'compliance_vault_items',
   'living_sops',
+  'shadow_sessions',
+  'shadow_findings',
   'ops_readiness_audits',
   'staged_ops_actions',
   'staged_ledger_entries',
