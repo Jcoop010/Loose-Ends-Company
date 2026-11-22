@@ -15,17 +15,28 @@
  *   - Updates the linked `public_leads` row to `status = 'CONTACTED'`
  */
 
+import { resolve } from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-try {
-  process.loadEnvFile?.('.env.local');
-} catch {
-  // .env.local not present
-}
-try {
-  process.loadEnvFile?.('.env');
-} catch {
-  // .env not present
+const seenEnvFiles = new Set<string>();
+const repoEnvLocal = resolve(
+  decodeURIComponent(
+    new URL('../.env.local', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+  )
+);
+const repoEnv = resolve(
+  decodeURIComponent(
+    new URL('../.env', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+  )
+);
+for (const candidate of [repoEnvLocal, resolve('.env.local'), repoEnv, resolve('.env')]) {
+  if (seenEnvFiles.has(candidate)) continue;
+  seenEnvFiles.add(candidate);
+  try {
+    process.loadEnvFile?.(candidate);
+  } catch {
+    // Optional env file not present
+  }
 }
 
 const AUTHORITATIVE_SUPABASE_URL = 'https://uehfvpnnoitgybsmdgef.supabase.co';
@@ -276,6 +287,7 @@ async function sendViaSmtpConfig(params: {
 }
 
 async function sendApprovedDrafts(): Promise<void> {
+  const isDryRun = process.argv.includes('--dry-run');
   const supabaseUrl = resolveSupabaseUrl();
   const serviceKeyCheck = resolveServiceRoleKey();
 
@@ -300,6 +312,8 @@ async function sendApprovedDrafts(): Promise<void> {
     rawReplyTo && !isPlaceholderValue(rawReplyTo)
       ? rawReplyTo
       : 'jhcoop010@gmail.com';
+  const publicAppUrl =
+    (process.env.PUBLIC_APP_URL ?? '').trim() || 'https://www.looseendsos.app';
 
   const hasResend = Boolean(resendKey) && !isPlaceholderValue(resendKey);
   const hasSmtp =
@@ -308,7 +322,7 @@ async function sendApprovedDrafts(): Promise<void> {
     Boolean(smtpPass) &&
     !isPlaceholderValue(smtpHost);
 
-  if (!hasResend && !hasSmtp) {
+  if (!isDryRun && !hasResend && !hasSmtp) {
     console.log(
       'ℹ️  Neither RESEND_API_KEY nor SMTP_HOST/SMTP_USER/SMTP_PASS is configured. ' +
       'Approved drafts remain safely queued at delivery_status = not_sent.'
@@ -325,6 +339,11 @@ async function sendApprovedDrafts(): Promise<void> {
   console.log(
     `🔗 Connected to ${supabaseUrl} | Workspace: ${
       workspaceId ? `${workspaceId} (${workspaceName ?? 'verified'})` : '(all workspaces)'
+    }`
+  );
+  console.log(
+    `✉️  Sender Config | From: ${fromEmail} | Reply-To: ${replyTo} | App URL: ${publicAppUrl} | Transport: ${
+      hasResend ? 'Resend (configured)' : hasSmtp ? 'SMTP (configured)' : 'RESEND_API_KEY missing'
     }`
   );
 
@@ -349,6 +368,73 @@ async function sendApprovedDrafts(): Promise<void> {
   }
 
   const typedDrafts = (drafts ?? []) as ApprovedDraftRow[];
+
+  if (isDryRun) {
+    let pendingCount = 0;
+    let pendingQuery = supabase
+      .from('ops_communication_drafts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'draft')
+      .eq('delivery_status', 'not_sent')
+      .eq('channel', 'email');
+    if (workspaceId) {
+      pendingQuery = pendingQuery.eq('workspace_id', workspaceId);
+    }
+    const { count } = await pendingQuery;
+    pendingCount = count ?? 0;
+
+    let readyCount = 0;
+    let skippedCount = 0;
+
+    for (const draft of typedDrafts) {
+      let recipientEmail = (draft.recipient_email ?? '').trim().toLowerCase();
+      let companyLabel = (draft.company_name ?? '').trim();
+
+      if ((!recipientEmail || !companyLabel) && draft.customer_id) {
+        const { data: custData } = await supabase
+          .from('customers')
+          .select('id, email, first_name, last_name')
+          .eq('id', draft.customer_id)
+          .maybeSingle();
+
+        const cust = custData as CustomerEmailRow | null;
+        if (cust) {
+          if (!recipientEmail && cust.email) {
+            recipientEmail = cust.email.trim().toLowerCase();
+          }
+          if (!companyLabel) {
+            companyLabel = (cust.last_name ?? cust.first_name).trim();
+          }
+        }
+      }
+
+      if (!recipientEmail) {
+        skippedCount += 1;
+        console.log(`⏭️  [DRY-RUN] Skip draft ${draft.id} (${companyLabel || draft.subject}): no recipient email.`);
+        continue;
+      }
+
+      const suppressed = await isRecipientSuppressed(
+        supabase,
+        recipientEmail,
+        draft.customer_id
+      );
+      if (suppressed) {
+        skippedCount += 1;
+        console.log(`🛑 [DRY-RUN] Suppressed draft ${draft.id} (${recipientEmail}): consent opt-out recorded.`);
+        continue;
+      }
+
+      readyCount += 1;
+      console.log(`✅ [DRY-RUN] Ready draft ${draft.id}: "${draft.subject}" -> <${recipientEmail}>`);
+    }
+
+    console.log(
+      `\n🧪 DRY-RUN PREFLIGHT PASS | Approved Ready: ${readyCount} | Skipped/Suppressed: ${skippedCount} | Pending Approval: ${pendingCount} | Live Emails Sent: 0`
+    );
+    return;
+  }
+
   if (typedDrafts.length === 0) {
     console.log('ℹ️  No approved unsent email drafts in queue.');
     return;
