@@ -22,6 +22,12 @@ import {
   isCanSpamFooterCompliant,
   isConsentEventSuppressed,
 } from '../src/lib/canSpamGuard.ts';
+import {
+  assignSenderInbox,
+  effectiveDailyCap,
+  normalizeInboxForDate,
+} from '../src/lib/outbound/sequencerEngine.ts';
+import type { OutboundSenderInbox } from '../src/types/domain.ts';
 
 const seenEnvFiles = new Set<string>();
 const repoEnvLocal = resolve(
@@ -134,18 +140,24 @@ async function verifyDatabaseAndWorkspace(
 }
 
 interface ApprovedDraftRow {
-  id:              string;
-  workspace_id:    string;
-  customer_id:     string | null;
-  lead_id?:        string | null;
-  channel:         string;
-  recipient_email?: string | null;
-  recipient_name?: string | null;
-  company_name?:   string | null;
-  subject:         string;
-  message:         string;
-  status:          string;
-  delivery_status: string;
+  id:                 string;
+  workspace_id:       string;
+  customer_id:        string | null;
+  lead_id?:           string | null;
+  channel:            string;
+  recipient_email?:   string | null;
+  recipient_name?:    string | null;
+  company_name?:      string | null;
+  outreach_lane?:     string | null;
+  sequence_step?:     number | null;
+  parent_draft_id?:   string | null;
+  assigned_sender_id?: string | null;
+  scheduled_after?:   string | null;
+  auto_paused_reason?: string | null;
+  subject:            string;
+  message:            string;
+  status:             string;
+  delivery_status:    string;
 }
 
 interface ConsentSuppressionRow {
@@ -388,8 +400,35 @@ async function sendViaSmtpConfig(params: {
   return { ok: true, providerId: `smtp-${Date.now()}` };
 }
 
+async function isLeadSequencePaused(
+  supabase: SupabaseClient,
+  leadId: string | null | undefined,
+): Promise<boolean> {
+  if (!leadId) return false;
+  const { data } = await supabase
+    .from('public_leads')
+    .select('id, status, auto_paused_reason')
+    .eq('id', leadId)
+    .maybeSingle();
+
+  const row = data as {
+    id: string;
+    status?: string | null;
+    auto_paused_reason?: string | null;
+  } | null;
+  if (!row) return false;
+  return Boolean(
+    row.auto_paused_reason ||
+      row.status === 'REPLIED' ||
+      row.status === 'BOUNCED' ||
+      row.status === 'UNSUBSCRIBED',
+  );
+}
+
 async function sendApprovedDrafts(): Promise<void> {
-  const isDryRun = process.argv.includes('--dry-run');
+  const isLive = process.argv.includes('--live') && !process.argv.includes('--dry-run');
+  const isDryRun = !isLive;
+  const todayIso = new Date().toISOString().slice(0, 10);
   const supabaseUrl = resolveSupabaseUrl();
   const serviceKeyCheck = resolveServiceRoleKey();
 
@@ -402,7 +441,7 @@ async function sendApprovedDrafts(): Promise<void> {
   const smtpHost = (process.env.SMTP_HOST ?? '').trim();
   const smtpUser = (process.env.SMTP_USER ?? '').trim();
   const smtpPass = (process.env.SMTP_PASS ?? '').trim();
-  const fromEmail =
+  const fallbackFromEmail =
     (process.env.OUTREACH_FROM_EMAIL ?? '').trim() ||
     'Justin Cooper <justin@looseendsos.app>';
   const rawReplyTo = (
@@ -438,13 +477,45 @@ async function sendApprovedDrafts(): Promise<void> {
 
   const { workspaceId, workspaceName } = await verifyDatabaseAndWorkspace(supabase);
 
+  let inboxQuery = supabase
+    .from('outbound_sender_inboxes')
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (workspaceId) {
+    inboxQuery = inboxQuery.eq('workspace_id', workspaceId);
+  }
+  const { data: rawInboxes, error: inboxError } = await inboxQuery;
+  if (inboxError) {
+    throw new Error(`Failed to query outbound_sender_inboxes: ${inboxError.message}`);
+  }
+
+  let inboxPool: OutboundSenderInbox[] = [];
+  for (const rawInbox of (rawInboxes ?? []) as OutboundSenderInbox[]) {
+    const normalized = normalizeInboxForDate(rawInbox, todayIso);
+    if (!isDryRun && rawInbox.last_reset_date !== todayIso) {
+      await supabase
+        .from('outbound_sender_inboxes')
+        .update({
+          sent_today: 0,
+          last_reset_date: todayIso,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', rawInbox.id);
+    }
+    inboxPool.push(normalized);
+  }
+
+  const activeInboxes = inboxPool.filter((i) => i.status === 'active');
+  const totalCapToday = activeInboxes.reduce((sum, i) => sum + effectiveDailyCap(i), 0);
+  const totalSentToday = activeInboxes.reduce((sum, i) => sum + i.sent_today, 0);
+
   console.log(
-    `🔗 Connected to ${supabaseUrl} | Workspace: ${
+    `🔗 Connected to ${supabaseUrl} | Mode: ${isDryRun ? 'DRY-RUN (pass --live to send)' : 'LIVE DISPATCH'} | Workspace: ${
       workspaceId ? `${workspaceId} (${workspaceName ?? 'verified'})` : '(all workspaces)'
     }`
   );
   console.log(
-    `✉️  Sender Config | From: ${fromEmail} | Reply-To: ${replyTo} | App URL: ${publicAppUrl} | Transport: ${
+    `✉️  Sender Pool | Active Inboxes: ${activeInboxes.length}/${inboxPool.length} | Used Today: ${totalSentToday}/${totalCapToday} | Default From: ${fallbackFromEmail} | Reply-To: ${replyTo} | App URL: ${publicAppUrl} | Transport: ${
       hasResend ? 'Resend (configured)' : hasSmtp ? 'SMTP (configured)' : 'RESEND_API_KEY missing'
     }`
   );
@@ -456,7 +527,7 @@ async function sendApprovedDrafts(): Promise<void> {
     .eq('delivery_status', 'not_sent')
     .eq('channel', 'email')
     .order('created_at', { ascending: true })
-    .limit(25);
+    .limit(50);
 
   if (workspaceId) {
     query = query.eq('workspace_id', workspaceId);
@@ -470,6 +541,8 @@ async function sendApprovedDrafts(): Promise<void> {
   }
 
   const typedDrafts = (drafts ?? []) as ApprovedDraftRow[];
+  const nowMs = Date.now();
+  let rrCursor = 0;
 
   if (isDryRun) {
     let pendingQuery = supabase
@@ -488,13 +561,28 @@ async function sendApprovedDrafts(): Promise<void> {
     let pendingReadyCount = 0;
     for (const pending of pendingDrafts) {
       const check = await inspectOutboundEmailDraft(supabase, pending);
-      if (check.allowed) pendingReadyCount += 1;
+      if (check.allowed && !pending.auto_paused_reason) pendingReadyCount += 1;
     }
 
     let readyCount = 0;
     let skippedCount = 0;
+    let simulatedPool = [...inboxPool];
 
     for (const draft of typedDrafts) {
+      if (draft.auto_paused_reason || (await isLeadSequencePaused(supabase, draft.lead_id))) {
+        skippedCount += 1;
+        console.log(
+          `⏸️  [DRY-RUN] Auto-paused draft ${draft.id} (${draft.subject}): sequence paused.`
+        );
+        continue;
+      }
+      if (draft.scheduled_after && Date.parse(draft.scheduled_after) > nowMs) {
+        skippedCount += 1;
+        console.log(
+          `⏳ [DRY-RUN] Scheduled later (${draft.scheduled_after}) for draft ${draft.id}.`
+        );
+        continue;
+      }
       const check = await inspectOutboundEmailDraft(supabase, draft);
       if (!check.allowed) {
         skippedCount += 1;
@@ -504,14 +592,28 @@ async function sendApprovedDrafts(): Promise<void> {
         continue;
       }
 
+      const allocation = assignSenderInbox(simulatedPool, {
+        startCursor: rrCursor,
+        todayIso,
+      });
+      if (!allocation) {
+        skippedCount += 1;
+        console.log(
+          `⏸️  [DRY-RUN] Inbox daily cap reached or no active inbox available for draft ${draft.id}.`
+        );
+        continue;
+      }
+      simulatedPool = allocation.updated_inboxes;
+      rrCursor = allocation.next_cursor;
+
       readyCount += 1;
       console.log(
-        `✅ [DRY-RUN] Ready draft ${draft.id} (${check.basis}): "${draft.subject}" -> <${check.recipientEmail}>`
+        `✅ [DRY-RUN] Ready step ${draft.sequence_step ?? 1} (${draft.outreach_lane ?? 'trades_clinics'}) draft ${draft.id} (${check.basis}) -> <${check.recipientEmail}> via ${allocation.inbox.from_email} [${allocation.next_sent_today}/${allocation.effective_cap}]`
       );
     }
 
     console.log(
-      `\n🧪 DRY-RUN PREFLIGHT PASS | Approved Ready: ${readyCount} | Skipped/Blocked: ${skippedCount} | Pending Approval: ${pendingDrafts.length} (${pendingReadyCount} CAN-SPAM/Consent ready) | Live Emails Sent: 0`
+      `\n🧪 DRY-RUN PREFLIGHT PASS | Approved Ready: ${readyCount} | Skipped/Capped: ${skippedCount} | Pending Approval: ${pendingDrafts.length} (${pendingReadyCount} CAN-SPAM/Consent ready) | Live Emails Sent: 0`
     );
     return;
   }
@@ -522,8 +624,25 @@ async function sendApprovedDrafts(): Promise<void> {
   }
 
   let sentCount = 0;
+  let deferredCapCount = 0;
 
   for (const draft of typedDrafts) {
+    if (draft.auto_paused_reason || (await isLeadSequencePaused(supabase, draft.lead_id))) {
+      await supabase
+        .from('ops_communication_drafts')
+        .update({
+          status: 'rejected',
+          auto_paused_reason: draft.auto_paused_reason ?? 'manual',
+        })
+        .eq('id', draft.id);
+      console.log(`⏸️  Skipping & cancelling auto-paused draft ${draft.id}.`);
+      continue;
+    }
+
+    if (draft.scheduled_after && Date.parse(draft.scheduled_after) > nowMs) {
+      continue;
+    }
+
     const check = await inspectOutboundEmailDraft(supabase, draft);
     if (!check.allowed) {
       if (check.shouldAutoReject) {
@@ -532,7 +651,10 @@ async function sendApprovedDrafts(): Promise<void> {
         );
         await supabase
           .from('ops_communication_drafts')
-          .update({ status: 'rejected' })
+          .update({
+            status: 'rejected',
+            auto_paused_reason: 'unsubscribed',
+          })
           .eq('id', draft.id);
       } else {
         console.warn(
@@ -542,13 +664,27 @@ async function sendApprovedDrafts(): Promise<void> {
       continue;
     }
 
+    const allocation = assignSenderInbox(inboxPool, {
+      startCursor: rrCursor,
+      todayIso,
+    });
+    if (!allocation) {
+      deferredCapCount += 1;
+      console.warn(
+        `⏸️  All active sender inboxes paused or reached daily cap. Deferring remaining drafts safely.`
+      );
+      break;
+    }
+
+    const senderInbox = allocation.inbox;
+    const senderHeader = `${senderInbox.from_name} <${senderInbox.from_email}>`;
     const recipientEmail = check.recipientEmail;
     const companyLabel = check.companyLabel;
 
     const sendResult = hasResend
       ? await sendViaResend({
           apiKey: resendKey,
-          fromEmail,
+          fromEmail: senderHeader,
           replyTo,
           toEmail: recipientEmail,
           subject: draft.subject,
@@ -558,7 +694,7 @@ async function sendApprovedDrafts(): Promise<void> {
           smtpHost,
           smtpUser,
           smtpPass,
-          fromEmail,
+          fromEmail: senderHeader,
           replyTo,
           toEmail: recipientEmail,
           subject: draft.subject,
@@ -574,14 +710,32 @@ async function sendApprovedDrafts(): Promise<void> {
       continue;
     }
 
+    inboxPool = allocation.updated_inboxes;
+    rrCursor = allocation.next_cursor;
     const sentTimestamp = new Date().toISOString();
 
-    // Update ops_communication_drafts to delivery_status = 'sent', sent_at = now()
+    const { error: inboxUpdateErr } = await supabase
+      .from('outbound_sender_inboxes')
+      .update({
+        sent_today: allocation.next_sent_today,
+        last_reset_date: todayIso,
+        updated_at: sentTimestamp,
+      })
+      .eq('id', senderInbox.id);
+
+    if (inboxUpdateErr) {
+      console.error(
+        `⚠️  Sent via ${senderInbox.from_email}, but failed to increment sent_today: ${inboxUpdateErr.message}`
+      );
+    }
+
+    // Update ops_communication_drafts to delivery_status = 'sent', sent_at = now(), assigned_sender_id
     const { error: updateDraftErr } = await supabase
       .from('ops_communication_drafts')
       .update({
         delivery_status: 'sent',
         sent_at: sentTimestamp,
+        assigned_sender_id: senderInbox.id,
       })
       .eq('id', draft.id);
 
@@ -595,24 +749,32 @@ async function sendApprovedDrafts(): Promise<void> {
     if (draft.lead_id) {
       await supabase
         .from('public_leads')
-        .update({ status: 'CONTACTED' })
+        .update({
+          status: 'CONTACTED',
+          assigned_sender_id: senderInbox.id,
+          sequence_step: draft.sequence_step ?? 1,
+        })
         .eq('id', draft.lead_id);
     } else if (companyLabel) {
       await supabase
         .from('public_leads')
-        .update({ status: 'CONTACTED' })
+        .update({ status: 'CONTACTED', assigned_sender_id: senderInbox.id })
         .eq('business', companyLabel);
     }
 
     sentCount += 1;
     console.log(
-      `🚀 Sent approved outreach email to ${companyLabel || recipientEmail} <${recipientEmail}> (provider ref: ${
+      `🚀 Sent step ${draft.sequence_step ?? 1} outreach email via ${senderInbox.from_email} [${allocation.next_sent_today}/${allocation.effective_cap}] to ${companyLabel || recipientEmail} <${recipientEmail}> (provider ref: ${
         sendResult.providerId ?? 'ok'
       })`
     );
   }
 
-  console.log(`\n✅ Dispatch run complete. ${sentCount} approved email(s) sent.`);
+  console.log(
+    `\n✅ Dispatch run complete. ${sentCount} approved email(s) sent.${
+      deferredCapCount > 0 ? ` Remaining drafts deferred due to daily inbox cap.` : ''
+    }`
+  );
 }
 
 sendApprovedDrafts().catch((err: unknown) => {

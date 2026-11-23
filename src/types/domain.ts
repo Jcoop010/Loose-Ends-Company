@@ -469,6 +469,24 @@ export interface OpsExpense {
 
 export type CommunicationDraftChannel = 'email' | 'sms'
 export type CommunicationDraftStatus = 'draft' | 'approved' | 'rejected'
+export type OutreachLane = 'trades_clinics' | 'bookkeepers_cpa'
+export type SequenceStep = 1 | 2 | 3
+export type SenderInboxStatus = 'warming' | 'active' | 'paused'
+export type AutoPauseReason = 'replied' | 'bounced' | 'unsubscribed' | 'manual'
+
+export interface OutboundSenderInbox {
+  id: string
+  workspace_id: string
+  from_name: string
+  from_email: string
+  domain: string
+  daily_cap: number
+  sent_today: number
+  last_reset_date: string
+  status: SenderInboxStatus
+  created_at: string
+  updated_at?: string
+}
 
 export interface OpsCommunicationDraft {
   id: string
@@ -479,6 +497,12 @@ export interface OpsCommunicationDraft {
   recipient_name?: string | null
   company_name?: string | null
   requires_approval?: boolean
+  outreach_lane?: OutreachLane
+  sequence_step?: SequenceStep
+  parent_draft_id?: string | null
+  assigned_sender_id?: string | null
+  scheduled_after?: string | null
+  auto_paused_reason?: AutoPauseReason | null
   source_event_id: string | null
   channel: CommunicationDraftChannel
   subject: string

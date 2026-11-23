@@ -1,4 +1,5 @@
 import type {
+  AutoPauseReason,
   CommunicationDraftChannel,
   InventoryMovementKind,
   JobChecklistItem,
@@ -11,7 +12,9 @@ import type {
   OpsInvoiceAgingMap,
   OpsSummary,
   OpsTeamMemberStatus,
+  OutreachLane,
   PurchaseOrderStatus,
+  SequenceStep,
   ServicePlanTemplate,
 } from '../types/domain'
 import { assertSupabaseConfigured, supabase } from './supabase'
@@ -47,6 +50,9 @@ export const OPS_COMMAND_ACTIONS = [
   'expense_update',
   'draft_save',
   'draft_review',
+  'draft_stage_followup',
+  'draft_pause_sequence',
+  'draft_batch_approve',
   'business_retry',
 ] as const
 
@@ -227,10 +233,33 @@ export interface OpsCommandPayloadMap {
     channel: CommunicationDraftChannel
     subject: string
     message: string
+    outreach_lane?: OutreachLane
   }
   draft_review: {
     id: string
     status: 'approved' | 'rejected'
+  }
+  draft_stage_followup: {
+    id?: string
+    customer_id?: string | null
+    lead_id?: string | null
+    parent_draft_id?: string | null
+    recipient_email: string
+    recipient_name?: string | null
+    company_name?: string | null
+    outreach_lane: OutreachLane
+    sequence_step: Exclude<SequenceStep, 1>
+    subject: string
+    message: string
+    scheduled_after?: string | null
+  }
+  draft_pause_sequence: {
+    lead_id?: string | null
+    recipient_email?: string | null
+    reason: AutoPauseReason
+  }
+  draft_batch_approve: {
+    draft_ids: string[]
   }
   business_retry: {
     id: string
@@ -241,10 +270,14 @@ export interface OpsCommandResponse {
   id: string
   verified?: boolean
   confirmed?: boolean
+  skipped?: boolean
   status?: string
   invoice_id?: string | null
   quote_id?: string | null
   revision?: number
+  approved_count?: number
+  skipped_count?: number
+  paused_count?: number
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
