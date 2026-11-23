@@ -22,6 +22,7 @@ const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 export const OUTREACH_LANE_LABELS: Readonly<Record<OutreachLane, string>> = {
   trades_clinics: 'Trades & Clinics',
   bookkeepers_cpa: 'Bookkeepers & CPAs',
+  inbound_calculator: 'Inbound Calculator',
 }
 
 export const SEQUENCE_STEP_LABELS: Readonly<Record<SequenceStep, string>> = {

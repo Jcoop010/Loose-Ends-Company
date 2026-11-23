@@ -469,10 +469,30 @@ export interface OpsExpense {
 
 export type CommunicationDraftChannel = 'email' | 'sms'
 export type CommunicationDraftStatus = 'draft' | 'approved' | 'rejected'
-export type OutreachLane = 'trades_clinics' | 'bookkeepers_cpa'
+export type OutreachLane = 'trades_clinics' | 'bookkeepers_cpa' | 'inbound_calculator'
 export type SequenceStep = 1 | 2 | 3
 export type SenderInboxStatus = 'warming' | 'active' | 'paused'
 export type AutoPauseReason = 'replied' | 'bounced' | 'unsubscribed' | 'manual'
+export type CallFollowUpOutcome = 'booked_shadow_audit' | 'left_voicemail' | 'not_interested'
+
+export interface PipelinePublicLead {
+  id: string
+  workspace_id: string | null
+  business: string
+  name: string
+  contact_name: string | null
+  email: string | null
+  contact_email: string | null
+  phone: string | null
+  outreach_lane: OutreachLane
+  status: string
+  biggest_problem: string | null
+  notes: string | null
+  auto_paused_reason: AutoPauseReason | null
+  call_outcome: CallFollowUpOutcome | null
+  call_followed_up_at: string | null
+  created_at: string
+}
 
 export interface OutboundSenderInbox {
   id: string

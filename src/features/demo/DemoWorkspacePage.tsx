@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Boxes,
+  Calculator,
   CalendarClock,
   CheckCircle2,
   FileSpreadsheet,
@@ -148,6 +149,14 @@ export function DemoWorkspacePage(): React.ReactElement {
 
           {/* Desktop 5-Pillar Switcher + Cmd+K Command Bar Trigger */}
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate('/calculator')}
+              className="touch-target inline-flex items-center gap-1.5 rounded-xl border border-[#fb923c]/40 bg-[rgba(234,88,12,0.12)] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-[#fdba74] hover:border-[#fb923c] hover:bg-[rgba(234,88,12,0.2)]"
+            >
+              <Calculator className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+              <span className="hidden sm:inline">Leak Estimator</span>
+            </button>
             <button
               type="button"
               onClick={() => setCommandOpen(true)}

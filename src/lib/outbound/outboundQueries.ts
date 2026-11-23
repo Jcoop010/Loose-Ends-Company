@@ -1,10 +1,13 @@
+import { resolveCallOutcomeAction } from '../growth/followUpQueueEngine'
 import { createIdempotencyKey, opsCommand } from '../opsCommand'
 import { supabase } from '../supabase'
 import type {
   AutoPauseReason,
+  CallFollowUpOutcome,
   OpsCommunicationDraft,
   OutboundSenderInbox,
   OutreachLane,
+  PipelinePublicLead,
   SenderInboxStatus,
 } from '../../types/domain'
 import {
@@ -208,6 +211,63 @@ export async function pauseLeadSequenceInDb(
     createIdempotencyKey(),
   )
   return { pausedCount: res.paused_count ?? 0 }
+}
+
+export async function fetchWorkspaceLeadsForPipeline(
+  workspaceId: string,
+): Promise<PipelinePublicLead[]> {
+  const { data, error } = await supabase
+    .from('public_leads')
+    .select(
+      'id, workspace_id, business, name, contact_name, email, contact_email, phone, outreach_lane, status, biggest_problem, notes, auto_paused_reason, call_outcome, call_followed_up_at, created_at',
+    )
+    .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (error) throw error
+  return (data ?? []) as PipelinePublicLead[]
+}
+
+export async function recordCallFollowUpOutcomeInDb(params: {
+  workspaceId: string
+  leadId?: string | null
+  recipientEmail?: string | null
+  outcome: CallFollowUpOutcome
+}): Promise<{ pausedCount: number; leadStatus: string }> {
+  const decision = resolveCallOutcomeAction(params.outcome)
+  const nowIso = new Date().toISOString()
+
+  if (params.leadId) {
+    const updatePayload: Record<string, string | null> = {
+      call_outcome: params.outcome,
+      call_followed_up_at: nowIso,
+      status: decision.leadStatus,
+    }
+    if (decision.pauseReason) {
+      updatePayload.auto_paused_reason = decision.pauseReason
+    }
+
+    const { error } = await supabase
+      .from('public_leads')
+      .update(updatePayload)
+      .eq('id', params.leadId)
+      .or(`workspace_id.eq.${params.workspaceId},workspace_id.is.null`)
+
+    if (error) throw error
+  }
+
+  let pausedCount = 0
+  if (decision.shouldPauseSequence && decision.pauseReason) {
+    const paused = await pauseLeadSequenceInDb(params.workspaceId, {
+      leadId: params.leadId ?? null,
+      recipientEmail: params.recipientEmail ?? null,
+      reason: decision.pauseReason,
+    })
+    pausedCount = paused.pausedCount
+  }
+
+  return { pausedCount, leadStatus: decision.leadStatus }
 }
 
 export type { OutreachLane }

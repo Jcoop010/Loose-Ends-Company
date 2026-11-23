@@ -14,7 +14,7 @@ export type DashboardSection =
   | 'shadow'
   | 'autopilot'
 
-export type AppTopRoute = 'landing' | 'demo' | 'dashboard' | 'portal'
+export type AppTopRoute = 'landing' | 'calculator' | 'demo' | 'dashboard' | 'portal'
 
 export const DASHBOARD_ROUTES: Record<DashboardSection, string> = {
   command: '/dashboard',
@@ -58,6 +58,16 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRoute {
         section: 'command',
         portalToken,
       }
+    }
+  }
+
+  if (cleanPath === '/calculator' || cleanPath.startsWith('/calculator/')) {
+    return {
+      pathname: cleanPath,
+      search,
+      topRoute: 'calculator',
+      section: 'command',
+      portalToken: null,
     }
   }
 

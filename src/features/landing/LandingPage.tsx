@@ -122,6 +122,13 @@ export function LandingPage(): React.ReactElement {
             <a href="#pricing" className="hover:text-[#c2410c] transition-colors">
               $199/mo Flat Pricing
             </a>
+            <button
+              type="button"
+              onClick={() => navigate('/calculator')}
+              className="hover:text-[#c2410c] transition-colors"
+            >
+              Leak Calculator
+            </button>
             <a href="#audit" className="hover:text-[#c2410c] transition-colors">
               Free Leak Audit
             </a>
@@ -180,6 +187,14 @@ export function LandingPage(): React.ReactElement {
                   >
                     <Play className="h-4 w-4 shrink-0" aria-hidden="true" />
                     Try Shadow Mode in /demo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/calculator')}
+                    className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-[#fb923c]/50 bg-[rgba(234,88,12,0.16)] px-5 py-3 text-sm sm:text-base font-semibold text-[#fdba74] hover:border-[#fb923c] hover:bg-[rgba(234,88,12,0.26)] touch-target transition"
+                  >
+                    Estimate Seat &amp; Leak ROI
+                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </button>
                   <button
                     type="button"

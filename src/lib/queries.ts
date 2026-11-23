@@ -38,6 +38,11 @@ import type {
   WorkspaceSettings,
 } from '../types/domain'
 import { sha256Hex } from './csv'
+import {
+  buildInboundCalculatorLeadRow,
+  validateCalculatorEmail,
+  type LeakCalculatorResult,
+} from './growth/leakCalculatorEngine'
 import { assertSupabaseConfigured, supabase } from './supabase'
 
 export const WORKSPACE_ROW_SAFETY_LIMIT = 10_000
@@ -508,6 +513,37 @@ export async function submitPublicLead(lead: PublicLeadInput): Promise<void> {
     biggest_problem: lead.biggest_problem?.trim() || null,
   })
   if (error) throw error
+}
+
+const submittedCalculatorEmails = new Set<string>()
+
+export async function submitCalculatorLead(params: {
+  email: string
+  estimate: LeakCalculatorResult
+}): Promise<{ duplicate: boolean; email: string }> {
+  assertSupabaseConfigured()
+  const validation = validateCalculatorEmail(params.email)
+  if (!validation.valid) {
+    throw new Error(validation.error ?? 'Valid work email is required.')
+  }
+  const normalized = validation.normalized
+
+  if (submittedCalculatorEmails.has(normalized)) {
+    return { duplicate: true, email: normalized }
+  }
+
+  const row = buildInboundCalculatorLeadRow(normalized, params.estimate)
+  const { error } = await supabase.from('public_leads').insert(row)
+  if (error) {
+    if (error.code === '23505') {
+      submittedCalculatorEmails.add(normalized)
+      return { duplicate: true, email: normalized }
+    }
+    throw error
+  }
+
+  submittedCalculatorEmails.add(normalized)
+  return { duplicate: false, email: normalized }
 }
 
 /**

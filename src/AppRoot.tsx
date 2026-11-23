@@ -4,6 +4,7 @@ import { AuthGate } from './components/shell/AuthGate'
 import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { ToastProvider } from './components/ui/Toast'
 import { DemoWorkspacePage } from './features/demo/DemoWorkspacePage'
+import { CalculatorPage } from './features/calculator/CalculatorPage'
 import { LandingPage } from './features/landing/LandingPage'
 import { ClientPortalPage } from './features/portal/ClientPortalPage'
 import { AutopilotBillingPage } from './features/workspaces/autopilot-billing/AutopilotBillingPage'
@@ -59,6 +60,10 @@ function RoutedApplication(): React.ReactElement {
 
   if (topRoute === 'landing') {
     return <LandingPage />
+  }
+
+  if (topRoute === 'calculator') {
+    return <CalculatorPage />
   }
 
   if (topRoute === 'portal' && portalToken) {

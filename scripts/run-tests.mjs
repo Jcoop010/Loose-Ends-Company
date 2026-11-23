@@ -52,6 +52,7 @@ const testFiles = [
   'tests/autonomous-elite-4b.test.mjs',
   'tests/outbound-scale-sequencer.test.mjs',
   'tests/release5-complete-moat.test.mjs',
+  'tests/growth-acquisition-engine.test.mjs',
 ]
 
 execFileSync(process.execPath, [path.join(repoRoot, 'scripts', 'precompile-test-src.mjs')], {

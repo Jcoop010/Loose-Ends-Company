@@ -4,10 +4,14 @@ import {
   Archive,
   CheckCircle2,
   CheckSquare,
+  ChevronDown,
+  ChevronUp,
+  Flame,
   Inbox,
   Layers,
   MailPlus,
   PauseCircle,
+  PhoneCall,
   PlayCircle,
   Plus,
   Send,
@@ -22,6 +26,11 @@ import {
 } from '../../../lib/canSpamGuard'
 import { approveAndEnqueueRecoveryDraft } from '../../../lib/edgeFunctions'
 import { customerDisplayName, formatDateTime } from '../../../lib/format'
+import {
+  MULTI_DOMAIN_WARMUP_CHECKLIST,
+  buildCallFollowUpQueue,
+  resolveCallOutcomeAction,
+} from '../../../lib/growth/followUpQueueEngine'
 import { createIdempotencyKey, opsCommand } from '../../../lib/opsCommand'
 import {
   approveDraftsBatch,
@@ -29,8 +38,10 @@ import {
   fetchSenderInboxes,
   fetchWorkspaceEmailDraftsForSequencer,
   fetchWorkspaceLeadPausedIds,
+  fetchWorkspaceLeadsForPipeline,
   pauseLeadSequenceInDb,
   persistStagedFollowUps,
+  recordCallFollowUpOutcomeInDb,
   updateSenderInboxStatus,
 } from '../../../lib/outbound/outboundQueries'
 import {
@@ -47,6 +58,7 @@ import {
   recordCustomerConsentEvent,
 } from '../../../lib/queries'
 import type {
+  CallFollowUpOutcome,
   CommunicationDraftChannel,
   ConsentChannel,
   ConsentDecision,
@@ -56,6 +68,7 @@ import type {
   OpsCommunicationDraft,
   OutboundSenderInbox,
   OutreachLane,
+  PipelinePublicLead,
   SequenceStep,
 } from '../../../types/domain'
 import { Dialog } from '../../../components/ui/Dialog'
@@ -119,15 +132,23 @@ export function ConsentDraftsPanel({
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Sender Pool State (`outbound_sender_inboxes`)
+  // Sender Pool State (`outbound_sender_inboxes`) & Multi-Domain Warmup Checklist
   const [senderInboxes, setSenderInboxes] = useState<OutboundSenderInbox[]>([])
   const [loadingInboxes, setLoadingInboxes] = useState(true)
   const [togglingInboxId, setTogglingInboxId] = useState<string | null>(null)
   const [addInboxOpen, setAddInboxOpen] = useState(false)
+  const [warmupOpen, setWarmupOpen] = useState(false)
+  const [warmupCheckedIds, setWarmupCheckedIds] = useState<string[]>([])
   const [newInboxFromName, setNewInboxFromName] = useState('Justin Cooper')
   const [newInboxFromEmail, setNewInboxFromEmail] = useState('')
   const [newInboxDailyCap, setNewInboxDailyCap] = useState('20')
   const [savingInbox, setSavingInbox] = useState(false)
+
+  // 48h Call Follow-Up Queue & Inbound Calculator Priority Leads
+  const [allEmailDrafts, setAllEmailDrafts] = useState<OpsCommunicationDraft[]>([])
+  const [pipelineLeads, setPipelineLeads] = useState<PipelinePublicLead[]>([])
+  const [loadingFollowUps, setLoadingFollowUps] = useState(true)
+  const [recordingOutcomeKey, setRecordingOutcomeKey] = useState<string | null>(null)
 
   // Batch & Follow-Up Sequencer Actions
   const [batchApproving, setBatchApproving] = useState(false)
@@ -172,9 +193,27 @@ export function ConsentDraftsPanel({
     }
   }, [workspaceId])
 
+  const loadPipelineGrowthQueues = useCallback(async () => {
+    setLoadingFollowUps(true)
+    try {
+      const [draftRows, leadRows] = await Promise.all([
+        fetchWorkspaceEmailDraftsForSequencer(workspaceId),
+        fetchWorkspaceLeadsForPipeline(workspaceId),
+      ])
+      setAllEmailDrafts(draftRows)
+      setPipelineLeads(leadRows)
+    } catch {
+      setAllEmailDrafts([])
+      setPipelineLeads([])
+    } finally {
+      setLoadingFollowUps(false)
+    }
+  }, [workspaceId])
+
   useEffect(() => {
     void loadSenderInboxes()
-  }, [loadSenderInboxes])
+    void loadPipelineGrowthQueues()
+  }, [loadSenderInboxes, loadPipelineGrowthQueues])
 
   const loadDraftsPage = useCallback(async () => {
     const seq = ++reqSeqRef.current
@@ -323,6 +362,64 @@ export function ConsentDraftsPanel({
     }
     return { activeCap, activeSent, activeCount }
   }, [senderInboxes])
+
+  const inboundCalculatorLeads = useMemo(
+    () =>
+      pipelineLeads.filter(
+        lead =>
+          lead.outreach_lane === 'inbound_calculator' &&
+          lead.status !== 'LOST' &&
+          !lead.auto_paused_reason,
+      ),
+    [pipelineLeads],
+  )
+
+  const callFollowUpQueue = useMemo(
+    () =>
+      buildCallFollowUpQueue({
+        drafts: allEmailDrafts,
+        leads: pipelineLeads,
+      }),
+    [allEmailDrafts, pipelineLeads],
+  )
+
+  const toggleWarmupStep = (stepId: string) => {
+    setWarmupCheckedIds(prev =>
+      prev.includes(stepId) ? prev.filter(id => id !== stepId) : [...prev, stepId],
+    )
+  }
+
+  const handleCallFollowUpOutcome = async (params: {
+    queueKey: string
+    leadId: string | null
+    recipientEmail: string | null
+    businessName: string
+    outcome: CallFollowUpOutcome
+  }) => {
+    if (recordingOutcomeKey) return
+    setRecordingOutcomeKey(params.queueKey)
+    try {
+      const decision = resolveCallOutcomeAction(params.outcome)
+      const res = await recordCallFollowUpOutcomeInDb({
+        workspaceId,
+        leadId: params.leadId,
+        recipientEmail: params.recipientEmail,
+        outcome: params.outcome,
+      })
+      toast.info(
+        decision.toastTitle,
+        decision.shouldPauseSequence
+          ? `${params.businessName} updated to ${res.leadStatus}; ${res.pausedCount} pending draft(s) auto-paused.`
+          : `${params.businessName} logged as voicemail follow-up.`,
+      )
+      await Promise.all([loadPipelineGrowthQueues(), loadDraftsPage()])
+      await onConsentOrDraftsChanged()
+    } catch (err) {
+      toast.error('Follow-up update failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setRecordingOutcomeKey(null)
+    }
+  }
 
   const handleToggleInboxStatus = async (inbox: OutboundSenderInbox) => {
     if (togglingInboxId) return
@@ -738,6 +835,21 @@ export function ConsentDraftsPanel({
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
+              onClick={() => setWarmupOpen(prev => !prev)}
+              aria-expanded={warmupOpen}
+              className="exec-btn-secondary !px-3 !py-2 !text-xs border-slate-700 bg-[#0e1726] text-slate-200 touch-target"
+            >
+              {warmupOpen ? (
+                <ChevronUp className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+              )}
+              <span className="tabular-nums">
+                Multi-Domain Warmup ({warmupCheckedIds.length}/{MULTI_DOMAIN_WARMUP_CHECKLIST.length})
+              </span>
+            </button>
+            <button
+              type="button"
               disabled={stagingFollowUps}
               onClick={() => void handleStageFollowUps()}
               className="exec-btn-secondary !px-3 !py-2 !text-xs border-slate-700 bg-[#131f33] text-slate-100 touch-target"
@@ -836,6 +948,169 @@ export function ConsentDraftsPanel({
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {warmupOpen ? (
+          <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-white">
+                  Multi-Domain Warmup Checklist (Scale 15/day -&gt; 60–100/day in Resend)
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Add 2–3 lookalike sending domains with strict DNS alignment before raising volume.
+                </p>
+              </div>
+              <Badge tone={warmupCheckedIds.length === MULTI_DOMAIN_WARMUP_CHECKLIST.length ? 'emerald' : 'amber'}>
+                <span className="tabular-nums">
+                  {warmupCheckedIds.length} / {MULTI_DOMAIN_WARMUP_CHECKLIST.length} Verified
+                </span>
+              </Badge>
+            </div>
+            <ul className="space-y-2">
+              {MULTI_DOMAIN_WARMUP_CHECKLIST.map(step => {
+                const checked = warmupCheckedIds.includes(step.id)
+                return (
+                  <li key={step.id}>
+                    <label className="flex items-start gap-2.5 rounded-lg border border-slate-800 bg-[#131f33]/75 px-3 py-2 cursor-pointer hover:border-[#fb923c]/40 transition">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleWarmupStep(step.id)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-600 accent-[#ea580c]"
+                      />
+                      <span className="space-y-0.5">
+                        <span
+                          className={`block text-xs font-semibold ${
+                            checked ? 'text-emerald-300 line-through' : 'text-slate-100'
+                          }`}
+                        >
+                          {step.title}
+                        </span>
+                        <span className="block text-[11px] text-slate-400">{step.detail}</span>
+                      </span>
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+
+      {/* 48-Hour Call & Walk-In Follow-Up Queue */}
+      <section
+        aria-label="48-hour call and walk-in follow-up queue"
+        className="rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 text-slate-100 space-y-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <PhoneCall className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-white">
+                48-Hour Call &amp; Walk-In Follow-Up Queue
+              </h2>
+              <Badge tone={callFollowUpQueue.length > 0 ? 'amber' : 'emerald'}>
+                <span className="tabular-nums">{callFollowUpQueue.length} Due</span>
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-300">
+              Sent outreach &ge;48h old with no reply. Call or stop by with the tailored 30-second script; outcomes sync directly with sequence auto-pause.
+            </p>
+          </div>
+        </div>
+
+        {loadingFollowUps ? (
+          <Skeleton className="h-20 w-full" />
+        ) : callFollowUpQueue.length === 0 ? (
+          <div className="rounded-xl border border-slate-800 bg-[#0e1726] px-4 py-3 text-xs text-slate-300">
+            No sent outreach has crossed 48 hours without a response or logged outcome.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {callFollowUpQueue.map(item => (
+              <div
+                key={item.queue_key}
+                className="rounded-xl border border-slate-800 bg-[#0e1726] p-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-white">{item.business_name}</span>
+                    <Badge tone="brand">{OUTREACH_LANE_LABELS[item.lane]}</Badge>
+                    {item.call_outcome === 'left_voicemail' ? (
+                      <Badge tone="amber">Voicemail Left</Badge>
+                    ) : null}
+                  </div>
+                  <span className="font-mono text-[11px] text-amber-300 tabular-nums">
+                    {item.hours_since_sent}h elapsed
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-400 font-mono">
+                  {item.phone ? `${item.phone} · ` : ''}
+                  {item.recipient_email || 'No email'}
+                </p>
+
+                <div className="rounded-lg border border-slate-800 bg-[#131f33]/85 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#fb923c] mb-1">
+                    30-Second Phone / Front-Desk Script
+                  </p>
+                  <p className="text-xs text-slate-200 leading-relaxed">{item.script_30s}</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={recordingOutcomeKey === item.queue_key}
+                    onClick={() =>
+                      void handleCallFollowUpOutcome({
+                        queueKey: item.queue_key,
+                        leadId: item.lead_id,
+                        recipientEmail: item.recipient_email || null,
+                        businessName: item.business_name,
+                        outcome: 'booked_shadow_audit',
+                      })
+                    }
+                    className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                  >
+                    Booked Shadow Audit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={recordingOutcomeKey === item.queue_key}
+                    onClick={() =>
+                      void handleCallFollowUpOutcome({
+                        queueKey: item.queue_key,
+                        leadId: item.lead_id,
+                        recipientEmail: item.recipient_email || null,
+                        businessName: item.business_name,
+                        outcome: 'left_voicemail',
+                      })
+                    }
+                    className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-slate-700 bg-[#131f33] text-slate-100"
+                  >
+                    Left Voicemail
+                  </button>
+                  <button
+                    type="button"
+                    disabled={recordingOutcomeKey === item.queue_key}
+                    onClick={() =>
+                      void handleCallFollowUpOutcome({
+                        queueKey: item.queue_key,
+                        leadId: item.lead_id,
+                        recipientEmail: item.recipient_email || null,
+                        businessName: item.business_name,
+                        outcome: 'not_interested',
+                      })
+                    }
+                    className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-rose-500/40 text-rose-300"
+                  >
+                    Not Interested
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>
@@ -937,9 +1212,14 @@ export function ConsentDraftsPanel({
                   </span>
                   {(
                     [
-                      { id: 'all', label: 'All Lanes' },
-                      { id: 'trades_clinics', label: 'Trades & Clinics' },
-                      { id: 'bookkeepers_cpa', label: 'Bookkeepers & CPAs' },
+                      { id: 'all', label: 'All Lanes', hot: false },
+                      {
+                        id: 'inbound_calculator',
+                        label: `Inbound Calculator (${inboundCalculatorLeads.length})`,
+                        hot: true,
+                      },
+                      { id: 'trades_clinics', label: 'Trades & Clinics', hot: false },
+                      { id: 'bookkeepers_cpa', label: 'Bookkeepers & CPAs', hot: false },
                     ] as const
                   ).map(pill => (
                     <button
@@ -949,12 +1229,17 @@ export function ConsentDraftsPanel({
                         setLaneFilter(pill.id)
                         setPage(0)
                       }}
-                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                      className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
                         laneFilter === pill.id
-                          ? 'border-[#fb923c]/50 bg-[rgba(234,88,12,0.18)] text-[#fdba74]'
-                          : 'border-slate-700 bg-[#0e1726] text-slate-300 hover:bg-[#131f33]'
+                          ? 'border-[#fb923c] bg-[rgba(234,88,12,0.28)] text-white shadow-xs'
+                          : pill.hot
+                            ? 'border-[#fb923c]/60 bg-[rgba(234,88,12,0.14)] text-[#fdba74] hover:bg-[rgba(234,88,12,0.22)]'
+                            : 'border-slate-700 bg-[#0e1726] text-slate-300 hover:bg-[#131f33]'
                       }`}
                     >
+                      {pill.hot ? (
+                        <Flame className="h-3 w-3 text-[#fb923c]" aria-hidden="true" />
+                      ) : null}
                       {pill.label}
                     </button>
                   ))}
@@ -991,6 +1276,73 @@ export function ConsentDraftsPanel({
                 </div>
               </div>
             </div>
+
+          {(laneFilter === 'all' || laneFilter === 'inbound_calculator') && inboundCalculatorLeads.length > 0 ? (
+            <div className="border-b border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-2.5 text-slate-100">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">
+                    Priority Inbound Calculator Leads ({inboundCalculatorLeads.length})
+                  </span>
+                </div>
+                <Badge tone="brand">Inbound Calculator</Badge>
+              </div>
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+                {inboundCalculatorLeads.slice(0, 6).map(lead => (
+                  <div
+                    key={lead.id}
+                    className="rounded-xl border border-[#fb923c]/35 bg-[#0e1726] p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-white truncate">{lead.business}</span>
+                      <Badge tone="emerald">{lead.status}</Badge>
+                    </div>
+                    <p className="font-mono text-[11px] text-[#fdba74] truncate">
+                      {lead.contact_email ?? lead.email ?? 'No email'}
+                    </p>
+                    <p className="text-[11px] text-slate-300 leading-snug">
+                      {lead.biggest_problem ?? lead.notes ?? 'Completed /calculator ROI estimator'}
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        disabled={recordingOutcomeKey === `calc_${lead.id}`}
+                        onClick={() =>
+                          void handleCallFollowUpOutcome({
+                            queueKey: `calc_${lead.id}`,
+                            leadId: lead.id,
+                            recipientEmail: lead.contact_email ?? lead.email ?? null,
+                            businessName: lead.business,
+                            outcome: 'booked_shadow_audit',
+                          })
+                        }
+                        className="exec-btn-emerald !px-2.5 !py-1 !text-[11px]"
+                      >
+                        Booked Shadow Audit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={recordingOutcomeKey === `calc_${lead.id}`}
+                        onClick={() =>
+                          void handleCallFollowUpOutcome({
+                            queueKey: `calc_${lead.id}`,
+                            leadId: lead.id,
+                            recipientEmail: lead.contact_email ?? lead.email ?? null,
+                            businessName: lead.business,
+                            outcome: 'not_interested',
+                          })
+                        }
+                        className="exec-btn-secondary !px-2.5 !py-1 !text-[11px] border-rose-500/40 text-rose-300"
+                      >
+                        Not Interested
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {loadError ? (
             <div

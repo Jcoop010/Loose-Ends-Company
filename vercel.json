@@ -19,6 +19,14 @@
       "destination": "/index.html"
     },
     {
+      "source": "/calculator",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/calculator/:path*",
+      "destination": "/index.html"
+    },
+    {
       "source": "/portal/:token*",
       "destination": "/index.html"
     }
