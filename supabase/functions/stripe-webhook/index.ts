@@ -305,6 +305,68 @@ Deno.serve(async (req: Request) => {
       );
       if (refundErr) throw refundErr;
     }
+    const INVOICE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const metaInvoiceId = typeof obj.metadata?.invoice_id === "string" ? obj.metadata.invoice_id.trim() : "";
+    const metaWorkspaceId = typeof obj.metadata?.workspace_id === "string" ? obj.metadata.workspace_id.trim() : "";
+    const isInvoicePaymentEvent =
+      !relevant &&
+      !isRefundEvent &&
+      INVOICE_UUID_PATTERN.test(metaInvoiceId) &&
+      INVOICE_UUID_PATTERN.test(metaWorkspaceId) &&
+      ((eventType === "checkout.session.completed" && obj.mode === "payment" && obj.payment_status === "paid") ||
+        eventType === "payment_intent.succeeded");
+
+    if (isInvoicePaymentEvent) {
+      const rawAmountCents =
+        typeof obj.amount_total === "number"
+          ? obj.amount_total
+          : typeof obj.amount_received === "number"
+            ? obj.amount_received
+            : typeof obj.amount === "number"
+              ? obj.amount
+              : 0;
+      if (!Number.isSafeInteger(rawAmountCents) || rawAmountCents <= 0) {
+        throw new Error("Stripe invoice payment event has invalid integer cent amount");
+      }
+      const rawPaymentIntentId =
+        typeof obj.payment_intent === "string"
+          ? obj.payment_intent
+          : typeof obj.id === "string" && obj.id.startsWith("pi_")
+            ? obj.id
+            : null;
+      const paymentMethodTypes = Array.isArray(obj.payment_method_types) ? obj.payment_method_types : [];
+      const chargeMethodType =
+        typeof obj.latest_charge?.payment_method_details?.type === "string"
+          ? obj.latest_charge.payment_method_details.type
+          : typeof obj.payment_method_details?.type === "string"
+            ? obj.payment_method_details.type
+            : null;
+      const isAchPayment =
+        chargeMethodType === "us_bank_account" ||
+        (paymentMethodTypes.includes("us_bank_account") && !paymentMethodTypes.includes("card"));
+      const paymentMethod = isAchPayment ? "stripe_ach" : "stripe_card";
+      const rawPaymentType =
+        typeof obj.metadata?.payment_type === "string" ? obj.metadata.payment_type.trim() : "final";
+      const paymentType = ["deposit", "partial", "final", "credit_memo"].includes(rawPaymentType)
+        ? rawPaymentType
+        : "final";
+      const invoiceIdempotencyKey = rawPaymentIntentId
+        ? "stripe:" + rawPaymentIntentId
+        : "stripe_evt:" + event.id;
+
+      const { error: invoicePayErr } = await admin.rpc("record_invoice_payment_atomic", {
+        p_workspace_id: metaWorkspaceId,
+        p_invoice_id: metaInvoiceId,
+        p_amount_cents: rawAmountCents,
+        p_payment_type: paymentType,
+        p_payment_method: paymentMethod,
+        p_stripe_payment_intent_id: rawPaymentIntentId,
+        p_notes: `Stripe ${eventType} (${event.id})`,
+        p_idempotency_key: invoiceIdempotencyKey,
+        p_actor_user_id: null,
+      });
+      if (invoicePayErr) throw invoicePayErr;
+    }
     const { data: completed, error: completionError } = await admin.rpc("finish_stripe_webhook_event", {
       p_event_id: event.id, p_token: claimToken, p_error: null,
     });

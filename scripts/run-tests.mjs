@@ -56,6 +56,8 @@ const testFiles = [
   'tests/mission09-financial-integrity.test.mjs',
   'tests/mission09-security-multitenant.test.mjs',
   'tests/mission09-stripe-and-workforce.test.mjs',
+  'tests/mission10-aging-and-payments.test.mjs',
+  'tests/mission10-dunning-and-stripe.test.mjs',
 ]
 
 execFileSync(process.execPath, [path.join(repoRoot, 'scripts', 'precompile-test-src.mjs')], {

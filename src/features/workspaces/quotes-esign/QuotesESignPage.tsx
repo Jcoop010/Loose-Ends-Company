@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import {
   calculateLineTotals,
+  computeDepositCents,
   DEFAULT_AUTONOMY_CONFIG,
   evaluateAutonomyGate,
   formatCents,
@@ -22,6 +23,7 @@ import {
   type WorkspaceAutonomyConfig,
 } from '../../../lib/autonomousOs'
 import * as autonomousQueries from '../../../lib/autonomousOs/queries'
+import * as mission10Queries from '../../../lib/autonomousOs/mission10Queries'
 import type { PublicLeadOption } from '../../../lib/autonomousOs/queries'
 import { formatDateTime } from '../../../lib/format'
 import { useAppRouter } from '../../../state/RouterContext'
@@ -52,6 +54,7 @@ export function QuotesESignPage(): React.ReactElement {
     useState<WorkspaceAutonomyConfig>(DEFAULT_AUTONOMY_CONFIG)
   const [statusFilter, setStatusFilter] = useState<'all' | QuoteStatus>('all')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [depositBpsByQuoteId, setDepositBpsByQuoteId] = useState<Record<string, number>>({})
 
   // Builder form state
   const [showBuilder, setShowBuilder] = useState(false)
@@ -233,24 +236,46 @@ export function QuotesESignPage(): React.ReactElement {
     if (!workspaceId || busyId) return
     setBusyId(quote.id)
     try {
-      const items = itemsByQuote.get(quote.id) ?? []
-      const res = await autonomousQueries.convertSignedQuoteToInvoiceInDb({
-        workspaceId,
-        quote,
-        items,
-        config: autonomyConfig,
-      })
-      if (res.invoice) {
-        toast.success(
-          `Invoice ${res.invoice.invoice_number} created`,
-          `Logged to Agent Action Ledger (${res.ledgerEntry.autonomy_mode}).`,
-        )
-      } else {
+      const gateDecision = evaluateAutonomyGate(
+        'convert_signed_quote_to_invoice',
+        quote.total_cents,
+        autonomyConfig,
+      )
+      if (gateDecision !== 'execute_now') {
+        const items = itemsByQuote.get(quote.id) ?? []
+        const res = await autonomousQueries.convertSignedQuoteToInvoiceInDb({
+          workspaceId,
+          quote,
+          items,
+          config: autonomyConfig,
+        })
         toast.info(
           'Queued in Agent Ledger for 1-Tap Approval',
-          `Autonomy Dial paused conversion for ${quote.quote_number}. Open Agent Ledger to approve.`,
+          `Autonomy Dial paused conversion for ${quote.quote_number}. Mode: ${res.ledgerEntry.autonomy_mode}.`,
         )
+        await loadData()
+        return
       }
+
+      const depositRequiredBps = depositBpsByQuoteId[quote.id] ?? 0
+      const res = await mission10Queries.convertQuoteToInvoiceAtomic({
+        workspaceId,
+        quoteId: quote.id,
+        depositRequiredBps,
+        dueDays: 30,
+      })
+      const depositSummary =
+        depositRequiredBps > 0
+          ? ` (${(depositRequiredBps / 100).toFixed(0)}% deposit = ${formatCents(
+              computeDepositCents(quote.total_cents, depositRequiredBps),
+            )})`
+          : ''
+      toast.success(
+        res.duplicate
+          ? `Invoice ${res.invoice.invoice_number} already linked`
+          : `Invoice ${res.invoice.invoice_number} created${depositSummary}`,
+        'Atomic quote-to-invoice conversion recorded in Agent Action Ledger.',
+      )
       await loadData()
     } catch (err) {
       toast.error('Conversion failed', err instanceof Error ? err.message : 'Retry.')
@@ -562,7 +587,7 @@ export function QuotesESignPage(): React.ReactElement {
       <div className="exec-surface overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Quote status filter">
-            {(['all', 'draft', 'sent', 'signed', 'declined'] as const).map(tab => (
+            {(['all', 'draft', 'sent', 'signed', 'approved', 'converted', 'declined'] as const).map(tab => (
               <button
                 key={tab}
                 type="button"
@@ -614,7 +639,7 @@ export function QuotesESignPage(): React.ReactElement {
                         </span>
                         <Badge
                           tone={
-                            quote.status === 'signed'
+                            quote.status === 'signed' || quote.status === 'approved' || quote.status === 'converted'
                               ? 'emerald'
                               : quote.status === 'sent'
                                 ? 'brand'
@@ -684,18 +709,38 @@ export function QuotesESignPage(): React.ReactElement {
                       </button>
                     ) : null}
 
-                    {quote.status === 'signed' ? (
-                      <button
-                        type="button"
-                        disabled={busyId === quote.id}
-                        onClick={() => void handleConvert(quote)}
-                        className="exec-btn-emerald !px-3 !py-1.5 !text-xs touch-target"
-                      >
-                        <ReceiptText className="h-3.5 w-3.5" aria-hidden="true" />
-                        {gateDecision === 'execute_now'
-                          ? 'Convert to Invoice'
-                          : 'Queue Invoice Conversion'}
-                      </button>
+                    {quote.status === 'signed' || quote.status === 'approved' ? (
+                      <div className="inline-flex flex-wrap items-center gap-2">
+                        <label htmlFor={`quote-dep-${quote.id}`} className="sr-only">
+                          Deposit requirement for {quote.quote_number}
+                        </label>
+                        <select
+                          id={`quote-dep-${quote.id}`}
+                          value={depositBpsByQuoteId[quote.id] ?? 0}
+                          onChange={e =>
+                            setDepositBpsByQuoteId(prev => ({
+                              ...prev,
+                              [quote.id]: Number(e.target.value) || 0,
+                            }))
+                          }
+                          className="exec-input !w-auto !py-1.5 !text-xs"
+                        >
+                          <option value={0}>0% Deposit (Full Inv)</option>
+                          <option value={2500}>25% Deposit</option>
+                          <option value={5000}>50% Deposit</option>
+                        </select>
+                        <button
+                          type="button"
+                          disabled={busyId === quote.id}
+                          onClick={() => void handleConvert(quote)}
+                          className="exec-btn-emerald !px-3 !py-1.5 !text-xs touch-target"
+                        >
+                          <ReceiptText className="h-3.5 w-3.5" aria-hidden="true" />
+                          {gateDecision === 'execute_now'
+                            ? 'Convert to Invoice'
+                            : 'Queue Invoice Conversion'}
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </li>

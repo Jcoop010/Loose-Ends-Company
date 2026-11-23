@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   Cpu,
+  CreditCard,
   Download,
   EyeOff,
   FileCheck2,
@@ -14,6 +15,7 @@ import {
   FileText,
   Inbox,
   Landmark,
+  Link2,
   Lock,
   PauseCircle,
   PlayCircle,
@@ -23,6 +25,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Sun,
   TrendingUp,
 } from 'lucide-react'
@@ -31,6 +34,9 @@ import {
   BANK_FEED_STATUS_LABELS,
   COLLECTION_STAGE_LABELS,
   COLLECTION_STATUS_LABELS,
+  computeArApAgingAndCashflow,
+  computeInvoiceBalanceDueCents,
+  DUNNING_STAGE_LABELS,
   evaluateComplianceDeadlines,
   evaluateJobMarginPortfolio,
   formatCents as formatExactCents,
@@ -46,9 +52,14 @@ import {
   SOP_COMPILER_PRESETS,
   SOP_TRIGGER_LABELS,
   WORKSPACE_MODULE_META,
+  type AgingBucketKey,
   type AutonomyMode,
+  type DunningStage,
+  type InvoicePaymentMethod,
+  type InvoicePaymentType,
   type ShadowFindingCategory,
 } from '../../lib/autonomousOs'
+import type { BotAutonomyMode } from '../../types/domain'
 import { formatCents, formatDateTime } from '../../lib/format'
 import { useDemoStore } from '../../state/DemoStoreContext'
 import { Badge } from '../../components/ui/MetricCard'
@@ -70,6 +81,14 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   )
   const [sopPrompt, setSopPrompt] = useState(SOP_COMPILER_PRESETS[0]?.prompt ?? '')
   const [sopCapDollars, setSopCapDollars] = useState('2500')
+  const [demoBucketFilter, setDemoBucketFilter] = useState<'all' | AgingBucketKey>('all')
+  const [demoDepositBps, setDemoDepositBps] = useState<number>(2500)
+  const [demoPayInvoiceId, setDemoPayInvoiceId] = useState<string>('00000000-0000-4000-8000-00000000i313')
+  const [demoPayDollars, setDemoPayDollars] = useState<string>('300.00')
+  const [demoPayType, setDemoPayType] = useState<InvoicePaymentType>('partial')
+  const [demoPayMethod, setDemoPayMethod] = useState<InvoicePaymentMethod>('ach_manual')
+  const [editingDunningId, setEditingDunningId] = useState<string | null>(null)
+  const [editDunningSummary, setEditDunningSummary] = useState('')
 
   const quotes = demo.state.osQuotes
   const invoices = demo.state.osInvoices
@@ -100,6 +119,20 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const jobMargins = demo.state.osJobMargins
   const jobMarginLedgerId = demo.state.osJobMarginLedgerId
   const jobMarginPortfolio = evaluateJobMarginPortfolio(jobMargins, activeEntityId)
+  const m10Snapshot = computeArApAgingAndCashflow({
+    invoices,
+    vendorBills: demo.state.osVendorBills,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    startingCashCents: 2500000,
+  })
+  const m10OpenInvoices = invoices.filter(
+    inv => inv.status !== 'paid' && inv.status !== 'void',
+  )
+  const m10ApprovedQuote = quotes.find(q => q.status === 'approved' || q.status === 'signed') ?? null
+  const m10SelectedPayInvoice =
+    m10OpenInvoices.find(inv => inv.id === demoPayInvoiceId) ?? m10OpenInvoices[0] ?? null
+  const m10DunningQueue = demo.state.osDunningQueue
+  const m10BotMode = demo.state.osCollectionsBotMode
   const visibleShadowFindings = shadowFindings.filter(item =>
     shadowCategoryFilter === 'all' ? true : item.category === shadowCategoryFilter,
   )
@@ -1842,6 +1875,429 @@ export function AutonomousSandboxPanel(): React.ReactElement {
                 </div>
               )
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* Mission 10: Elite AR/AP Aging, Partial Payments, Stripe Pay Links & Dunning Sandbox */}
+      <div
+        id="mission-10-cashflow-sandbox"
+        className="rounded-xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-5 text-slate-100"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+              <h4 className="text-sm font-bold text-white">
+                Elite AR/AP Cashflow Suite (Aging, Deposits, Pay Links &amp; Dunning Sandbox)
+              </h4>
+              <Badge tone="brand">Integer Cents · Air-Gapped</Badge>
+            </div>
+            <p className="text-xs text-slate-400">
+              Test 5-bucket AR/AP aging, 2/10 Net 30 early-pay vendor discounts, quote-to-invoice deposits, partial payments, and Observe vs Draft &amp; Approve dunning.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 tabular-nums">
+            <Badge tone="emerald">
+              Open AR {formatExactCents(m10Snapshot.total_open_ar_cents)}
+            </Badge>
+            <Badge tone="amber">
+              Open AP {formatExactCents(m10Snapshot.total_open_ap_cents)}
+            </Badge>
+            <Badge tone="brand">
+              AP Discount Savings {formatExactCents(m10Snapshot.total_early_pay_savings_cents)}
+            </Badge>
+          </div>
+        </div>
+
+        {/* 7 / 15 / 30-Day Projections + 5-Bucket Drilldown */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 tabular-nums">
+          {m10Snapshot.projections.map(win => (
+            <div
+              key={win.horizon_days}
+              className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3 space-y-1 text-xs"
+            >
+              <div className="flex items-center justify-between font-bold text-slate-100">
+                <span>{win.label}</span>
+                <span className="text-[11px] font-mono text-slate-400">{win.window_end_date}</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-300">
+                <span>Inflows +{formatExactCents(win.expected_inflow_cents)}</span>
+                <span>Outflows -{formatExactCents(win.scheduled_outflow_cents)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-800 pt-1 font-bold">
+                <span>Projected Cash</span>
+                <span className="text-emerald-300">
+                  {formatExactCents(win.projected_ending_cash_cents)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 tabular-nums">
+          <button
+            type="button"
+            onClick={() => setDemoBucketFilter('all')}
+            className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+              demoBucketFilter === 'all'
+                ? 'bg-[#c2410c] text-white'
+                : 'border border-slate-700 bg-[#131f33] text-slate-300'
+            }`}
+          >
+            All ({m10Snapshot.rows.length})
+          </button>
+          {m10Snapshot.buckets.map(b => (
+            <button
+              key={b.bucket}
+              type="button"
+              onClick={() => setDemoBucketFilter(b.bucket)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                demoBucketFilter === b.bucket
+                  ? 'bg-[#c2410c] text-white'
+                  : 'border border-slate-700 bg-[#131f33] text-slate-300'
+              }`}
+            >
+              {b.label}: AR {formatExactCents(b.ar_cents)} / AP {formatExactCents(b.ap_cents)}
+            </button>
+          ))}
+        </div>
+
+        {m10Snapshot.early_pay_opportunities.length > 0 ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 text-amber-200 font-semibold">
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              2/10 Net 30 Early-Pay Opportunity: Save{' '}
+              {formatExactCents(m10Snapshot.total_early_pay_savings_cents)} across{' '}
+              {m10Snapshot.early_pay_opportunities.filter(o => !o.expired).length} vendor bill(s)
+            </span>
+            <span className="text-[11px] text-amber-100 tabular-nums">
+              Implied APR:{' '}
+              {((m10Snapshot.early_pay_opportunities[0]?.annualized_apr_bps ?? 0) / 100).toFixed(1)}%
+            </span>
+          </div>
+        ) : null}
+
+        <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+          {m10Snapshot.rows
+            .filter(r => (demoBucketFilter === 'all' ? true : r.bucket === demoBucketFilter))
+            .map(row => (
+              <div
+                key={`m10_${row.kind}_${row.id}`}
+                className="rounded-lg border border-slate-800 bg-[#131f33]/70 px-3 py-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums"
+              >
+                <span>
+                  <strong className="text-slate-100">{row.document_number}</strong> ·{' '}
+                  <span className="text-slate-300">{row.counterparty}</span> (Due {row.due_date})
+                </span>
+                <span className="font-bold text-white">{formatExactCents(row.balance_cents)}</span>
+              </div>
+            ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Quote-to-Invoice with Deposit + Partial Payment + Pay Link */}
+          <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-4 space-y-4">
+            {m10ApprovedQuote ? (
+              <div className="rounded-lg border border-slate-700 bg-[#0b1320] p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-white">
+                    1-Click Quote -&gt; Invoice ({m10ApprovedQuote.quote_number} ·{' '}
+                    {formatExactCents(m10ApprovedQuote.total_cents)})
+                  </span>
+                  <Badge tone="emerald">{m10ApprovedQuote.status}</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    aria-label="Sandbox quote deposit requirement"
+                    value={demoDepositBps}
+                    onChange={e => setDemoDepositBps(Number(e.target.value) || 0)}
+                    className="exec-input !w-auto !py-1 !text-xs"
+                  >
+                    <option value={0}>0% Deposit</option>
+                    <option value={2500}>25% Deposit</option>
+                    <option value={5000}>50% Deposit</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const inv = demo.convertDemoQuoteWithDeposit(
+                        m10ApprovedQuote.id,
+                        demoDepositBps,
+                      )
+                      if (inv) {
+                        setDemoPayInvoiceId(inv.id)
+                        toast.success(
+                          `Converted ${m10ApprovedQuote.quote_number} -> ${inv.invoice_number}`,
+                          `Deposit Req: ${formatExactCents(inv.deposit_cents ?? 0)}`,
+                        )
+                      }
+                    }}
+                    className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                  >
+                    <ReceiptText className="h-3.5 w-3.5" aria-hidden="true" />
+                    Convert to Invoice
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Partial Payment Recorder */}
+            {m10SelectedPayInvoice ? (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5 text-emerald-300" aria-hidden="true" />
+                    Partial Payment &amp; Pay Link Sandbox
+                  </span>
+                  <span className="text-xs font-bold text-[#fb923c] tabular-nums">
+                    Balance Due:{' '}
+                    {formatExactCents(computeInvoiceBalanceDueCents(m10SelectedPayInvoice))}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <select
+                    aria-label="Sandbox invoice for partial payment"
+                    value={m10SelectedPayInvoice.id}
+                    onChange={e => setDemoPayInvoiceId(e.target.value)}
+                    className="exec-input !py-1.5 !text-xs"
+                  >
+                    {m10OpenInvoices.map(inv => (
+                      <option key={inv.id} value={inv.id}>
+                        {inv.invoice_number} · {inv.customer_name} (
+                        {formatExactCents(computeInvoiceBalanceDueCents(inv))} due)
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label="Sandbox payment amount in USD"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={demoPayDollars}
+                    onChange={e => setDemoPayDollars(e.target.value)}
+                    className="exec-input !py-1.5 !text-xs tabular-nums"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    aria-label="Sandbox payment type"
+                    value={demoPayType}
+                    onChange={e => setDemoPayType(e.target.value as InvoicePaymentType)}
+                    className="exec-input !py-1.5 !text-xs"
+                  >
+                    <option value="deposit">Deposit</option>
+                    <option value="partial">Partial Payment</option>
+                    <option value="final">Final Payment</option>
+                    <option value="credit_memo">Credit Memo</option>
+                  </select>
+                  <select
+                    aria-label="Sandbox payment method"
+                    value={demoPayMethod}
+                    onChange={e => setDemoPayMethod(e.target.value as InvoicePaymentMethod)}
+                    className="exec-input !py-1.5 !text-xs"
+                  >
+                    <option value="ach_manual">ACH Transfer</option>
+                    <option value="check">Check</option>
+                    <option value="cash">Cash</option>
+                    <option value="credit_memo">Credit Memo</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const amountCents = Math.round((Number(demoPayDollars) || 0) * 100)
+                      try {
+                        const pay = demo.recordDemoPartialPayment({
+                          invoiceId: m10SelectedPayInvoice.id,
+                          amountCents,
+                          paymentType: demoPayType,
+                          paymentMethod: demoPayMethod,
+                          notes: 'Sandbox partial payment entry',
+                        })
+                        if (pay) {
+                          toast.success(
+                            `Applied ${formatExactCents(pay.amount_cents)} to ${m10SelectedPayInvoice.invoice_number}`,
+                            'Balance Due updated atomically.',
+                          )
+                        }
+                      } catch (err) {
+                        toast.error(
+                          'Payment rejected',
+                          err instanceof Error ? err.message : 'Overpayment blocked.',
+                        )
+                      }
+                    }}
+                    className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                  >
+                    Record Partial Payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = demo.generateDemoPayLink(m10SelectedPayInvoice.id)
+                      if (url) {
+                        toast.success(
+                          `Sandbox Stripe Card+ACH Link Ready (${m10SelectedPayInvoice.invoice_number})`,
+                          url,
+                        )
+                      }
+                    }}
+                    className="exec-btn-secondary !px-3 !py-1.5 !text-xs"
+                  >
+                    <Link2 className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+                    Copy / Generate Pay Link
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Sandbox Dunning Queue */}
+          <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-white">
+                  Human-in-the-Loop Dunning Queue
+                </span>
+                <select
+                  aria-label="Sandbox collections bot autonomy mode"
+                  value={m10BotMode}
+                  onChange={e =>
+                    demo.setDemoCollectionsBotMode(e.target.value as BotAutonomyMode)
+                  }
+                  className="exec-input !w-auto !py-1 !text-[11px]"
+                >
+                  <option value="observe">observe</option>
+                  <option value="propose">propose</option>
+                  <option value="draft_and_approve">draft_and_approve</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const res = demo.stageDemoDunningReminders()
+                  if (res.observeBlocked) {
+                    toast.info(
+                      'Blocked in Observe Mode',
+                      'Collections bot is in observe mode — zero drafts staged.',
+                    )
+                  } else {
+                    toast.success(
+                      `Staged ${res.stagedCount} Dunning Draft(s)`,
+                      'Requires owner Approve / Edit / Dismiss (zero auto-send).',
+                    )
+                  }
+                }}
+                className="exec-btn-primary !px-2.5 !py-1.5 !text-xs"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Evaluate Dunning
+              </button>
+            </div>
+
+            {m10DunningQueue.length === 0 ? (
+              <p className="text-xs text-slate-400">
+                Click <strong>Evaluate Dunning</strong> to test Pre-Due / +3d / +14d / +30d reminder drafting (blocked when bot mode = <code>observe</code>).
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {m10DunningQueue.map(item => {
+                  const stageKey =
+                    typeof item.payload?.stage === 'string'
+                      ? (item.payload.stage as DunningStage)
+                      : 'due_plus_3d'
+                  const isEditing = editingDunningId === item.id
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-slate-800 bg-[#0b1320] p-2.5 space-y-2 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge tone="brand">
+                            {DUNNING_STAGE_LABELS[stageKey] ?? stageKey}
+                          </Badge>
+                          <Badge
+                            tone={
+                              item.status === 'approved'
+                                ? 'emerald'
+                                : item.status === 'rejected'
+                                  ? 'rose'
+                                  : 'amber'
+                            }
+                          >
+                            {item.status}
+                          </Badge>
+                        </div>
+                        <span className="font-bold text-white tabular-nums">
+                          {formatExactCents(item.amount_cents)}
+                        </span>
+                      </div>
+                      <p className="font-semibold text-slate-200">{item.title}</p>
+                      {isEditing ? (
+                        <input
+                          aria-label="Edit sandbox dunning summary"
+                          value={editDunningSummary}
+                          onChange={e => setEditDunningSummary(e.target.value)}
+                          className="exec-input !py-1 !text-xs"
+                        />
+                      ) : (
+                        <p className="text-[11px] text-slate-400">{item.summary}</p>
+                      )}
+                      {item.status === 'pending_approval' ? (
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isEditing) {
+                                setEditingDunningId(null)
+                              } else {
+                                setEditingDunningId(item.id)
+                                setEditDunningSummary(item.summary)
+                              }
+                            }}
+                            className="exec-btn-secondary !px-2 !py-1 !text-[11px]"
+                          >
+                            {isEditing ? 'Cancel' : 'Edit'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              demo.reviewDemoDunningReminder({
+                                actionId: item.id,
+                                decision: 'rejected',
+                              })
+                            }
+                            className="exec-btn-secondary !px-2 !py-1 !text-[11px] text-rose-300"
+                          >
+                            Dismiss
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              demo.reviewDemoDunningReminder({
+                                actionId: item.id,
+                                decision: 'approved',
+                                editedSummary: isEditing ? editDunningSummary : undefined,
+                              })
+                              setEditingDunningId(null)
+                            }}
+                            className="exec-btn-emerald !px-2 !py-1 !text-[11px]"
+                          >
+                            Approve
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

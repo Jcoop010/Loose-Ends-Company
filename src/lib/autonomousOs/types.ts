@@ -175,8 +175,21 @@ export interface LineTotalsResult {
 
 export type AutonomyGateDecision = 'execute_now' | 'queue_for_approval' | 'manual_only'
 
-export type QuoteStatus = 'draft' | 'sent' | 'signed' | 'declined' | 'expired'
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'void'
+export type QuoteStatus =
+  | 'draft'
+  | 'sent'
+  | 'signed'
+  | 'approved'
+  | 'converted'
+  | 'declined'
+  | 'expired'
+export type InvoiceStatus =
+  | 'draft'
+  | 'sent'
+  | 'partially_paid'
+  | 'paid'
+  | 'overdue'
+  | 'void'
 export type AgentLedgerStatus = 'executed' | 'pending_approval' | 'reversed'
 
 export interface AutonomousQuote {
@@ -218,6 +231,7 @@ export interface AutonomousInvoice {
   id: string
   workspace_id: string
   quote_id: string | null
+  source_quote_id?: string | null
   lead_id: string | null
   customer_id: string | null
   invoice_number: string
@@ -229,8 +243,13 @@ export interface AutonomousInvoice {
   tax_cents: number
   total_cents: number
   amount_paid_cents: number
+  balance_due_cents?: number
+  deposit_required_bps?: number
+  deposit_cents?: number
+  idempotency_key?: string | null
   due_date: string
   stripe_checkout_url: string | null
+  stripe_payment_link_url?: string | null
   status: InvoiceStatus
   created_at: string
   updated_at?: string
@@ -426,6 +445,10 @@ export interface VendorBillRecord {
   tax_cents: number
   total_cents: number
   due_date: string
+  bill_date?: string | null
+  payment_terms_label?: string | null
+  early_pay_discount_bps?: number
+  early_pay_discount_days?: number
   items_json: VendorBillLineItem[]
   match_status: VendorBillMatchStatus
   match_variance_cents: number
@@ -1295,3 +1318,159 @@ export interface JobChangeOrderPlan {
 
 
 
+
+// ============================================================================
+// Mission 10 Types: AR/AP Aging, Cashflow Forecast, Invoice Payments & Dunning
+// ============================================================================
+
+export type InvoicePaymentType = 'deposit' | 'partial' | 'final' | 'credit_memo'
+
+export type InvoicePaymentMethod =
+  | 'stripe_card'
+  | 'stripe_ach'
+  | 'check'
+  | 'cash'
+  | 'ach_manual'
+  | 'credit_memo'
+  | 'manual'
+
+export interface InvoicePaymentRecord {
+  id: string
+  workspace_id: string
+  invoice_id: string
+  amount_cents: number
+  payment_type: InvoicePaymentType
+  payment_method: InvoicePaymentMethod
+  stripe_payment_intent_id: string | null
+  notes: string | null
+  idempotency_key: string
+  recorded_at: string
+  created_by?: string | null
+}
+
+export type DunningStage = 'pre_due_3d' | 'due_plus_3d' | 'overdue_14d' | 'overdue_30d'
+
+export type DunningEventStatus = 'drafted' | 'approved' | 'dismissed' | 'sent'
+
+export interface InvoiceDunningEventRecord {
+  id: string
+  workspace_id: string
+  invoice_id: string
+  stage: DunningStage
+  staged_action_id: string | null
+  late_fee_cents: number
+  status: DunningEventStatus
+  idempotency_key: string
+  drafted_at: string
+  sent_at: string | null
+}
+
+export type AgingBucketKey =
+  | 'current'
+  | 'days_1_30'
+  | 'days_31_60'
+  | 'days_61_90'
+  | 'days_90_plus'
+
+export interface AgingBucketSummary {
+  bucket: AgingBucketKey
+  label: string
+  ar_count: number
+  ar_cents: number
+  ap_count: number
+  ap_cents: number
+  net_cents: number
+}
+
+export interface AgingLedgerRow {
+  kind: 'ar_invoice' | 'ap_bill'
+  id: string
+  document_number: string
+  counterparty: string
+  title: string
+  due_date: string
+  days_past_due: number
+  bucket: AgingBucketKey
+  total_cents: number
+  paid_cents: number
+  balance_cents: number
+  status: string
+}
+
+export interface CashflowProjectionWindow {
+  horizon_days: 7 | 15 | 30
+  label: string
+  window_end_date: string
+  overdue_ar_included_cents: number
+  upcoming_ar_due_cents: number
+  expected_inflow_cents: number
+  scheduled_outflow_cents: number
+  net_cashflow_cents: number
+  projected_ending_cash_cents: number
+}
+
+export interface EarlyPayDiscountOpportunity {
+  bill_id: string
+  vendor_name: string
+  invoice_number: string
+  terms_label: string
+  bill_total_cents: number
+  discount_bps: number
+  discount_cents: number
+  net_pay_cents: number
+  discount_deadline: string
+  due_date: string
+  days_remaining: number
+  expired: boolean
+  annualized_apr_bps: number
+}
+
+export interface ArApAgingSnapshot {
+  as_of_date: string
+  starting_cash_cents: number
+  total_open_ar_cents: number
+  total_open_ap_cents: number
+  net_working_capital_cents: number
+  buckets: AgingBucketSummary[]
+  rows: AgingLedgerRow[]
+  projections: [
+    CashflowProjectionWindow,
+    CashflowProjectionWindow,
+    CashflowProjectionWindow,
+  ]
+  early_pay_opportunities: EarlyPayDiscountOpportunity[]
+  total_early_pay_savings_cents: number
+}
+
+export interface DunningDraftProposal {
+  workspace_id: string
+  invoice_id: string
+  invoice_number: string
+  customer_name: string
+  customer_email: string | null
+  due_date: string
+  days_past_due: number
+  stage: DunningStage
+  stage_label: string
+  balance_due_cents: number
+  late_fee_cents: number
+  total_with_late_fee_cents: number
+  action_type: 'dunning_reminder'
+  status: 'pending_approval'
+  autoSendAllowed: false
+  idempotency_key: string
+  title: string
+  summary: string
+  subject: string
+  draft_body: string
+}
+
+export interface DunningEvaluationResult {
+  as_of_date: string
+  bot_mode: string
+  observe_mode_blocked: boolean
+  eligible_count: number
+  skipped_observe_mode_count: number
+  skipped_already_drafted_count: number
+  drafts: DunningDraftProposal[]
+}

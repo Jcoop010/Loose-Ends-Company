@@ -383,7 +383,8 @@ export function computeArSummary(
     openCount += 1
 
     const isPastDue =
-      inv.status === 'overdue' || (inv.status === 'sent' && inv.due_date < todayIso)
+      inv.status === 'overdue' ||
+      ((inv.status === 'sent' || inv.status === 'partially_paid') && inv.due_date < todayIso)
     if (isPastDue && balance > 0) {
       overdueArCents += balance
       overdueCount += 1

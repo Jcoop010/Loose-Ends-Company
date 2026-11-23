@@ -659,3 +659,70 @@ export async function invokeGrokBotAuditLeaks(params: {
       'Grok leak audit service unavailable.',
   )
 }
+
+export interface CreateInvoicePaymentLinkResult {
+  url: string
+  amountCents: number
+  paymentType: 'balance' | 'deposit'
+  paymentMethods: string[]
+}
+
+export async function createInvoicePaymentLink(params: {
+  workspaceId: string
+  invoiceId: string
+  paymentMode?: 'balance' | 'deposit'
+  idempotencyKey?: string
+}): Promise<CreateInvoicePaymentLinkResult> {
+  assertSupabaseConfigured()
+  const { workspaceId, invoiceId } = params
+  if (!UUID_PATTERN.test(workspaceId) || !UUID_PATTERN.test(invoiceId)) {
+    throw new Error('Valid workspace and invoice UUIDs are required.')
+  }
+
+  const paymentMode = params.paymentMode ?? 'balance'
+  const idempotencyKey = params.idempotencyKey?.trim() || `paylink:${invoiceId}:${paymentMode}`
+
+  const { data, error } = await supabase.functions.invoke('create-invoice-payment-link', {
+    headers: {
+      'X-Idempotency-Key': idempotencyKey,
+    },
+    body: {
+      workspace_id: workspaceId,
+      invoice_id: invoiceId,
+      payment_mode: paymentMode,
+    },
+  })
+
+  if (error) {
+    throw new Error(await extractFunctionErrorMessage(data, error, 'Invoice payment link unavailable.'))
+  }
+
+  const response = (data ?? {}) as {
+    url?: string
+    amount_cents?: number
+    payment_type?: string
+    payment_methods?: string[]
+  }
+  if (!response.url) {
+    throw new Error('Stripe did not return a hosted payment URL.')
+  }
+  const parsed = new URL(response.url)
+  if (
+    parsed.protocol !== 'https:' ||
+    (parsed.hostname !== 'checkout.stripe.com' && parsed.hostname !== 'buy.stripe.com')
+  ) {
+    throw new Error('Unexpected Stripe payment link destination.')
+  }
+
+  return {
+    url: parsed.toString(),
+    amountCents:
+      typeof response.amount_cents === 'number' && Number.isSafeInteger(response.amount_cents)
+        ? response.amount_cents
+        : 0,
+    paymentType: response.payment_type === 'deposit' ? 'deposit' : 'balance',
+    paymentMethods: Array.isArray(response.payment_methods)
+      ? response.payment_methods
+      : ['card', 'us_bank_account'],
+  }
+}

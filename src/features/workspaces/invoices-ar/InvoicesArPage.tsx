@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   CheckCircle2,
+  CreditCard,
+  Link2,
   Mail,
   PauseCircle,
   PlayCircle,
@@ -13,6 +15,7 @@ import {
   COLLECTION_STAGE_LABELS,
   COLLECTION_STATUS_LABELS,
   computeArSummary,
+  computeInvoiceBalanceDueCents,
   DEFAULT_AUTONOMY_CONFIG,
   evaluateAutonomousCollections,
   formatCents,
@@ -20,14 +23,22 @@ import {
   type AgentActionLedgerEntry,
   type AutonomousInvoice,
   type CollectionTouchRecord,
+  type InvoiceDunningEventRecord,
+  type InvoicePaymentRecord,
   type InvoiceStatus,
+  type VendorBillRecord,
   type WorkspaceAutonomyConfig,
 } from '../../../lib/autonomousOs'
 import * as autonomousQueries from '../../../lib/autonomousOs/queries'
+import * as mission10Queries from '../../../lib/autonomousOs/mission10Queries'
 import * as release4Queries from '../../../lib/autonomousOs/release4Queries'
+import { createInvoicePaymentLink } from '../../../lib/edgeFunctions'
+import { fetchAllWorkspaceRows } from '../../../lib/queries'
+import type { BotAutonomyMode, StagedOpsAction } from '../../../types/domain'
 import { useSession } from '../../../state/SessionContext'
 import { Badge, EmptyState, Skeleton } from '../../../components/ui/MetricCard'
 import { useToast } from '../../../components/ui/Toast'
+import { Mission10CashflowPanels } from './Mission10CashflowPanels'
 
 type ArFilter = 'all' | 'open' | InvoiceStatus
 
@@ -38,6 +49,11 @@ export function InvoicesArPage(): React.ReactElement {
   const workspaceId = workspace?.id ?? null
   const [loading, setLoading] = useState(true)
   const [invoices, setInvoices] = useState<AutonomousInvoice[]>([])
+  const [vendorBills, setVendorBills] = useState<VendorBillRecord[]>([])
+  const [invoicePayments, setInvoicePayments] = useState<InvoicePaymentRecord[]>([])
+  const [dunningEvents, setDunningEvents] = useState<InvoiceDunningEventRecord[]>([])
+  const [dunningQueue, setDunningQueue] = useState<StagedOpsAction[]>([])
+  const [collectionsBotMode, setCollectionsBotMode] = useState<BotAutonomyMode>('propose')
   const [collectionTouches, setCollectionTouches] = useState<CollectionTouchRecord[]>([])
   const [portalTokenByQuoteId, setPortalTokenByQuoteId] = useState<ReadonlyMap<string, string>>(
     () => new Map(),
@@ -48,6 +64,7 @@ export function InvoicesArPage(): React.ReactElement {
     useState<WorkspaceAutonomyConfig>(DEFAULT_AUTONOMY_CONFIG)
   const [filter, setFilter] = useState<ArFilter>('all')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [paymentDrawerInvoiceId, setPaymentDrawerInvoiceId] = useState<string | null>(null)
   const [stagingCollections, setStagingCollections] = useState(false)
   const [undoingCollections, setUndoingCollections] = useState(false)
 
@@ -55,16 +72,43 @@ export function InvoicesArPage(): React.ReactElement {
     if (!workspaceId) return
     setLoading(true)
     try {
-      const [invRes, configRes, touchesRes, portalMapRes] = await Promise.all([
+      const [
+        invRes,
+        configRes,
+        touchesRes,
+        portalMapRes,
+        billsRes,
+        paymentsRes,
+        dunningEventsRes,
+        dunningQueueRes,
+        botModeRes,
+      ] = await Promise.all([
         autonomousQueries.fetchInvoicesAndItems(workspaceId),
         autonomousQueries.fetchWorkspaceAutonomySettings(workspaceId),
         release4Queries.fetchCollectionTouches(workspaceId),
         release4Queries.fetchQuotePortalTokensByQuoteId(workspaceId),
+        fetchAllWorkspaceRows<VendorBillRecord>({
+          table: 'vendor_bills',
+          workspaceId,
+          orderBy: 'created_at',
+          ascending: false,
+        }).catch(() => [] as VendorBillRecord[]),
+        mission10Queries.fetchInvoicePayments(workspaceId).catch(() => [] as InvoicePaymentRecord[]),
+        mission10Queries
+          .fetchInvoiceDunningEvents(workspaceId)
+          .catch(() => [] as InvoiceDunningEventRecord[]),
+        mission10Queries.fetchDunningApprovalQueue(workspaceId).catch(() => [] as StagedOpsAction[]),
+        mission10Queries.fetchCollectionsBotMode(workspaceId).catch(() => 'propose' as BotAutonomyMode),
       ])
       setInvoices(invRes.invoices)
       setAutonomyConfig(configRes)
       setCollectionTouches(touchesRes)
       setPortalTokenByQuoteId(portalMapRes)
+      setVendorBills(billsRes ?? [])
+      setInvoicePayments(paymentsRes)
+      setDunningEvents(dunningEventsRes)
+      setDunningQueue(dunningQueueRes)
+      setCollectionsBotMode(botModeRes)
     } catch (err) {
       toast.error(
         'Could not load invoices',
@@ -181,15 +225,66 @@ export function InvoicesArPage(): React.ReactElement {
   const filteredInvoices = useMemo(() => {
     if (filter === 'all') return invoices
     if (filter === 'open') {
-      return invoices.filter(inv => inv.status === 'draft' || inv.status === 'sent' || inv.status === 'overdue')
+      return invoices.filter(
+        inv =>
+          inv.status === 'draft' ||
+          inv.status === 'sent' ||
+          inv.status === 'partially_paid' ||
+          inv.status === 'overdue',
+      )
     }
     if (filter === 'overdue') {
       return invoices.filter(
-        inv => inv.status === 'overdue' || (inv.status === 'sent' && inv.due_date < todayIso),
+        inv =>
+          inv.status === 'overdue' ||
+          ((inv.status === 'sent' || inv.status === 'partially_paid') && inv.due_date < todayIso),
       )
     }
     return invoices.filter(inv => inv.status === filter)
   }, [invoices, filter, todayIso])
+
+  const paymentDrawerInvoice = useMemo(
+    () => invoices.find(inv => inv.id === paymentDrawerInvoiceId) ?? null,
+    [invoices, paymentDrawerInvoiceId],
+  )
+
+  const handleCopyPayLink = async (invoice: AutonomousInvoice) => {
+    if (!workspaceId || busyId) return
+    setBusyId(invoice.id)
+    try {
+      const existingUrl = invoice.stripe_payment_link_url || invoice.stripe_checkout_url
+      let url = existingUrl
+      let labelDetail = 'Card + ACH payment link ready.'
+
+      if (!url) {
+        const res = await createInvoicePaymentLink({
+          workspaceId,
+          invoiceId: invoice.id,
+          paymentMode:
+            invoice.amount_paid_cents === 0 && invoice.deposit_cents && invoice.deposit_cents > 0
+              ? 'deposit'
+              : 'balance',
+        })
+        url = res.url
+        labelDetail = `Card + ACH link created for ${formatCents(res.amountCents)}.`
+        await loadData()
+      }
+
+      try {
+        await navigator.clipboard?.writeText(url)
+        toast.success(`Copied Stripe Pay Link (${invoice.invoice_number})`, labelDetail)
+      } catch {
+        toast.info(`Stripe Pay Link (${invoice.invoice_number})`, url)
+      }
+    } catch (err) {
+      toast.error(
+        'Could not prepare Stripe Pay Link',
+        err instanceof Error ? err.message : 'Ensure create-invoice-payment-link Edge Function is deployed.',
+      )
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const handleStageNudge = async (invoice: AutonomousInvoice) => {
     if (!workspaceId || busyId) return
@@ -278,7 +373,7 @@ export function InvoicesArPage(): React.ReactElement {
       <div className="exec-surface overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Invoice status filter">
-            {(['all', 'open', 'overdue', 'paid', 'void'] as const).map(tab => (
+            {(['all', 'open', 'partially_paid', 'overdue', 'paid', 'void'] as const).map(tab => (
               <button
                 key={tab}
                 type="button"
@@ -291,7 +386,7 @@ export function InvoicesArPage(): React.ReactElement {
                     : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                {tab}
+                {tab.replace('_', ' ')}
               </button>
             ))}
           </div>
@@ -317,9 +412,10 @@ export function InvoicesArPage(): React.ReactElement {
         ) : (
           <ul className="divide-y divide-slate-200">
             {filteredInvoices.map(inv => {
-              const balanceCents = Math.max(0, inv.total_cents - inv.amount_paid_cents)
+              const balanceCents = computeInvoiceBalanceDueCents(inv)
               const isOverdue =
-                inv.status === 'overdue' || (inv.status === 'sent' && inv.due_date < todayIso)
+                inv.status === 'overdue' ||
+                ((inv.status === 'sent' || inv.status === 'partially_paid') && inv.due_date < todayIso)
               const canCollect = inv.status !== 'paid' && inv.status !== 'void'
 
               return (
@@ -335,13 +431,24 @@ export function InvoicesArPage(): React.ReactElement {
                             ? 'emerald'
                             : isOverdue
                               ? 'rose'
-                              : inv.status === 'void'
-                                ? 'neutral'
-                                : 'brand'
+                              : inv.status === 'partially_paid'
+                                ? 'amber'
+                                : inv.status === 'void'
+                                  ? 'neutral'
+                                  : 'brand'
                         }
                       >
-                        {isOverdue && inv.status !== 'overdue' ? 'overdue' : inv.status}
+                        {inv.status === 'partially_paid'
+                          ? 'partially paid'
+                          : isOverdue && inv.status !== 'overdue'
+                            ? 'overdue'
+                            : inv.status}
                       </Badge>
+                      {inv.deposit_cents && inv.deposit_cents > 0 ? (
+                        <Badge tone="neutral">
+                          Deposit Req: {formatCents(inv.deposit_cents)}
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="text-sm font-bold text-slate-900">{inv.title}</p>
                     <p className="text-xs text-slate-600">
@@ -349,18 +456,38 @@ export function InvoicesArPage(): React.ReactElement {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <div className="text-left sm:text-right tabular-nums mr-2">
                       <p className="text-base font-extrabold text-slate-950">
                         {formatCents(inv.total_cents)}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        Balance: {formatCents(inv.status === 'paid' ? 0 : balanceCents)}
+                        Balance Due: {formatCents(balanceCents)}
                       </p>
                     </div>
 
                     {canCollect ? (
                       <>
+                        <button
+                          type="button"
+                          disabled={busyId === inv.id}
+                          onClick={() => void handleCopyPayLink(inv)}
+                          className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                        >
+                          <Link2 className="h-3.5 w-3.5 text-[#ea580c]" aria-hidden="true" />
+                          {inv.stripe_payment_link_url || inv.stripe_checkout_url
+                            ? 'Copy Pay Link'
+                            : 'Copy / Send Pay Link'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === inv.id}
+                          onClick={() => setPaymentDrawerInvoiceId(inv.id)}
+                          className="exec-btn-secondary !px-3 !py-1.5 !text-xs touch-target"
+                        >
+                          <CreditCard className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                          Record Payment
+                        </button>
                         <button
                           type="button"
                           disabled={busyId === inv.id}
@@ -545,6 +672,19 @@ export function InvoicesArPage(): React.ReactElement {
           </p>
         )}
       </section>
+
+      <Mission10CashflowPanels
+        workspaceId={workspaceId}
+        invoices={invoices}
+        vendorBills={vendorBills}
+        invoicePayments={invoicePayments}
+        dunningEvents={dunningEvents}
+        dunningQueue={dunningQueue}
+        collectionsBotMode={collectionsBotMode}
+        paymentDrawerInvoice={paymentDrawerInvoice}
+        onClosePaymentDrawer={() => setPaymentDrawerInvoiceId(null)}
+        onRefresh={loadData}
+      />
     </div>
   )
 }

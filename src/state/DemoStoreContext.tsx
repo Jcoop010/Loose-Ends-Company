@@ -13,11 +13,14 @@ import {
   compileOwnerMorningBrief,
   compilePlainEnglishSop,
   computeArSummary,
+  computeDepositCents,
+  computeInvoiceBalanceDueCents,
   convertSignedQuoteToInvoice,
   DEFAULT_AUTONOMY_CONFIG,
   evaluateAutonomyGate,
   evaluateAutonomousCollections,
   evaluateComplianceDeadlines,
+  evaluateInvoiceDunning,
   evaluateJobMargin,
   executeCompiledSop,
   formatCents as formatOsCents,
@@ -47,6 +50,10 @@ import {
   type CpaAuditPacket,
   type ExecutableSopRecord,
   type InboundBillCaptureRecord,
+  type InvoiceDunningEventRecord,
+  type InvoicePaymentMethod,
+  type InvoicePaymentRecord,
+  type InvoicePaymentType,
   type JobMarginRecord,
   type LedgerEntryRecord,
   type LivingSopRecord,
@@ -212,6 +219,10 @@ export interface DemoSandboxState {
   osBankReconcileLedgerId: string | null
   osJobMargins: JobMarginRecord[]
   osJobMarginLedgerId: string | null
+  osInvoicePayments: InvoicePaymentRecord[]
+  osDunningEvents: InvoiceDunningEventRecord[]
+  osDunningQueue: StagedOpsAction[]
+  osCollectionsBotMode: BotAutonomyMode
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1350,9 +1361,18 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     0,
   )
 
+  const q3013Totals = calculateLineTotals(
+    [
+      { description: 'Walk-In Condenser Coil & Compressor Upgrade', quantity: 1, unit_price_cents: 120000 },
+      { description: 'Digital Airflow Commissioning & Checklist', quantity: 1, unit_price_cents: 40000 },
+    ],
+    0,
+  )
+
   const quote3011Id = '00000000-0000-4000-8000-00000000q301'
   const quote3012Id = '00000000-0000-4000-8000-00000000q302'
   const quote3010Id = '00000000-0000-4000-8000-00000000q300'
+  const quote3013Id = '00000000-0000-4000-8000-00000000q303'
 
   const osQuotes: AutonomousQuote[] = [
     {
@@ -1418,9 +1438,40 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       notes: 'Signed client portal agreement.',
       created_at: isoOffsetFrom(anchorMs, -20 * DAY_MS),
     },
+    {
+      id: quote3013Id,
+      workspace_id: DEMO_WORKSPACE_ID,
+      lead_id: null,
+      customer_id: customers[1]?.id ?? null,
+      quote_number: 'QTE-3013',
+      title: 'Walk-In Condenser & Controls Retrofit',
+      customer_name: 'Oak Street Bakery',
+      customer_email: 'gcalloway@oakstreetbakery.example',
+      subtotal_cents: q3013Totals.subtotal_cents,
+      tax_bps: q3013Totals.tax_bps,
+      tax_cents: q3013Totals.tax_cents,
+      total_cents: q3013Totals.total_cents,
+      status: 'approved',
+      portal_token: 'qpt_demo_oakstreet_3013',
+      signed_by_name: 'Grant Calloway',
+      signed_at: isoOffsetFrom(anchorMs, -1 * DAY_MS),
+      valid_until: isoOffsetFrom(anchorMs, 15 * DAY_MS).slice(0, 10),
+      notes: 'Approved commercial retrofit ready for 1-click conversion with optional deposit.',
+      created_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
   ]
 
   const osQuoteItemsByQuote: Record<string, AutonomousQuoteItem[]> = {
+    [quote3013Id]: q3013Totals.items.map((item, idx) => ({
+      id: `qi_3013_${idx + 1}`,
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: quote3013Id,
+      position: item.position,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price_cents: item.unit_price_cents,
+      line_total_cents: item.line_total_cents,
+    })),
     [quote3011Id]: q3011Totals.items.map((item, idx) => ({
       id: `qi_3011_${idx + 1}`,
       workspace_id: DEMO_WORKSPACE_ID,
@@ -1529,10 +1580,76 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       tax_cents: 0,
       total_cents: 89000,
       amount_paid_cents: 89000,
+      balance_due_cents: 0,
       due_date: isoOffsetFrom(anchorMs, -10 * DAY_MS).slice(0, 10),
       stripe_checkout_url: null,
       status: 'paid',
       created_at: isoOffsetFrom(anchorMs, -24 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000i313',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: null,
+      lead_id: null,
+      customer_id: customers[2]?.id ?? null,
+      invoice_number: 'INV-3013',
+      title: 'Westside Orthodontics Filter Contract',
+      customer_name: 'Westside Orthodontics',
+      customer_email: 'priya.n@westsideortho.example',
+      subtotal_cents: 120000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 120000,
+      amount_paid_cents: 30000,
+      balance_due_cents: 90000,
+      deposit_required_bps: 2500,
+      deposit_cents: 30000,
+      due_date: isoOffsetFrom(anchorMs, 2 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'partially_paid',
+      created_at: isoOffsetFrom(anchorMs, -10 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000i314',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: null,
+      lead_id: null,
+      customer_id: customers[3]?.id ?? null,
+      invoice_number: 'INV-3014',
+      title: 'Harbor Logistics Bay 4 Chiller Control Board',
+      customer_name: 'Harbor Logistics Group',
+      customer_email: 'tkowalski@harborfreightwarehousing.example',
+      subtotal_cents: 195000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 195000,
+      amount_paid_cents: 0,
+      balance_due_cents: 195000,
+      due_date: isoOffsetFrom(anchorMs, -42 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'overdue',
+      created_at: isoOffsetFrom(anchorMs, -58 * DAY_MS),
+    },
+    {
+      id: '00000000-0000-4000-8000-00000000i315',
+      workspace_id: DEMO_WORKSPACE_ID,
+      quote_id: null,
+      lead_id: null,
+      customer_id: null,
+      invoice_number: 'INV-3015',
+      title: 'Valley Medical Plaza Heat Recovery Maintenance',
+      customer_name: 'Valley Medical Plaza',
+      customer_email: 'ap@valleymedical.invalid',
+      subtotal_cents: 145000,
+      tax_bps: 0,
+      tax_cents: 0,
+      total_cents: 145000,
+      amount_paid_cents: 0,
+      balance_due_cents: 145000,
+      due_date: isoOffsetFrom(anchorMs, -96 * DAY_MS).slice(0, 10),
+      stripe_checkout_url: null,
+      status: 'overdue',
+      created_at: isoOffsetFrom(anchorMs, -110 * DAY_MS),
     },
   ]
 
@@ -1723,11 +1840,15 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       tax_cents: 0,
       total_cents: 64000,
       due_date: isoOffsetFrom(anchorMs, 12 * DAY_MS).slice(0, 10),
+      bill_date: isoOffsetFrom(anchorMs, -3 * DAY_MS).slice(0, 10),
+      payment_terms_label: '2/10 Net 30',
+      early_pay_discount_bps: 200,
+      early_pay_discount_days: 10,
       items_json: [],
       match_status: 'matched_clean',
       match_variance_cents: 0,
       discrepancy_summary: null,
-      created_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
+      created_at: isoOffsetFrom(anchorMs, -3 * DAY_MS),
     },
     {
       id: 'vb-demo-2',
@@ -1739,6 +1860,7 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       tax_cents: 0,
       total_cents: 280000,
       due_date: isoOffsetFrom(anchorMs, 10 * DAY_MS).slice(0, 10),
+      bill_date: isoOffsetFrom(anchorMs, -2 * DAY_MS).slice(0, 10),
       items_json: [
         {
           sku: 'VALVE-42',
@@ -1751,6 +1873,42 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       match_variance_cents: 70000,
       discrepancy_summary: 'Unit cost jumped +33.3% ($56.00 vs $42.00 PO baseline)',
       created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
+    {
+      id: 'vb-demo-3',
+      workspace_id: DEMO_WORKSPACE_ID,
+      po_id: null,
+      vendor_name: 'Carrier Commercial Distributors',
+      invoice_number: 'VB-9051',
+      subtotal_cents: 150000,
+      tax_cents: 0,
+      total_cents: 150000,
+      due_date: isoOffsetFrom(anchorMs, 26 * DAY_MS).slice(0, 10),
+      bill_date: isoOffsetFrom(anchorMs, -4 * DAY_MS).slice(0, 10),
+      payment_terms_label: '2/10 Net 30',
+      early_pay_discount_bps: 200,
+      early_pay_discount_days: 10,
+      items_json: [],
+      match_status: 'matched_clean',
+      match_variance_cents: 0,
+      discrepancy_summary: null,
+      created_at: isoOffsetFrom(anchorMs, -4 * DAY_MS),
+    },
+  ]
+
+  const osInvoicePayments: InvoicePaymentRecord[] = [
+    {
+      id: 'pay-demo-3013-dep',
+      workspace_id: DEMO_WORKSPACE_ID,
+      invoice_id: '00000000-0000-4000-8000-00000000i313',
+      amount_cents: 30000,
+      payment_type: 'deposit',
+      payment_method: 'stripe_ach',
+      stripe_payment_intent_id: 'pi_demo_3013_ach',
+      notes: 'Initial 25% deposit via Stripe ACH',
+      idempotency_key: 'stripe:pi_demo_3013_ach',
+      recorded_at: isoOffsetFrom(anchorMs, -8 * DAY_MS),
+      created_by: DEMO_OWNER_ID,
     },
   ]
 
@@ -1873,6 +2031,10 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osBankReconcileLedgerId: null,
     osJobMargins,
     osJobMarginLedgerId: null,
+    osInvoicePayments,
+    osDunningEvents: [],
+    osDunningQueue: [],
+    osCollectionsBotMode: 'propose',
   }
 }
 
@@ -1989,6 +2151,23 @@ export interface DemoStoreContextValue {
   runDemoBankFeedReconcile: () => BankFeedTransactionRecord[]
   reconcileDemoMatchedBankFeed: () => { reconciledCount: number; ledgerId: string } | null
   draftDemoJobChangeOrder: (jobId: string) => { ledgerId: string } | null
+  convertDemoQuoteWithDeposit: (quoteId: string, depositBps: number) => AutonomousInvoice | null
+  recordDemoPartialPayment: (params: {
+    invoiceId: string
+    amountCents: number
+    paymentType: InvoicePaymentType
+    paymentMethod: InvoicePaymentMethod
+    notes?: string
+  }) => InvoicePaymentRecord | null
+  setDemoCollectionsBotMode: (mode: BotAutonomyMode) => void
+  stageDemoDunningReminders: () => { stagedCount: number; observeBlocked: boolean }
+  reviewDemoDunningReminder: (params: {
+    actionId: string
+    decision: 'approved' | 'rejected'
+    editedSummary?: string
+    editedDraftBody?: string
+  }) => void
+  generateDemoPayLink: (invoiceId: string) => string | null
   commandSnapshot: CommandRouterSnapshot
   resetDemo: () => void
 }
@@ -4169,6 +4348,349 @@ export function DemoStoreProvider({
     [state.osJobMargins],
   )
 
+  const convertDemoQuoteWithDeposit = useCallback(
+    (quoteId: string, depositBps: number): AutonomousInvoice | null => {
+      const targetQuote = state.osQuotes.find(q => q.id === quoteId)
+      if (!targetQuote) return null
+      if (targetQuote.status !== 'signed' && targetQuote.status !== 'approved') {
+        throw new Error(`Quote ${targetQuote.quote_number} is already ${targetQuote.status}.`)
+      }
+      const existingInv = state.osInvoices.find(
+        i => (i.source_quote_id === quoteId || i.quote_id === quoteId) && i.status !== 'void',
+      )
+      if (existingInv) return existingInv
+
+      const nowIso = new Date().toISOString()
+      const items = state.osQuoteItemsByQuote[quoteId] ?? []
+      const safeDepositBps = Math.max(0, Math.min(10000, Math.trunc(depositBps)))
+      const depositCents = computeDepositCents(targetQuote.total_cents, safeDepositBps)
+      const invSuffix = targetQuote.quote_number.replace(/^QTE-/i, '') || quoteId.slice(-4)
+      const invId = `00000000-0000-4000-8000-0000m10${Date.now().toString().slice(-5)}`
+      const dueDate = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)
+
+      const newInvoice: AutonomousInvoice = {
+        id: invId,
+        workspace_id: DEMO_WORKSPACE_ID,
+        quote_id: targetQuote.id,
+        source_quote_id: targetQuote.id,
+        lead_id: targetQuote.lead_id,
+        customer_id: targetQuote.customer_id,
+        invoice_number: `INV-${invSuffix}`,
+        title: targetQuote.title,
+        customer_name: targetQuote.customer_name,
+        customer_email: targetQuote.customer_email,
+        subtotal_cents: targetQuote.subtotal_cents,
+        tax_bps: targetQuote.tax_bps,
+        tax_cents: targetQuote.tax_cents,
+        total_cents: targetQuote.total_cents,
+        amount_paid_cents: 0,
+        balance_due_cents: targetQuote.total_cents,
+        deposit_required_bps: safeDepositBps,
+        deposit_cents: depositCents,
+        idempotency_key: `quote_conv:${targetQuote.id}`,
+        due_date: dueDate,
+        stripe_checkout_url: null,
+        stripe_payment_link_url: null,
+        status: 'sent',
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
+
+      const newItems: AutonomousInvoiceItem[] = items.map((item, idx) => ({
+        id: `${invId}_item_${idx + 1}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        invoice_id: invId,
+        position: item.position,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price_cents: item.unit_price_cents,
+        line_total_cents: item.line_total_cents,
+        created_at: nowIso,
+      }))
+
+      const ledgerEntry: AgentActionLedgerEntry = {
+        id: `led_m10_q2i_${Date.now()}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        agent_name: 'AR Collections & Billing Agent',
+        module: 'billing',
+        action_type: 'convert_quote_to_invoice',
+        autonomy_mode: 'approve_1tap',
+        summary: `Converted ${targetQuote.quote_number} -> ${newInvoice.invoice_number} (${formatOsCents(targetQuote.total_cents)}${
+          depositCents > 0 ? `; deposit req ${formatOsCents(depositCents)}` : ''
+        })`,
+        impact_cents: targetQuote.total_cents,
+        before_state: { quote_id: targetQuote.id, quote_status: targetQuote.status },
+        after_state: { quote_id: targetQuote.id, quote_status: 'converted', invoice_id: invId },
+        status: 'executed',
+        reversed_at: null,
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osQuotes: prev.osQuotes.map(q =>
+          q.id === quoteId ? { ...q, status: 'converted', updated_at: nowIso } : q,
+        ),
+        osInvoices: [newInvoice, ...prev.osInvoices],
+        osInvoiceItemsByInvoice: {
+          ...prev.osInvoiceItemsByInvoice,
+          [invId]: newItems,
+        },
+        osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+      }))
+
+      return newInvoice
+    },
+    [state.osQuotes, state.osInvoices, state.osQuoteItemsByQuote],
+  )
+
+  const recordDemoPartialPayment = useCallback(
+    (params: {
+      invoiceId: string
+      amountCents: number
+      paymentType: InvoicePaymentType
+      paymentMethod: InvoicePaymentMethod
+      notes?: string
+    }): InvoicePaymentRecord | null => {
+      const target = state.osInvoices.find(i => i.id === params.invoiceId)
+      if (!target) return null
+      if (!Number.isSafeInteger(params.amountCents) || params.amountCents <= 0) {
+        throw new Error('Payment amount must be a positive integer cent amount.')
+      }
+      const remaining = computeInvoiceBalanceDueCents(target)
+      if (params.amountCents > remaining) {
+        throw new Error(
+          `Overpayment blocked: ${formatOsCents(params.amountCents)} exceeds remaining balance ${formatOsCents(remaining)}.`,
+        )
+      }
+
+      const nowIso = new Date().toISOString()
+      const nextPaid = target.amount_paid_cents + params.amountCents
+      const nextBalance = Math.max(0, target.total_cents - nextPaid)
+      const nextStatus: AutonomousInvoice['status'] =
+        nextBalance === 0 ? 'paid' : 'partially_paid'
+      const paymentId = `pay_m10_${Date.now()}`
+      const idempotencyKey = `demo_pay:${params.invoiceId}:${nextPaid}`
+
+      const newPayment: InvoicePaymentRecord = {
+        id: paymentId,
+        workspace_id: DEMO_WORKSPACE_ID,
+        invoice_id: params.invoiceId,
+        amount_cents: params.amountCents,
+        payment_type: params.paymentType,
+        payment_method: params.paymentMethod,
+        stripe_payment_intent_id:
+          params.paymentMethod === 'stripe_card' || params.paymentMethod === 'stripe_ach'
+            ? `pi_demo_${Date.now()}`
+            : null,
+        notes: params.notes?.trim() || null,
+        idempotency_key: idempotencyKey,
+        recorded_at: nowIso,
+        created_by: DEMO_OWNER_ID,
+      }
+
+      const newLedgerRow: LedgerEntryRecord = {
+        id: `le_pay_${Date.now()}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        entry_type: params.paymentType === 'credit_memo' ? 'expense' : 'revenue',
+        category: params.paymentType === 'credit_memo' ? 'ar_credit_memo' : 'ar_payment_received',
+        description: `${target.invoice_number} ${params.paymentType} (${params.paymentMethod})`,
+        amount_cents:
+          params.paymentType === 'credit_memo' ? -params.amountCents : params.amountCents,
+        occurred_on: nowIso.slice(0, 10),
+        source_ref: target.invoice_number,
+        idempotency_key: idempotencyKey,
+      }
+
+      const agentEntry: AgentActionLedgerEntry = {
+        id: `led_pay_${Date.now()}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        agent_name: 'AR Payment Collector',
+        module: 'billing',
+        action_type: 'record_invoice_payment',
+        autonomy_mode: 'manual',
+        summary: `Recorded ${params.paymentType} (${formatOsCents(params.amountCents)}) on ${target.invoice_number}; balance due ${formatOsCents(nextBalance)}`,
+        impact_cents: params.amountCents,
+        before_state: { invoice_id: target.id, balance_due_cents: remaining },
+        after_state: { invoice_id: target.id, balance_due_cents: nextBalance, status: nextStatus },
+        status: 'executed',
+        reversed_at: null,
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osInvoicePayments: [newPayment, ...prev.osInvoicePayments],
+        osInvoices: prev.osInvoices.map(i =>
+          i.id === params.invoiceId
+            ? {
+                ...i,
+                amount_paid_cents: nextPaid,
+                balance_due_cents: nextBalance,
+                status: nextStatus,
+                updated_at: nowIso,
+              }
+            : i,
+        ),
+        osCollectionTouches:
+          nextBalance === 0
+            ? prev.osCollectionTouches.map(t =>
+                t.invoice_id === params.invoiceId && t.status === 'staged'
+                  ? { ...t, status: 'paused_paid', amount_due_cents: 0, updated_at: nowIso }
+                  : t,
+              )
+            : prev.osCollectionTouches,
+        osLedgerEntries: [newLedgerRow, ...prev.osLedgerEntries],
+        osAgentLedger: [agentEntry, ...prev.osAgentLedger],
+      }))
+
+      return newPayment
+    },
+    [state.osInvoices],
+  )
+
+  const setDemoCollectionsBotMode = useCallback((mode: BotAutonomyMode) => {
+    setState(prev => ({
+      ...prev,
+      osCollectionsBotMode: mode,
+    }))
+  }, [])
+
+  const stageDemoDunningReminders = useCallback((): {
+    stagedCount: number
+    observeBlocked: boolean
+  } => {
+    const todayIso = new Date().toISOString().slice(0, 10)
+    const result = evaluateInvoiceDunning({
+      workspaceId: DEMO_WORKSPACE_ID,
+      invoices: state.osInvoices,
+      existingEvents: state.osDunningEvents,
+      botMode: state.osCollectionsBotMode,
+      asOfDate: todayIso,
+      lateFeeBps: 150,
+    })
+
+    if (result.observe_mode_blocked || result.drafts.length === 0) {
+      return {
+        stagedCount: 0,
+        observeBlocked: result.observe_mode_blocked,
+      }
+    }
+
+    const nowIso = new Date().toISOString()
+    const newActions: StagedOpsAction[] = []
+    const newEvents: InvoiceDunningEventRecord[] = []
+
+    for (const draft of result.drafts) {
+      const actionId = `staged_dun_${draft.invoice_id.slice(-4)}_${draft.stage}`
+      newActions.push({
+        id: actionId,
+        workspace_id: DEMO_WORKSPACE_ID,
+        bot_role: 'collections',
+        workspace_domain: 'billing',
+        action_type: 'dunning_reminder',
+        customer_id: null,
+        title: draft.title,
+        summary: draft.summary,
+        amount_cents: draft.total_with_late_fee_cents,
+        payload: {
+          invoice_id: draft.invoice_id,
+          invoice_number: draft.invoice_number,
+          stage: draft.stage,
+          late_fee_cents: draft.late_fee_cents,
+          subject: draft.subject,
+          draft_body: draft.draft_body,
+          auto_send: false,
+        },
+        confidence_score: 0.95,
+        status: 'pending_approval',
+        reviewed_by: null,
+        reviewed_at: null,
+        created_at: nowIso,
+      })
+
+      newEvents.push({
+        id: `dun_evt_${draft.invoice_id.slice(-4)}_${draft.stage}`,
+        workspace_id: DEMO_WORKSPACE_ID,
+        invoice_id: draft.invoice_id,
+        stage: draft.stage,
+        staged_action_id: actionId,
+        late_fee_cents: draft.late_fee_cents,
+        status: 'drafted',
+        idempotency_key: draft.idempotency_key,
+        drafted_at: nowIso,
+        sent_at: null,
+      })
+    }
+
+    setState(prev => ({
+      ...prev,
+      osDunningQueue: [...newActions, ...prev.osDunningQueue],
+      osDunningEvents: [...newEvents, ...prev.osDunningEvents],
+    }))
+
+    return {
+      stagedCount: newActions.length,
+      observeBlocked: false,
+    }
+  }, [state.osInvoices, state.osDunningEvents, state.osCollectionsBotMode])
+
+  const reviewDemoDunningReminder = useCallback(
+    (params: {
+      actionId: string
+      decision: 'approved' | 'rejected'
+      editedSummary?: string
+      editedDraftBody?: string
+    }) => {
+      const nowIso = new Date().toISOString()
+      setState(prev => ({
+        ...prev,
+        osDunningQueue: prev.osDunningQueue.map(item =>
+          item.id === params.actionId
+            ? {
+                ...item,
+                status: params.decision,
+                summary: params.editedSummary?.trim() || item.summary,
+                payload:
+                  params.editedDraftBody && params.editedDraftBody.trim()
+                    ? { ...item.payload, draft_body: params.editedDraftBody.trim() }
+                    : item.payload,
+                reviewed_by: DEMO_OWNER_ID,
+                reviewed_at: nowIso,
+              }
+            : item,
+        ),
+        osDunningEvents: prev.osDunningEvents.map(ev =>
+          ev.staged_action_id === params.actionId
+            ? {
+                ...ev,
+                status: params.decision === 'approved' ? 'approved' : 'dismissed',
+              }
+            : ev,
+        ),
+      }))
+    },
+    [],
+  )
+
+  const generateDemoPayLink = useCallback(
+    (invoiceId: string): string | null => {
+      const inv = state.osInvoices.find(i => i.id === invoiceId)
+      if (!inv || inv.status === 'paid' || inv.status === 'void') return null
+      const url = `https://checkout.stripe.com/c/pay/sandbox_${inv.invoice_number.toLowerCase()}`
+      setState(prev => ({
+        ...prev,
+        osInvoices: prev.osInvoices.map(i =>
+          i.id === invoiceId
+            ? { ...i, stripe_checkout_url: url, stripe_payment_link_url: url }
+            : i,
+        ),
+      }))
+      return url
+    },
+    [state.osInvoices],
+  )
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -4231,6 +4753,12 @@ export function DemoStoreProvider({
       runDemoBankFeedReconcile,
       reconcileDemoMatchedBankFeed,
       draftDemoJobChangeOrder,
+      convertDemoQuoteWithDeposit,
+      recordDemoPartialPayment,
+      setDemoCollectionsBotMode,
+      stageDemoDunningReminders,
+      reviewDemoDunningReminder,
+      generateDemoPayLink,
       commandSnapshot,
       resetDemo,
     }),
@@ -4291,6 +4819,12 @@ export function DemoStoreProvider({
       runDemoBankFeedReconcile,
       reconcileDemoMatchedBankFeed,
       draftDemoJobChangeOrder,
+      convertDemoQuoteWithDeposit,
+      recordDemoPartialPayment,
+      setDemoCollectionsBotMode,
+      stageDemoDunningReminders,
+      reviewDemoDunningReminder,
+      generateDemoPayLink,
       commandSnapshot,
       resetDemo,
     ],

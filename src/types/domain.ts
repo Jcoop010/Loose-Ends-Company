@@ -803,7 +803,11 @@ export type BotRole =
   | 'cash_applications'
   | 'outreach'
 
-export type BotAutonomyMode = 'observe' | 'propose' | 'auto_with_escalation'
+export type BotAutonomyMode =
+  | 'observe'
+  | 'propose'
+  | 'draft_and_approve'
+  | 'auto_with_escalation'
 
 export interface WorkspaceMcpToken {
   id: string
@@ -848,6 +852,7 @@ export type StagedOpsActionType =
   | 'invoice_draft'
   | 'payment_match'
   | 'discrepancy_flag'
+  | 'dunning_reminder'
 
 export type OpsReadinessGrade = 'A' | 'B' | 'C' | 'D'
 
