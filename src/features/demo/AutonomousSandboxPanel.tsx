@@ -2,14 +2,18 @@ import React, { useRef, useState } from 'react'
 import {
   AlertTriangle,
   BellRing,
+  Building2,
   CheckCircle2,
   Cpu,
   Download,
   EyeOff,
   FileCheck2,
+  FilePlus2,
   FileSignature,
   FileSpreadsheet,
   FileText,
+  Inbox,
+  Landmark,
   Lock,
   PauseCircle,
   PlayCircle,
@@ -20,15 +24,20 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sun,
+  TrendingUp,
 } from 'lucide-react'
 import {
   AUTONOMY_ACTION_META,
+  BANK_FEED_STATUS_LABELS,
   COLLECTION_STAGE_LABELS,
   COLLECTION_STATUS_LABELS,
   evaluateComplianceDeadlines,
+  evaluateJobMarginPortfolio,
   formatCents as formatExactCents,
   FRAUD_ALERT_STATUS_LABELS,
   FRAUD_ALERT_TYPE_LABELS,
+  INBOUND_BILL_STATUS_LABELS,
+  JOB_MARGIN_STATUS_LABELS,
   serializeCpaPacketToCsv,
   serializeCpaPacketToJson,
   SHADOW_CATEGORY_LABELS,
@@ -82,6 +91,15 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const executableSops = demo.state.osExecutableSops
   const fraudAlerts = demo.state.osVendorFraudAlerts
   const fraudOverrideLedgerId = demo.state.osFraudOverrideLedgerId
+  const entities = demo.state.osEntities
+  const activeEntityId = demo.state.osActiveEntityId
+  const inboundCaptures = demo.state.osInboundBillCaptures
+  const inboundBillLedgerId = demo.state.osInboundBillLedgerId
+  const bankTransactions = demo.state.osBankTransactions
+  const bankReconcileLedgerId = demo.state.osBankReconcileLedgerId
+  const jobMargins = demo.state.osJobMargins
+  const jobMarginLedgerId = demo.state.osJobMarginLedgerId
+  const jobMarginPortfolio = evaluateJobMarginPortfolio(jobMargins, activeEntityId)
   const visibleShadowFindings = shadowFindings.filter(item =>
     shadowCategoryFilter === 'all' ? true : item.category === shadowCategoryFilter,
   )
@@ -1449,6 +1467,381 @@ export function AutonomousSandboxPanel(): React.ReactElement {
                 Click <strong className="text-slate-200">Run Vendor Fraud Shield</strong> to scan pending vendor bills against PO unit costs and remit history.
               </p>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Release 5: Multi-Entity Switcher, Inbox-to-Ledger, Bank Feed Auto-Reconcile & Live Job Margin Tracker */}
+      <div id="release-5-sandbox" className="space-y-5">
+        {/* Multi-Entity Switcher Bar */}
+        <div className="rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-3 text-slate-100">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Building2 className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  Multi-Entity Books Switcher
+                </span>
+                <Badge tone="brand">
+                  {activeEntityId === 'consolidated'
+                    ? 'Consolidated View'
+                    : entities.find(e => e.id === activeEntityId)?.legal_name ?? 'Entity'}
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-300">
+                Isolate entities in 1 click or view consolidated job margin &amp; ledger telemetry across LLCs.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => demo.switchDemoEntity('consolidated')}
+                className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                  activeEntityId === 'consolidated'
+                    ? 'border-[#fb923c]/50 bg-[rgba(234,88,12,0.18)] text-[#fdba74]'
+                    : 'border-slate-700 bg-[#0e1726] text-slate-300 hover:bg-[#131f33]'
+                }`}
+              >
+                Consolidated View
+              </button>
+              {entities.map(ent => (
+                <button
+                  key={ent.id}
+                  type="button"
+                  onClick={() => demo.switchDemoEntity(ent.id)}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                    activeEntityId === ent.id
+                      ? 'border-[#fb923c]/50 bg-[rgba(234,88,12,0.18)] text-[#fdba74]'
+                      : 'border-slate-700 bg-[#0e1726] text-slate-300 hover:bg-[#131f33]'
+                  }`}
+                >
+                  {ent.legal_name} (···{ent.ein_last4})
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start">
+          {/* Card 1: Inbox-to-Ledger PDF Capture */}
+          <div className="lg:col-span-6 rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                    <Inbox className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                    Inbox-to-Ledger PDF Capture
+                  </span>
+                  <Badge tone="brand">bills@ridgeway-hvac-demo.looseendsos.app</Badge>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">
+                  Parses supplier PDFs into integer cents, runs PO = GRN = Bill match, and auto-freezes spikes &gt;10%.
+                </p>
+              </div>
+              {inboundBillLedgerId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    demo.undoDemoLedgerAction(inboundBillLedgerId)
+                    toast.info('1-Click Undo Bill Post', 'Inbound bill capture reverted from GL.')
+                  }}
+                  className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  1-Click Undo Bill Post
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const cap = demo.runDemoInboundBillCapture('clean')
+                  toast.success(
+                    'Clean 3-Way Match Verified',
+                    `${cap.vendor_name} · ${formatExactCents(cap.extracted_total_cents)}`,
+                  )
+                }}
+                className="exec-btn-primary !px-3 !py-2 !text-xs"
+              >
+                <Inbox className="h-3.5 w-3.5" aria-hidden="true" />
+                Capture Clean PDF ($640)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const cap = demo.runDemoInboundBillCapture('fraud_spike')
+                  toast.info(
+                    'Fraud Freeze Triggered',
+                    `${cap.vendor_name} (+33.3% spike frozen before AP payout)`,
+                  )
+                }}
+                className="exec-btn-secondary !px-3 !py-2 !text-xs border-rose-500/40 text-rose-300"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                Capture +33% Spike PDF
+              </button>
+            </div>
+
+            {inboundCaptures.length > 0 ? (
+              <div className="space-y-2.5 border-t border-slate-800 pt-3">
+                {inboundCaptures.map(cap => (
+                  <div
+                    key={cap.id}
+                    className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Badge
+                        tone={
+                          cap.match_status === '3way_matched' || cap.match_status === 'posted'
+                            ? 'emerald'
+                            : cap.match_status === 'fraud_frozen'
+                              ? 'rose'
+                              : 'amber'
+                        }
+                      >
+                        {INBOUND_BILL_STATUS_LABELS[cap.match_status]}
+                      </Badge>
+                      <span className="text-xs font-bold text-white tabular-nums">
+                        {formatExactCents(cap.extracted_total_cents)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-200">
+                      {cap.vendor_name} · {cap.file_name}
+                    </p>
+                    <p className="text-[11px] text-slate-300 leading-snug">{cap.proof_summary}</p>
+                    {cap.match_status === '3way_matched' ? (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const res = demo.postDemoInboundBillCapture(cap.id)
+                            if (res) {
+                              toast.success('Posted to AP Ledger', cap.file_name)
+                            }
+                          }}
+                          className="exec-btn-emerald !px-2.5 !py-1 !text-[11px]"
+                        >
+                          <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                          Post Matched to Ledger
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Card 2: Bank Feed Auto-Reconciliation */}
+          <div className="lg:col-span-6 rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                    <Landmark className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                    Bank Feed Auto-Reconcile
+                  </span>
+                  <Badge tone="emerald">Plaid / OFX / CSV</Badge>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">
+                  Matches inflows to invoices and outflows to AP bills with exact cent Proof Cards.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {bankReconcileLedgerId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      demo.undoDemoLedgerAction(bankReconcileLedgerId)
+                      toast.info('1-Click Undo Reconcile', 'Bank feed rows restored to auto_matched.')
+                    }}
+                    className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                    1-Click Undo Bank Recon
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const matched = demo.runDemoBankFeedReconcile()
+                    const hits = matched.filter(t => t.status === 'auto_matched').length
+                    toast.success(
+                      'Bank Feed Matched',
+                      `${hits}/${matched.length} exact-cent matches scored at 100.0%.`,
+                    )
+                  }}
+                  className="exec-btn-primary !px-3 !py-2 !text-xs"
+                >
+                  <Landmark className="h-3.5 w-3.5" aria-hidden="true" />
+                  Run Bank Feed Auto-Reconcile
+                </button>
+              </div>
+            </div>
+
+            {bankTransactions.length > 0 ? (
+              <div className="space-y-2.5 border-t border-slate-800 pt-3">
+                {bankTransactions.some(tx => tx.status === 'auto_matched') ? (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const res = demo.reconcileDemoMatchedBankFeed()
+                        if (res) {
+                          toast.success(
+                            'Reconciled Matched Bank Feed',
+                            `${res.reconciledCount} transaction(s) locked in ledger.`,
+                          )
+                        }
+                      }}
+                      className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Reconcile Matched
+                    </button>
+                  </div>
+                ) : null}
+
+                {bankTransactions.map(tx => (
+                  <div
+                    key={tx.id}
+                    className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3 space-y-1"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Badge tone={tx.status === 'reconciled' ? 'emerald' : 'brand'}>
+                          {BANK_FEED_STATUS_LABELS[tx.status]}
+                        </Badge>
+                        <span className="font-mono text-[11px] text-emerald-300 tabular-nums">
+                          {(tx.match_confidence_bps / 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <span
+                        className={`text-xs font-bold tabular-nums ${
+                          tx.direction === 'inflow' ? 'text-emerald-300' : 'text-white'
+                        }`}
+                      >
+                        {tx.direction === 'inflow' ? '+' : '-'}
+                        {formatExactCents(tx.amount_cents)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-200">{tx.merchant_name}</p>
+                    <p className="text-[11px] text-slate-300 leading-snug">{tx.proof_summary}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">
+                Click <strong className="text-slate-200">Run Bank Feed Auto-Reconcile</strong> to match CSV/OFX/Plaid inflows &amp; outflows.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Full Width Live Job Margin Tracker Card */}
+        <div className="rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                  <TrendingUp className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                  Live Job Margin Tracker &amp; Change-Order Guard
+                </span>
+                <Badge tone={jobMarginPortfolio.warning_count > 0 ? 'amber' : 'emerald'}>
+                  Weighted {(jobMarginPortfolio.weighted_margin_bps / 100).toFixed(1)}% Gross Margin
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-slate-300">
+                Flags live margin drops below target in exact integer cents and drafts 1-click change orders.
+              </p>
+            </div>
+            {jobMarginLedgerId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  demo.undoDemoLedgerAction(jobMarginLedgerId)
+                  toast.info('1-Click Undo Change Order', 'Quoted revenue & margin alert restored.')
+                }}
+                className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                1-Click Undo Change Order
+              </button>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {jobMarginPortfolio.evaluated_jobs.map(item => {
+              const ratioPct =
+                item.job.quoted_revenue_cents > 0
+                  ? Math.min(100, Math.round((item.total_cost_cents * 100) / item.job.quoted_revenue_cents))
+                  : 100
+              return (
+                <div
+                  key={item.job.id}
+                  className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3.5 space-y-2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-bold text-white">{item.job.job_name}</p>
+                      <p className="text-[11px] text-slate-400">{item.job.client_name}</p>
+                    </div>
+                    <Badge tone={item.computed_status === 'healthy' ? 'emerald' : 'amber'}>
+                      {JOB_MARGIN_STATUS_LABELS[item.computed_status]}
+                    </Badge>
+                  </div>
+
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className={`h-full rounded-full ${
+                        item.computed_status === 'healthy' ? 'bg-emerald-500' : 'bg-amber-500'
+                      }`}
+                      style={{ width: `${ratioPct}%` }}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300 tabular-nums">
+                    <span>
+                      Quote {formatExactCents(item.job.quoted_revenue_cents)} · Cost{' '}
+                      {formatExactCents(item.total_cost_cents)} · Net{' '}
+                      {formatExactCents(item.net_margin_cents)}
+                    </span>
+                    <span className="font-bold text-[#fdba74]">
+                      {(item.actual_margin_bps / 100).toFixed(1)}% /{' '}
+                      {(item.target_margin_bps / 100).toFixed(1)}% target
+                    </span>
+                  </div>
+
+                  {item.suggested_change_order_cents > 0 ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800">
+                      <span className="text-[11px] text-amber-200">
+                        Recommended Change Order: +{formatExactCents(item.suggested_change_order_cents)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const res = demo.draftDemoJobChangeOrder(item.job.id)
+                          if (res) {
+                            toast.success(
+                              'Change Order Applied',
+                              `+${formatExactCents(item.suggested_change_order_cents)} restored margin target.`,
+                            )
+                          }
+                        }}
+                        className="exec-btn-primary !px-2.5 !py-1 !text-[11px]"
+                      >
+                        <FilePlus2 className="h-3 w-3" aria-hidden="true" />
+                        Draft Change Order
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>

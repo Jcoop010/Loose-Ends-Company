@@ -75,7 +75,12 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRoute {
 
   if (cleanPath === '/dashboard' || cleanPath.startsWith('/dashboard/')) {
     const rawSub = cleanPath.slice('/dashboard'.length).replace(/^\/+/, '').split('/')[0] ?? ''
-    const sub = rawSub === 'settings' ? 'autopilot' : rawSub
+    const sub =
+      rawSub === 'settings'
+        ? 'autopilot'
+        : rawSub === 'jobs'
+          ? 'dispatch'
+          : rawSub
     const section = isDashboardSection(sub) ? sub : 'command'
     return {
       pathname: cleanPath,

@@ -512,6 +512,89 @@ const state = {
       created_at: '2026-11-22T10:00:00Z',
     },
   ],
+  workspace_entities: [
+    {
+      id: 'ent-a-1',
+      workspace_id: wsA,
+      legal_name: 'Alpha Mechanical LLC',
+      ein_last4: '4821',
+      entity_type: 'llc',
+      is_primary: true,
+      created_at: '2026-11-20T00:00:00Z',
+    },
+    {
+      id: 'ent-b-secret',
+      workspace_id: wsB,
+      legal_name: 'Secret Tenant Holdings LLC',
+      ein_last4: '9999',
+      entity_type: 'llc',
+      is_primary: true,
+      created_at: '2026-11-20T00:00:00Z',
+    },
+  ],
+  bank_feed_transactions: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `bf-a-${idx + 1}`,
+      workspace_id: wsA,
+      entity_id: 'ent-a-1',
+      source: 'bank_csv',
+      posted_date: `2026-11-${String(10 + idx).padStart(2, '0')}`,
+      merchant_name: `Apex Customer ${idx + 1}`,
+      amount_cents: 25000 + idx * 100,
+      direction: 'inflow',
+      matched_record_id: `inv-a-${idx + 1}`,
+      match_confidence_bps: 10000,
+      status: idx === 0 ? 'reconciled' : 'auto_matched',
+      proof_summary: `Matched cent proof ${idx + 1}`,
+      created_at: `2026-11-22T0${idx % 9}:00:00Z`,
+    })),
+    {
+      id: 'bf-b-secret',
+      workspace_id: wsB,
+      entity_id: 'ent-b-secret',
+      source: 'plaid_webhook',
+      posted_date: '2026-11-22',
+      merchant_name: 'Secret Tenant Bank Row',
+      amount_cents: 9999900,
+      direction: 'inflow',
+      matched_record_id: null,
+      match_confidence_bps: 0,
+      status: 'auto_matched',
+      proof_summary: 'Secret tenant tx',
+      created_at: '2026-11-22T10:00:00Z',
+    },
+  ],
+  inbound_bill_captures: [],
+  job_margin_records: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `jm-a-${idx + 1}`,
+      workspace_id: wsA,
+      entity_id: 'ent-a-1',
+      job_name: `Chiller Job ${idx + 1}`,
+      client_name: `Client ${idx + 1}`,
+      quoted_revenue_cents: 1000000,
+      material_po_cents: 450000,
+      vendor_bill_cents: 250000,
+      labor_cents: 100000, // 20% actual < 30% target -> margin_warning
+      target_margin_bps: 3000,
+      status: 'margin_warning',
+      created_at: `2026-11-22T0${idx % 9}:00:00Z`,
+    })),
+    {
+      id: 'jm-b-secret',
+      workspace_id: wsB,
+      entity_id: 'ent-b-secret',
+      job_name: 'Secret Tenant Margin Job',
+      client_name: 'Secret Co',
+      quoted_revenue_cents: 100000,
+      material_po_cents: 200000,
+      vendor_bill_cents: 0,
+      labor_cents: 0,
+      target_margin_bps: 3000,
+      status: 'over_budget',
+      created_at: '2026-11-22T10:00:00Z',
+    },
+  ],
 }
 
 function createMockSupabase() {
@@ -765,19 +848,19 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. initialize returns v2.5.0 and tools/list returns all 29 tools including Release 4B Compiler & Morning Brief tools
+// B. initialize returns v2.6.0 and tools/list returns all 32 tools including Release 5 Bank Recon, Job Margin & Bill Capture tools
 const initRes = await callMcp(rawTokenA, 'initialize', {
   protocolVersion: '2024-11-05',
   capabilities: {},
   clientInfo: { name: 'qa-client', version: '1.0.0' },
 })
 assert.equal(initRes.status, 200)
-assert.equal(initRes.json.result.serverInfo.version, '2.5.0')
+assert.equal(initRes.json.result.serverInfo.version, '2.6.0')
 
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 29)
+assert.equal(toolNames.length, 32)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
@@ -799,6 +882,9 @@ for (const reqTool of [
   'get_collections_queue',
   'compile_and_simulate_sop',
   'get_owner_morning_brief',
+  'get_bank_reconciliation_status',
+  'get_job_margin_alerts',
+  'simulate_inbound_bill_capture',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -1370,6 +1456,41 @@ assert.equal(briefSc.pending_approval_count, 21)
 assert.equal(briefSc.approval_items.length, 10, 'get_owner_morning_brief must cap approval_items at <= 10')
 assert.ok(briefSc.approval_items.every(item => item.workspace_id === wsA))
 
+const bankStatusRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_bank_reconciliation_status',
+  arguments: { limit: 10 },
+})
+assert.equal(bankStatusRes.status, 200)
+const bankSc = bankStatusRes.json.result.structuredContent
+assert.equal(bankSc.workspace_id, wsA)
+assert.equal(bankSc.total_tx_count, 11)
+assert.equal(bankSc.transactions.length, 10, 'get_bank_reconciliation_status must cap transactions at <= 10')
+assert.ok(bankSc.transactions.every(t => t.workspace_id === wsA && t.id !== 'bf-b-secret'))
+
+const jobMarginRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_job_margin_alerts',
+  arguments: { limit: 10 },
+})
+assert.equal(jobMarginRes.status, 200)
+const jmSc = jobMarginRes.json.result.structuredContent
+assert.equal(jmSc.workspace_id, wsA)
+assert.equal(jmSc.warning_count, 11)
+assert.equal(jmSc.alerts.length, 10, 'get_job_margin_alerts must cap alerts at <= 10')
+assert.ok(jmSc.alerts.every(a => a.workspace_id === wsA && a.id !== 'jm-b-secret'))
+
+const simBillRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'simulate_inbound_bill_capture',
+  arguments: {
+    file_name: 'apex_dup.pdf',
+    raw_bill_text: 'Vendor: Apex Industrial\nInvoice: VB-A-DUP\nTotal: $1,500.00',
+  },
+})
+assert.equal(simBillRes.status, 200)
+const billSc = simBillRes.json.result.structuredContent
+assert.equal(billSc.workspace_id, wsA)
+assert.equal(billSc.extracted_total_cents, 150000)
+assert.equal(billSc.match_status, 'fraud_frozen')
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -1391,6 +1512,10 @@ const workspaceTables = new Set([
   'collection_touches',
   'executable_sops',
   'vendor_fraud_alerts',
+  'workspace_entities',
+  'bank_feed_transactions',
+  'inbound_bill_captures',
+  'job_margin_records',
   'ops_readiness_audits',
   'staged_ops_actions',
   'staged_ledger_entries',

@@ -222,7 +222,7 @@ export function AutopilotBillingPage(): React.ReactElement {
               <h2 className="text-base font-bold text-white">
                 BYO-Agent MCP Hub · Connect Claude, ChatGPT, or Grok in 1 Click
               </h2>
-              <Badge tone="brand">v2.5.0 · 29 Tools</Badge>
+              <Badge tone="brand">v2.6.0 · 32 Tools</Badge>
               <Badge tone="emerald">
                 Autonomy Dial: {autonomyConfig.autonomy_rules.convert_signed_quote_to_invoice}
               </Badge>
@@ -283,10 +283,10 @@ export function AutopilotBillingPage(): React.ReactElement {
               Registered Tool Surface
             </p>
             <p className="mt-1 font-bold text-white tabular-nums">
-              29 Workspace-Scoped Tools (v2.5.0)
+              32 Workspace-Scoped Tools (v2.6.0)
             </p>
             <p className="text-[11px] text-slate-400">
-              Includes Shadow Mode, CPA Packet, Collections, SOP Compiler &amp; Morning Brief
+              Includes Inbox Capture, Bank Recon, Job Margins, SOP Compiler &amp; Morning Brief
             </p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">

@@ -348,7 +348,7 @@ assert.ok(portalSrc.includes('https://www.looseendsos.app/demo'))
 
 const mcpHubSrc = readSrc('src/features/workspaces/autopilot-billing/AutopilotBillingPage.tsx')
 assert.ok(mcpHubSrc.includes('BYO-Agent MCP Hub'))
-assert.ok(mcpHubSrc.includes('v2.5.0 · 29 Tools'))
+assert.ok(mcpHubSrc.includes('v2.6.0 · 32 Tools'))
 assert.ok(mcpHubSrc.includes('<YOUR_WORKSPACE_MCP_TOKEN>'))
 assert.equal(/\bsb_secret_|\bmcp_live_|\bsk_live_/i.test(mcpHubSrc), false)
 

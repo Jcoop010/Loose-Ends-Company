@@ -9,4 +9,7 @@ export * from './collectionsEngine'
 export * from './sopCompiler'
 export * from './vendorFraudEngine'
 export * from './morningBriefEngine'
+export * from './inboxToLedgerEngine'
+export * from './bankReconciliationEngine'
+export * from './jobMarginEngine'
 

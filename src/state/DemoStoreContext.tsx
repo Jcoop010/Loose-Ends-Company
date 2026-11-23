@@ -1,8 +1,13 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import {
   analyzeShadowCsv,
+  autoReconcileBankFeed,
+  buildDraftChangeOrderPlan,
   buildFraudOverridePlan,
+  buildPostCapturedBillPlan,
+  buildReconcileMatchedPlan,
   buildShadowPromotionPlan,
+  buildWorkspaceBillCaptureAddress,
   calculateLineTotals,
   compileCpaAuditPacket,
   compileOwnerMorningBrief,
@@ -13,12 +18,17 @@ import {
   evaluateAutonomyGate,
   evaluateAutonomousCollections,
   evaluateComplianceDeadlines,
+  evaluateJobMargin,
   executeCompiledSop,
   formatCents as formatOsCents,
   loadSampleQuickBooksExport,
+  parseBankFeedPayload,
+  processInboundBillCapture,
   recomputeShadowLeakTotalCents,
   reverseLedgerAction,
   runThreeWayMatch,
+  SAMPLE_INBOUND_BILL_CLEAN_TEXT,
+  SAMPLE_INBOUND_BILL_SPIKE_TEXT,
   scanVendorBillsForFraud,
   simulateCompiledSop,
   type AgentActionLedgerEntry,
@@ -29,12 +39,15 @@ import {
   type AutonomousInvoiceItem,
   type AutonomousQuote,
   type AutonomousQuoteItem,
+  type BankFeedTransactionRecord,
   type CollectionTouchRecord,
   type CollectionsRunPlan,
   type CommandRouterSnapshot,
   type ComplianceVaultItem,
   type CpaAuditPacket,
   type ExecutableSopRecord,
+  type InboundBillCaptureRecord,
+  type JobMarginRecord,
   type LedgerEntryRecord,
   type LivingSopRecord,
   type OwnerMorningBrief,
@@ -47,6 +60,7 @@ import {
   type VendorBillRecord,
   type VendorFraudAlertRecord,
   type WorkspaceAutonomyConfig,
+  type WorkspaceEntityRecord,
   type WorkspaceModuleKey,
 } from '../lib/autonomousOs'
 import {agingBucketForDays, parseIsoMs} from '../lib/format'
@@ -190,6 +204,14 @@ export interface DemoSandboxState {
   osSopExecutionLedgerId: string | null
   osVendorFraudAlerts: VendorFraudAlertRecord[]
   osFraudOverrideLedgerId: string | null
+  osEntities: WorkspaceEntityRecord[]
+  osActiveEntityId: string
+  osInboundBillCaptures: InboundBillCaptureRecord[]
+  osInboundBillLedgerId: string | null
+  osBankTransactions: BankFeedTransactionRecord[]
+  osBankReconcileLedgerId: string | null
+  osJobMargins: JobMarginRecord[]
+  osJobMarginLedgerId: string | null
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1735,6 +1757,57 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
   const osExecutableSops: ExecutableSopRecord[] = []
   const osVendorFraudAlerts: VendorFraudAlertRecord[] = []
 
+  const osEntities: WorkspaceEntityRecord[] = [
+    {
+      id: 'ent-demo-primary',
+      workspace_id: DEMO_WORKSPACE_ID,
+      legal_name: 'Ridgeway Mechanical LLC',
+      ein_last4: '4821',
+      entity_type: 'llc',
+      is_primary: true,
+    },
+    {
+      id: 'ent-demo-holdings',
+      workspace_id: DEMO_WORKSPACE_ID,
+      legal_name: 'Ridgeway Holdings LLC',
+      ein_last4: '9104',
+      entity_type: 'llc',
+      is_primary: false,
+    },
+  ]
+
+  const job1Base: JobMarginRecord = {
+    id: 'jm-demo-1',
+    workspace_id: DEMO_WORKSPACE_ID,
+    entity_id: 'ent-demo-primary',
+    job_name: 'Commercial Chiller Retrofit (Unit #4)',
+    client_name: 'Cascade Precision Parts',
+    quoted_revenue_cents: 1200000,
+    material_po_cents: 460000,
+    vendor_bill_cents: 280000,
+    labor_cents: 220000,
+    target_margin_bps: 3000,
+    status: 'margin_warning',
+  }
+  const job2Base: JobMarginRecord = {
+    id: 'jm-demo-2',
+    workspace_id: DEMO_WORKSPACE_ID,
+    entity_id: 'ent-demo-holdings',
+    job_name: 'Facility Bay 4 HVAC Preventative',
+    client_name: 'Meridian Logistics Group',
+    quoted_revenue_cents: 850000,
+    material_po_cents: 220000,
+    vendor_bill_cents: 95000,
+    labor_cents: 140000,
+    target_margin_bps: 3000,
+    status: 'healthy',
+  }
+
+  const osJobMargins: JobMarginRecord[] = [
+    { ...job1Base, status: evaluateJobMargin(job1Base).computed_status },
+    { ...job2Base, status: evaluateJobMargin(job2Base).computed_status },
+  ]
+
   return {
     workspace,
     settings,
@@ -1792,6 +1865,14 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osSopExecutionLedgerId: null,
     osVendorFraudAlerts,
     osFraudOverrideLedgerId: null,
+    osEntities,
+    osActiveEntityId: 'consolidated',
+    osInboundBillCaptures: [],
+    osInboundBillLedgerId: null,
+    osBankTransactions: [],
+    osBankReconcileLedgerId: null,
+    osJobMargins,
+    osJobMarginLedgerId: null,
   }
 }
 
@@ -1902,6 +1983,12 @@ export interface DemoStoreContextValue {
     alertId: string,
     nextStatus: 'approved_override' | 'dismissed',
   ) => void
+  switchDemoEntity: (entityId: string) => void
+  runDemoInboundBillCapture: (variant: 'clean' | 'fraud_spike') => InboundBillCaptureRecord
+  postDemoInboundBillCapture: (captureId: string) => { ledgerId: string } | null
+  runDemoBankFeedReconcile: () => BankFeedTransactionRecord[]
+  reconcileDemoMatchedBankFeed: () => { reconciledCount: number; ledgerId: string } | null
+  draftDemoJobChangeOrder: (jobId: string) => { ledgerId: string } | null
   commandSnapshot: CommandRouterSnapshot
   resetDemo: () => void
 }
@@ -3192,6 +3279,72 @@ export function DemoStoreProvider({
         }
       }
 
+      let nextInboundBillCaptures = prev.osInboundBillCaptures
+      let nextInboundBillLedgerId = prev.osInboundBillLedgerId
+      let nextLedgerEntries = prev.osLedgerEntries
+
+      if (
+        target.action_type === 'post_inbound_bill_capture' &&
+        restoredState &&
+        typeof restoredState.capture_id === 'string'
+      ) {
+        const prevCapStatus =
+          typeof restoredState.previous_match_status === 'string'
+            ? (restoredState.previous_match_status as InboundBillCaptureRecord['match_status'])
+            : '3way_matched'
+        nextInboundBillCaptures = prev.osInboundBillCaptures.map(c =>
+          c.id === restoredState.capture_id
+            ? { ...c, match_status: prevCapStatus, updated_at: nowIso }
+            : c,
+        )
+        const removedLeId =
+          typeof after.ledger_entry_id === 'string' ? after.ledger_entry_id : null
+        if (removedLeId) {
+          nextLedgerEntries = prev.osLedgerEntries.filter(le => le.id !== removedLeId)
+        }
+        if (prev.osInboundBillLedgerId === entryId) {
+          nextInboundBillLedgerId = null
+        }
+      }
+
+      let nextBankTransactions = prev.osBankTransactions
+      let nextBankReconcileLedgerId = prev.osBankReconcileLedgerId
+
+      if (target.action_type === 'reconcile_bank_feed' && restoredState) {
+        const txIds = Array.isArray(restoredState.tx_ids)
+          ? restoredState.tx_ids.filter((id): id is string => typeof id === 'string')
+          : []
+        if (txIds.length > 0) {
+          const txSet = new Set(txIds)
+          nextBankTransactions = prev.osBankTransactions.map(tx =>
+            txSet.has(tx.id) ? { ...tx, status: 'auto_matched', updated_at: nowIso } : tx,
+          )
+        }
+        if (prev.osBankReconcileLedgerId === entryId) {
+          nextBankReconcileLedgerId = null
+        }
+      }
+
+      let nextJobMargins = prev.osJobMargins
+      let nextJobMarginLedgerId = prev.osJobMarginLedgerId
+
+      if (
+        target.action_type === 'draft_job_change_order' &&
+        restoredState &&
+        typeof restoredState.job_margin_id === 'string' &&
+        typeof restoredState.quoted_revenue_cents === 'number'
+      ) {
+        const restoredQuoted = restoredState.quoted_revenue_cents
+        nextJobMargins = prev.osJobMargins.map(j => {
+          if (j.id !== restoredState.job_margin_id) return j
+          const updated = { ...j, quoted_revenue_cents: restoredQuoted, updated_at: nowIso }
+          return { ...updated, status: evaluateJobMargin(updated).computed_status }
+        })
+        if (prev.osJobMarginLedgerId === entryId) {
+          nextJobMarginLedgerId = null
+        }
+      }
+
       return {
         ...prev,
         osQuotes: nextQuotes,
@@ -3208,6 +3361,13 @@ export function DemoStoreProvider({
         osSopExecutionLedgerId: nextSopExecutionLedgerId,
         osVendorFraudAlerts: nextVendorFraudAlerts,
         osFraudOverrideLedgerId: nextFraudOverrideLedgerId,
+        osInboundBillCaptures: nextInboundBillCaptures,
+        osInboundBillLedgerId: nextInboundBillLedgerId,
+        osLedgerEntries: nextLedgerEntries,
+        osBankTransactions: nextBankTransactions,
+        osBankReconcileLedgerId: nextBankReconcileLedgerId,
+        osJobMargins: nextJobMargins,
+        osJobMarginLedgerId: nextJobMarginLedgerId,
       }
     })
   }, [])
@@ -3787,6 +3947,228 @@ export function DemoStoreProvider({
     [state.osVendorFraudAlerts],
   )
 
+  const switchDemoEntity = useCallback((entityId: string) => {
+    setState(prev => ({
+      ...prev,
+      osActiveEntityId: entityId || 'consolidated',
+    }))
+  }, [])
+
+  const runDemoInboundBillCapture = useCallback(
+    (variant: 'clean' | 'fraud_spike'): InboundBillCaptureRecord => {
+      const nowIso = new Date().toISOString()
+      const entityId =
+        state.osActiveEntityId === 'consolidated'
+          ? state.osEntities[0]?.id ?? null
+          : state.osActiveEntityId
+      const sourceAddress = buildWorkspaceBillCaptureAddress(state.workspace.slug)
+      const isSpike = variant === 'fraud_spike'
+      const rawText = isSpike ? SAMPLE_INBOUND_BILL_SPIKE_TEXT : SAMPLE_INBOUND_BILL_CLEAN_TEXT
+      const fileName = isSpike ? 'titan_valve_invoice_9048.pdf' : 'apex_coil_bill_9040.pdf'
+
+      const evalRes = processInboundBillCapture({
+        workspaceId: DEMO_WORKSPACE_ID,
+        entityId,
+        sourceAddress,
+        fileName,
+        rawText,
+        existingBills: [],
+        poItems: [
+          {
+            id: 'po-clean-1',
+            workspace_id: DEMO_WORKSPACE_ID,
+            po_id: 'PO-2026-1104',
+            inventory_item_id: null,
+            sku: 'COIL-10',
+            description: 'Evaporator Replacement Coil',
+            ordered_qty: 4,
+            received_qty: 4,
+            unit_cost_cents: 16000,
+            line_total_cents: 64000,
+          },
+          {
+            id: 'po-spike-1',
+            workspace_id: DEMO_WORKSPACE_ID,
+            po_id: 'PO-2026-1109',
+            inventory_item_id: null,
+            sku: 'VALVE-42',
+            description: 'Brass Control Valve Batch',
+            ordered_qty: 50,
+            received_qty: 50,
+            unit_cost_cents: 4200,
+            line_total_cents: 210000,
+          },
+        ],
+        receiptItems: [
+          { sku: 'COIL-10', ordered_qty: 4, received_qty: 4, damaged_qty: 0 },
+          { sku: 'VALVE-42', ordered_qty: 50, received_qty: 50, damaged_qty: 0 },
+        ],
+        priorUnitCostsBySku: { 'COIL-10': 16000, 'VALVE-42': 4200 },
+        knownRemitByVendor: { 'titan mechanical supply': 'ACH-4401' },
+        asOfDate: nowIso.slice(0, 10),
+      })
+
+      const capture: InboundBillCaptureRecord = {
+        ...evalRes.capture_draft,
+        id: `ibc_demo_${variant}_${Date.now()}`,
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osInboundBillCaptures: [
+          capture,
+          ...prev.osInboundBillCaptures.filter(c => c.file_name !== fileName),
+        ],
+        osVendorFraudAlerts:
+          evalRes.fraud_alerts.length > 0
+            ? [
+                ...evalRes.fraud_alerts.map(a => ({ ...a, created_at: nowIso, updated_at: nowIso })),
+                ...prev.osVendorFraudAlerts.filter(
+                  existing => !evalRes.fraud_alerts.some(n => n.id === existing.id),
+                ),
+              ]
+            : prev.osVendorFraudAlerts,
+      }))
+
+      return capture
+    },
+    [state.osActiveEntityId, state.osEntities, state.workspace.slug],
+  )
+
+  const postDemoInboundBillCapture = useCallback(
+    (captureId: string): { ledgerId: string } | null => {
+      const target = state.osInboundBillCaptures.find(c => c.id === captureId)
+      if (!target || target.match_status === 'fraud_frozen' || target.match_status === 'posted') {
+        return null
+      }
+      const nowIso = new Date().toISOString()
+      const plan = buildPostCapturedBillPlan({
+        workspaceId: DEMO_WORKSPACE_ID,
+        capture: target,
+        nowIso,
+      })
+      const leId = `le_ibc_${Date.now()}`
+      const ledgerId = `led_ibc_${Date.now()}`
+      const ledgerRow: LedgerEntryRecord = { ...plan.ledger_entry_draft, id: leId }
+      const agentEntry: AgentActionLedgerEntry = {
+        ...plan.agent_ledger_draft,
+        id: ledgerId,
+        after_state: {
+          ...(plan.agent_ledger_draft.after_state ?? {}),
+          ledger_entry_id: leId,
+        },
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osInboundBillCaptures: prev.osInboundBillCaptures.map(c =>
+          c.id === captureId ? plan.updated_capture : c,
+        ),
+        osLedgerEntries: [ledgerRow, ...prev.osLedgerEntries],
+        osInboundBillLedgerId: ledgerId,
+        osAgentLedger: [agentEntry, ...prev.osAgentLedger],
+      }))
+
+      return { ledgerId }
+    },
+    [state.osInboundBillCaptures],
+  )
+
+  const runDemoBankFeedReconcile = useCallback((): BankFeedTransactionRecord[] => {
+    const nowIso = new Date().toISOString()
+    const todayIso = nowIso.slice(0, 10)
+    const demoCsv = [
+      'date,merchant,amount,direction',
+      `${todayIso},Meridian Logistics Group,1850.00,inflow`,
+      `${todayIso},Apex Industrial Supply,640.00,outflow`,
+      `${todayIso},Summit Dental Group,650.00,inflow`,
+    ].join('\n')
+
+    const parsed = parseBankFeedPayload(demoCsv, 'bank_csv', todayIso)
+    const entityId =
+      state.osActiveEntityId === 'consolidated'
+        ? state.osEntities[0]?.id ?? null
+        : state.osActiveEntityId
+
+    const result = autoReconcileBankFeed({
+      workspaceId: DEMO_WORKSPACE_ID,
+      entityId,
+      transactions: parsed,
+      invoices: state.osInvoices,
+      vendorBills: state.osVendorBills,
+      asOfDate: todayIso,
+    })
+
+    setState(prev => ({
+      ...prev,
+      osBankTransactions: result.transactions,
+      osBankReconcileLedgerId: null,
+    }))
+
+    return result.transactions
+  }, [state.osActiveEntityId, state.osEntities, state.osInvoices, state.osVendorBills])
+
+  const reconcileDemoMatchedBankFeed = useCallback((): {
+    reconciledCount: number
+    ledgerId: string
+  } | null => {
+    const nowIso = new Date().toISOString()
+    const plan = buildReconcileMatchedPlan({
+      workspaceId: DEMO_WORKSPACE_ID,
+      transactions: state.osBankTransactions,
+      nowIso,
+    })
+    if (plan.reconciled_ids.length === 0) return null
+    const ledgerId = `led_bank_${Date.now()}`
+    const ledgerEntry: AgentActionLedgerEntry = {
+      ...plan.ledger_draft,
+      id: ledgerId,
+      created_at: nowIso,
+    }
+
+    setState(prev => ({
+      ...prev,
+      osBankTransactions: plan.updated_transactions,
+      osBankReconcileLedgerId: ledgerId,
+      osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+    }))
+
+    return { reconciledCount: plan.reconciled_ids.length, ledgerId }
+  }, [state.osBankTransactions])
+
+  const draftDemoJobChangeOrder = useCallback(
+    (jobId: string): { ledgerId: string } | null => {
+      const target = state.osJobMargins.find(j => j.id === jobId)
+      if (!target) return null
+      const nowIso = new Date().toISOString()
+      const plan = buildDraftChangeOrderPlan({
+        workspaceId: DEMO_WORKSPACE_ID,
+        job: target,
+        nowIso,
+      })
+      if (plan.change_order_cents <= 0) return null
+      const ledgerId = `led_jm_${Date.now()}`
+      const ledgerEntry: AgentActionLedgerEntry = {
+        ...plan.ledger_draft,
+        id: ledgerId,
+        created_at: nowIso,
+      }
+
+      setState(prev => ({
+        ...prev,
+        osJobMargins: prev.osJobMargins.map(j => (j.id === jobId ? plan.updated_job : j)),
+        osJobMarginLedgerId: ledgerId,
+        osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+      }))
+
+      return { ledgerId }
+    },
+    [state.osJobMargins],
+  )
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -3843,6 +4225,12 @@ export function DemoStoreProvider({
       executeDemoCompiledSop,
       runDemoVendorFraudScan,
       overrideDemoVendorFraudAlert,
+      switchDemoEntity,
+      runDemoInboundBillCapture,
+      postDemoInboundBillCapture,
+      runDemoBankFeedReconcile,
+      reconcileDemoMatchedBankFeed,
+      draftDemoJobChangeOrder,
       commandSnapshot,
       resetDemo,
     }),
@@ -3897,6 +4285,12 @@ export function DemoStoreProvider({
       executeDemoCompiledSop,
       runDemoVendorFraudScan,
       overrideDemoVendorFraudAlert,
+      switchDemoEntity,
+      runDemoInboundBillCapture,
+      postDemoInboundBillCapture,
+      runDemoBankFeedReconcile,
+      reconcileDemoMatchedBankFeed,
+      draftDemoJobChangeOrder,
       commandSnapshot,
       resetDemo,
     ],

@@ -109,6 +109,13 @@ const WORKSPACE_QUICK_JUMPS: Array<{
     icon: <CalendarClock className="h-4 w-4" />,
   },
   {
+    section: 'dispatch',
+    route: '/dashboard/jobs?tab=margins',
+    title: 'Live Job Margin Tracker',
+    subtitle: 'Integer-cent margin bars & 1-click change orders',
+    icon: <TrendingUp className="h-4 w-4" />,
+  },
+  {
     section: 'autopilot',
     route: '/dashboard/autopilot',
     title: 'Billing, Policies & MCP',
@@ -119,7 +126,7 @@ const WORKSPACE_QUICK_JUMPS: Array<{
     section: 'autopilot',
     route: '/dashboard/settings',
     title: 'Settings & BYO-Agent MCP Hub',
-    subtitle: 'Connect Claude, ChatGPT, or Grok in 1 click (29 tools · v2.5.0)',
+    subtitle: 'Connect Claude, ChatGPT, or Grok in 1 click (32 tools · v2.6.0)',
     icon: <Sparkles className="h-4 w-4" />,
   },
 ]

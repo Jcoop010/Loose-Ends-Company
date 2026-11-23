@@ -763,6 +763,71 @@ export async function reverseLedgerEntryInDb(params: {
       .eq('id', restoredState.alert_id)
   }
 
+  if (
+    entry.action_type === 'post_inbound_bill_capture' &&
+    restoredState &&
+    typeof restoredState.capture_id === 'string' &&
+    restoredState.capture_id
+  ) {
+    const prevMatchStatus =
+      typeof restoredState.previous_match_status === 'string'
+        ? restoredState.previous_match_status
+        : '3way_matched'
+    await supabase
+      .from('inbound_bill_captures')
+      .update({
+        match_status: prevMatchStatus,
+        updated_at: updatedEntry.reversed_at,
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('id', restoredState.capture_id)
+  }
+
+  if (entry.action_type === 'reconcile_bank_feed' && restoredState) {
+    const txIds = Array.isArray(restoredState.tx_ids)
+      ? restoredState.tx_ids.filter((id): id is string => typeof id === 'string')
+      : []
+    const prevStatus =
+      typeof restoredState.previous_status === 'string'
+        ? restoredState.previous_status
+        : 'auto_matched'
+    if (txIds.length > 0) {
+      await supabase
+        .from('bank_feed_transactions')
+        .update({
+          status: prevStatus,
+          updated_at: updatedEntry.reversed_at,
+        })
+        .eq('workspace_id', workspaceId)
+        .in('id', txIds)
+    }
+  }
+
+  if (
+    entry.action_type === 'draft_job_change_order' &&
+    restoredState &&
+    typeof restoredState.job_margin_id === 'string' &&
+    restoredState.job_margin_id
+  ) {
+    const prevQuoted =
+      typeof restoredState.quoted_revenue_cents === 'number'
+        ? restoredState.quoted_revenue_cents
+        : undefined
+    const prevStatus =
+      typeof restoredState.status === 'string' ? restoredState.status : 'margin_warning'
+    if (prevQuoted !== undefined) {
+      await supabase
+        .from('job_margin_records')
+        .update({
+          quoted_revenue_cents: prevQuoted,
+          status: prevStatus,
+          updated_at: updatedEntry.reversed_at,
+        })
+        .eq('workspace_id', workspaceId)
+        .eq('id', restoredState.job_margin_id)
+    }
+  }
+
   const { data, error } = await supabase
     .from('agent_action_ledger')
     .update({

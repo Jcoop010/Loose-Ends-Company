@@ -40,11 +40,13 @@ import { useSession } from '../../../state/SessionContext'
 import { Dialog } from '../../../components/ui/Dialog'
 import { Badge, EmptyState, MetricCard, MetricCardSkeleton } from '../../../components/ui/MetricCard'
 import { useToast } from '../../../components/ui/Toast'
+import { Release5BookkeepingPanels } from './Release5BookkeepingPanels'
 
 export function BookkeepingApPage(): React.ReactElement {
-  const { workspace } = useSession()
+  const { workspace, activeEntityId } = useSession()
   const toast = useToast()
   const workspaceId = workspace?.id ?? null
+  const [r5Tab, setR5Tab] = useState<'all' | 'inbox' | 'bank'>('all')
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -369,6 +371,42 @@ export function BookkeepingApPage(): React.ReactElement {
           </button>
         </div>
       </div>
+
+      {/* Release 5 Workspace Tabs: All / Inbox-to-Ledger / Bank Feed Auto-Reconciliation */}
+      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Bookkeeping views">
+        {(
+          [
+            { id: 'all', label: 'All Bookkeeping, Captures & Bank Feed' },
+            { id: 'inbox', label: 'Inbox-to-Ledger' },
+            { id: 'bank', label: 'Bank Feed & Auto-Reconciliation' },
+          ] as const
+        ).map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={r5Tab === tab.id}
+            onClick={() => setR5Tab(tab.id)}
+            className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
+              r5Tab === tab.id
+                ? 'border-[#fb923c]/50 bg-[rgba(234,88,12,0.18)] text-[#fdba74]'
+                : 'border-slate-800 bg-[#0b1320] text-slate-300 hover:bg-[#131f33]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <Release5BookkeepingPanels
+        workspaceId={workspaceId}
+        workspaceSlugOrName={workspace?.slug ?? workspace?.name ?? 'workspace'}
+        activeEntityId={activeEntityId}
+        vendorBills={vendorBills}
+        allInvoices={allInvoices}
+        onLedgerMutated={() => loadData(true)}
+        viewMode={r5Tab === 'all' ? 'both' : r5Tab}
+      />
 
       {/* Vendor Fraud Shield Queue */}
       <section className="exec-surface border border-slate-800 bg-[#0b1320] p-5 sm:p-6 space-y-4 text-slate-100">

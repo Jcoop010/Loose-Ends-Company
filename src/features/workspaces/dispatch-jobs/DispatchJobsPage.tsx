@@ -4,6 +4,7 @@ import {
   ClipboardCheck,
   RefreshCw,
   Repeat,
+  TrendingUp,
   Users,
   Wrench,
 } from 'lucide-react'
@@ -26,15 +27,22 @@ import type {
 } from '../../../types/domain'
 import { MetricCardSkeleton } from '../../../components/ui/MetricCard'
 import { DispatchCalendar } from './DispatchCalendar'
+import { JobMarginTrackerPanel } from './JobMarginTrackerPanel'
 import { JobsPipelinePanel } from './JobsPipelinePanel'
 import { ServicePlansPanel } from './ServicePlansPanel'
 import { TasksQueuePanel } from './TasksQueuePanel'
 import { TeamAvailabilityPanel } from './TeamAvailabilityPanel'
 
-type DispatchTab = 'jobs' | 'calendar' | 'tasks' | 'plans' | 'team'
+type DispatchTab = 'jobs' | 'margins' | 'calendar' | 'tasks' | 'plans' | 'team'
 
 function parseDispatchTab(raw: string | null): DispatchTab {
-  if (raw === 'calendar' || raw === 'tasks' || raw === 'plans' || raw === 'team') {
+  if (
+    raw === 'margins' ||
+    raw === 'calendar' ||
+    raw === 'tasks' ||
+    raw === 'plans' ||
+    raw === 'team'
+  ) {
     return raw
   }
   return 'jobs'
@@ -54,7 +62,7 @@ interface DispatchWorkspaceData {
 }
 
 export function DispatchJobsPage(): React.ReactElement {
-  const { workspace, settings } = useSession()
+  const { workspace, settings, activeEntityId } = useSession()
   const { getParam, setParams } = useAppRouter()
 
   const activeTab = parseDispatchTab(getParam('tab'))
@@ -212,6 +220,7 @@ export function DispatchJobsPage(): React.ReactElement {
     icon: React.ComponentType<{ className?: string }>
   }> = [
     { id: 'jobs', label: 'Work Pipeline', icon: Wrench },
+    { id: 'margins', label: 'Job Margins', icon: TrendingUp },
     { id: 'calendar', label: 'Dispatch Calendar', icon: CalendarClock },
     { id: 'tasks', label: 'Tasks', icon: ClipboardCheck },
     { id: 'plans', label: 'Recurring Plans', icon: Repeat },
@@ -295,6 +304,13 @@ export function DispatchJobsPage(): React.ReactElement {
                 setParams({ tab: 'calendar' })
               }}
               onJobsChanged={() => loadDispatchWorkspace(true)}
+            />
+          ) : null}
+
+          {activeTab === 'margins' ? (
+            <JobMarginTrackerPanel
+              workspaceId={workspaceId}
+              activeEntityId={activeEntityId}
             />
           ) : null}
 

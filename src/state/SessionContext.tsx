@@ -9,6 +9,7 @@ import React, {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { signOutUser } from '../lib/auth'
+import type { WorkspaceEntityRecord } from '../lib/autonomousOs/types'
 import { bootstrapWorkspace } from '../lib/edgeFunctions'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import type {
@@ -30,6 +31,7 @@ interface HydratedWorkspaceBundle {
   role: MemberRole | null
   settings: WorkspaceSettings | null
   subscription: WorkspaceSubscription | null
+  entities: WorkspaceEntityRecord[]
 }
 
 const EMPTY_BUNDLE: HydratedWorkspaceBundle = {
@@ -38,13 +40,19 @@ const EMPTY_BUNDLE: HydratedWorkspaceBundle = {
   role: null,
   settings: null,
   subscription: null,
+  entities: [],
 }
+
+export type ActiveEntityScope = 'consolidated' | string
 
 export interface SessionContextValue {
   user: User | null
   session: Session | null
   workspace: Workspace | null
   availableWorkspaces: AvailableWorkspace[]
+  entities: WorkspaceEntityRecord[]
+  activeEntityId: ActiveEntityScope
+  activeEntity: WorkspaceEntityRecord | null
   role: MemberRole | null
   isAdminOrOwner: boolean
   settings: WorkspaceSettings | null
@@ -54,6 +62,7 @@ export interface SessionContextValue {
   loading: boolean
   error: string | null
   switchWorkspace: (workspaceId: string) => Promise<void>
+  switchEntity: (entityId: ActiveEntityScope) => void
   refreshWorkspaceContext: () => Promise<void>
   clearPasswordRecovery: () => void
   signOut: () => Promise<void>
@@ -71,11 +80,29 @@ function unwrapWorkspaceJoin(raw: WorkspaceMember['workspaces'], fallbackId: str
   return { id: fallbackId, name: 'Workspace' }
 }
 
+async function fetchWorkspaceEntitiesSafe(
+  workspaceId: string,
+): Promise<WorkspaceEntityRecord[]> {
+  try {
+    const res = await supabase
+      .from('workspace_entities')
+      .select('id,workspace_id,legal_name,ein_last4,entity_type,is_primary,created_at')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: true })
+    if (res?.error || !Array.isArray(res?.data)) return []
+    const rows = res.data as WorkspaceEntityRecord[]
+    return [...rows].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
+  } catch {
+    return []
+  }
+}
+
 async function fetchWorkspaceMetadata(workspaceId: string): Promise<{
   settings: WorkspaceSettings | null
   subscription: WorkspaceSubscription | null
+  entities: WorkspaceEntityRecord[]
 }> {
-  const [settingsRes, subRes] = await Promise.all([
+  const [settingsRes, subRes, entities] = await Promise.all([
     supabase
       .from('workspace_settings')
       .select('*')
@@ -86,11 +113,13 @@ async function fetchWorkspaceMetadata(workspaceId: string): Promise<{
       .select('*')
       .eq('workspace_id', workspaceId)
       .maybeSingle(),
+    fetchWorkspaceEntitiesSafe(workspaceId),
   ])
 
   return {
     settings: (settingsRes.data as WorkspaceSettings | null) ?? null,
     subscription: (subRes.data as WorkspaceSubscription | null) ?? null,
+    entities,
   }
 }
 
@@ -102,6 +131,7 @@ export function SessionProvider({
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [bundle, setBundle] = useState<HydratedWorkspaceBundle>(EMPTY_BUNDLE)
+  const [activeEntityId, setActiveEntityId] = useState<ActiveEntityScope>('consolidated')
   const [inPasswordRecovery, setInPasswordRecovery] = useState(false)
   const [loading, setLoading] = useState<boolean>(isSupabaseConfigured)
   const [error, setError] = useState<string | null>(null)
@@ -118,6 +148,7 @@ export function SessionProvider({
     setSession(null)
     setUser(null)
     setBundle(EMPTY_BUNDLE)
+    setActiveEntityId('consolidated')
     setInPasswordRecovery(false)
     setError(null)
     setLoading(false)
@@ -190,7 +221,13 @@ export function SessionProvider({
           role: chosen.role,
           settings: metadata.settings,
           subscription: metadata.subscription,
+          entities: metadata.entities,
         })
+        setActiveEntityId(prev =>
+          prev === 'consolidated' || metadata.entities.some(e => e.id === prev)
+            ? prev
+            : 'consolidated',
+        )
       } catch (err) {
         if (isStale()) return
         setError(err instanceof Error ? err.message : 'Unable to load workspace session.')
@@ -257,6 +294,7 @@ export function SessionProvider({
     async (workspaceId: string) => {
       if (!user) return
       preferredWorkspaceIdRef.current = workspaceId
+      setActiveEntityId('consolidated')
       // Clear previous workspace data immediately before hydrating the target workspace
       // so views never render cross-workspace records during transition.
       setBundle(prev => {
@@ -267,12 +305,17 @@ export function SessionProvider({
           role: target?.role ?? null,
           settings: null,
           subscription: null,
+          entities: [],
         }
       })
       await hydrateForUser(user, workspaceId)
     },
     [hydrateForUser, user],
   )
+
+  const switchEntity = useCallback((entityId: ActiveEntityScope) => {
+    setActiveEntityId(entityId)
+  }, [])
 
   const refreshWorkspaceContext = useCallback(async () => {
     if (!user) return
@@ -295,6 +338,13 @@ export function SessionProvider({
   const isAdminOrOwner = bundle.role === 'owner' || bundle.role === 'admin'
   const hasActiveSubscription =
     bundle.subscription?.status === 'active' || bundle.subscription?.status === 'trialing'
+  const activeEntity = useMemo(
+    () =>
+      activeEntityId === 'consolidated'
+        ? null
+        : bundle.entities.find(e => e.id === activeEntityId) ?? null,
+    [bundle.entities, activeEntityId],
+  )
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -302,6 +352,9 @@ export function SessionProvider({
       session,
       workspace: bundle.activeWorkspace,
       availableWorkspaces: bundle.availableWorkspaces,
+      entities: bundle.entities,
+      activeEntityId,
+      activeEntity,
       role: bundle.role,
       isAdminOrOwner,
       settings: bundle.settings,
@@ -311,6 +364,7 @@ export function SessionProvider({
       loading,
       error,
       switchWorkspace,
+      switchEntity,
       refreshWorkspaceContext,
       clearPasswordRecovery,
       signOut,
@@ -319,12 +373,15 @@ export function SessionProvider({
       user,
       session,
       bundle,
+      activeEntityId,
+      activeEntity,
       isAdminOrOwner,
       hasActiveSubscription,
       inPasswordRecovery,
       loading,
       error,
       switchWorkspace,
+      switchEntity,
       refreshWorkspaceContext,
       clearPasswordRecovery,
       signOut,

@@ -92,10 +92,14 @@ export function AppShell({
     user,
     workspace,
     availableWorkspaces,
+    entities,
+    activeEntityId,
+    activeEntity,
     role,
     settings,
     hasActiveSubscription,
     switchWorkspace,
+    switchEntity,
     signOut,
   } = useSession()
   const toast = useToast()
@@ -390,10 +394,36 @@ export function AppShell({
               </div>
               <p className="truncate text-xs text-slate-400">
                 {workspace?.name ?? 'Workspace'}
+                {activeEntity ? ` · ${activeEntity.legal_name}` : entities.length > 0 ? ' · Consolidated View' : ''}
               </p>
             </div>
 
             <div className="flex items-center gap-2">
+              <div className="hidden sm:flex items-center gap-1.5 rounded-xl border border-slate-700 bg-[#0e1726] px-2.5 py-1.5">
+                <Building2 className="h-3.5 w-3.5 shrink-0 text-[#fb923c]" aria-hidden="true" />
+                <select
+                  id="header-entity-switcher"
+                  aria-label="Multi-Entity Switcher"
+                  value={activeEntityId}
+                  onChange={e => switchEntity(e.target.value)}
+                  className="bg-transparent text-xs font-semibold text-slate-100 focus:outline-none"
+                >
+                  <option value="consolidated" className="bg-[#0e1726] text-slate-100">
+                    Consolidated View
+                  </option>
+                  {entities.length > 0 ? (
+                    entities.map(ent => (
+                      <option key={ent.id} value={ent.id} className="bg-[#0e1726] text-slate-100">
+                        {ent.legal_name} (···{ent.ein_last4})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="primary" className="bg-[#0e1726] text-slate-100">
+                      {workspace?.name ?? 'Primary'} LLC (Primary)
+                    </option>
+                  )}
+                </select>
+              </div>
               <GlobalSearch workspaceId={workspace?.id} />
               <button
                 type="button"

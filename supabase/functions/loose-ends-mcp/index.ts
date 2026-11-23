@@ -1361,6 +1361,55 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "get_bank_reconciliation_status",
+    requiredScope: "read_all",
+    description:
+      "Read-only status across workspace bank_feed_transactions (Plaid webhook, OFX/QBO, CSV) with integer-cent auto-match totals, confidence bps, and Proof Cards capped <= 10.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        entity_id: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["unmatched", "auto_matched", "reconciled", "excluded"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: "get_job_margin_alerts",
+    requiredScope: "read_all",
+    description:
+      "Read-only integer-cent Live Job Margin analysis across workspace job_margin_records flagging jobs below target_margin_bps with exact suggested change-order deltas (capped <= 10).",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        entity_id: { type: "string" },
+        include_healthy: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
+  {
+    name: "simulate_inbound_bill_capture",
+    requiredScope: "read_all",
+    description:
+      "Read-only Inbox-to-Ledger bill parser & Vendor Fraud Shield dry-run: parses supplier PDF/email text into integer-cent line items and checks workspace vendor_bills for >10% price spikes or <=7d exact-cent duplicates.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["raw_bill_text"],
+      properties: {
+        raw_bill_text: { type: "string", minLength: 5, maxLength: 6000 },
+        file_name: { type: "string" },
+        entity_id: { type: "string" },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1682,6 +1731,27 @@ function buildSanitizedAuditOutput(
       runway_status: toolResult.runway_status ?? "healthy",
     };
   }
+  if (toolName === "get_bank_reconciliation_status") {
+    return {
+      total_tx_count: toolResult.total_tx_count ?? 0,
+      auto_matched_cents: toolResult.auto_matched_cents ?? 0,
+      reconciled_cents: toolResult.reconciled_cents ?? 0,
+    };
+  }
+  if (toolName === "get_job_margin_alerts") {
+    return {
+      job_count: toolResult.job_count ?? 0,
+      warning_count: toolResult.warning_count ?? 0,
+      over_budget_count: toolResult.over_budget_count ?? 0,
+    };
+  }
+  if (toolName === "simulate_inbound_bill_capture") {
+    return {
+      vendor_name: toolResult.vendor_name ?? null,
+      extracted_total_cents: toolResult.extracted_total_cents ?? 0,
+      match_status: toolResult.match_status ?? "needs_review",
+    };
+  }
   if (toolName === "upsert_public_lead") {
     const lead = toolResult.lead as { id?: string; status?: string } | null;
     return {
@@ -1755,7 +1825,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "2.5.0",
+        version: "2.6.0",
         workspace_id: workspaceId,
       },
     });
@@ -4804,6 +4874,271 @@ Deno.serve(async (req: Request) => {
         safety_buffer_cents: safetyBufferCents,
         runway_status: anyBufferBreach ? "buffer_breach" : "healthy",
         approval_items: approvalItems.slice(0, limit),
+      };
+    } else if (toolName === "get_bank_reconciliation_status") {
+      auditBotRole = "cash_applications";
+      const entityFilter =
+        typeof args.entity_id === "string" && args.entity_id.trim() ? args.entity_id.trim() : null;
+      const statusFilter =
+        typeof args.status === "string" && args.status.trim() ? args.status.trim() : null;
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+
+      const { data: txRows, error: txErr } = await admin
+        .from("bank_feed_transactions")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("posted_date", { ascending: false })
+        .limit(200);
+
+      if (txErr) {
+        throw new Error("Failed to query bank_feed_transactions");
+      }
+
+      const typedTxs = (txRows ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        entity_id?: string | null;
+        source: string;
+        posted_date: string;
+        merchant_name: string;
+        amount_cents: number;
+        direction: string;
+        match_confidence_bps: number;
+        status: string;
+        proof_summary: string;
+      }>;
+
+      const filtered = typedTxs.filter((tx) => {
+        if (entityFilter && tx.entity_id !== entityFilter) return false;
+        if (statusFilter && tx.status !== statusFilter) return false;
+        return true;
+      });
+
+      let autoMatchedCents = 0;
+      let reconciledCents = 0;
+      let unmatchedCents = 0;
+      const statusCounts: Record<string, number> = {
+        unmatched: 0,
+        auto_matched: 0,
+        reconciled: 0,
+        excluded: 0,
+      };
+
+      for (const tx of filtered) {
+        const cents = Math.max(0, Math.trunc(tx.amount_cents ?? 0));
+        if (Object.prototype.hasOwnProperty.call(statusCounts, tx.status)) {
+          statusCounts[tx.status] += 1;
+        }
+        if (tx.status === "auto_matched") autoMatchedCents += cents;
+        else if (tx.status === "reconciled") reconciledCents += cents;
+        else if (tx.status === "unmatched") unmatchedCents += cents;
+      }
+
+      toolResult = {
+        workspace_id: workspaceId,
+        total_tx_count: filtered.length,
+        status_counts: statusCounts,
+        auto_matched_cents: autoMatchedCents,
+        reconciled_cents: reconciledCents,
+        unmatched_cents: unmatchedCents,
+        transactions: filtered.slice(0, limit),
+      };
+    } else if (toolName === "get_job_margin_alerts") {
+      auditBotRole = "qa";
+      const entityFilter =
+        typeof args.entity_id === "string" && args.entity_id.trim() ? args.entity_id.trim() : null;
+      const includeHealthy = args.include_healthy === true;
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+
+      const { data: jobRows, error: jobErr } = await admin
+        .from("job_margin_records")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      if (jobErr) {
+        throw new Error("Failed to query job_margin_records");
+      }
+
+      const evaluated = (
+        (jobRows ?? []) as Array<{
+          id: string;
+          workspace_id: string;
+          entity_id?: string | null;
+          job_name: string;
+          client_name: string;
+          quoted_revenue_cents: number;
+          material_po_cents: number;
+          vendor_bill_cents: number;
+          labor_cents: number;
+          target_margin_bps: number;
+        }>
+      )
+        .filter((r) => (!entityFilter ? true : r.entity_id === entityFilter))
+        .map((r) => {
+          const quoted = Math.max(0, Math.trunc(r.quoted_revenue_cents ?? 0));
+          const cost =
+            Math.max(0, Math.trunc(r.material_po_cents ?? 0)) +
+            Math.max(0, Math.trunc(r.vendor_bill_cents ?? 0)) +
+            Math.max(0, Math.trunc(r.labor_cents ?? 0));
+          const net = quoted - cost;
+          const actualBps = quoted > 0 ? Math.round((net * 10000) / quoted) : 0;
+          const targetBps = Math.min(9999, Math.max(0, Math.trunc(r.target_margin_bps ?? 3000)));
+          const computedStatus =
+            net < 0 ? "over_budget" : actualBps < targetBps ? "margin_warning" : "healthy";
+          const suggestedChangeOrderCents =
+            computedStatus !== "healthy" && cost > 0
+              ? Math.max(0, Math.ceil((cost * 10000) / (10000 - targetBps)) - quoted)
+              : 0;
+          return {
+            id: r.id,
+            workspace_id: r.workspace_id,
+            entity_id: r.entity_id ?? null,
+            job_name: r.job_name,
+            client_name: r.client_name,
+            quoted_revenue_cents: quoted,
+            total_cost_cents: cost,
+            net_margin_cents: net,
+            actual_margin_bps: actualBps,
+            target_margin_bps: targetBps,
+            computed_status: computedStatus,
+            suggested_change_order_cents: suggestedChangeOrderCents,
+          };
+        });
+
+      const warningCount = evaluated.filter((e) => e.computed_status === "margin_warning").length;
+      const overBudgetCount = evaluated.filter((e) => e.computed_status === "over_budget").length;
+      const visible = includeHealthy
+        ? evaluated
+        : evaluated.filter((e) => e.computed_status !== "healthy");
+      const totalSuggestedChangeOrderCents = evaluated.reduce(
+        (s, e) => s + e.suggested_change_order_cents,
+        0,
+      );
+
+      toolResult = {
+        workspace_id: workspaceId,
+        job_count: evaluated.length,
+        warning_count: warningCount,
+        over_budget_count: overBudgetCount,
+        total_suggested_change_order_cents: totalSuggestedChangeOrderCents,
+        alerts: visible.slice(0, limit),
+      };
+    } else if (toolName === "simulate_inbound_bill_capture") {
+      auditBotRole = "buyer";
+      const rawText = typeof args.raw_bill_text === "string" ? args.raw_bill_text.trim() : "";
+      if (rawText.length < 5) {
+        throw new Error("raw_bill_text (min 5 chars) is required");
+      }
+      const fileName =
+        typeof args.file_name === "string" && args.file_name.trim()
+          ? args.file_name.trim()
+          : "inbound_bill.pdf";
+
+      const parseDollarStrict = (raw: string): number | null => {
+        const cleaned = raw.replace(/[$,\s]/g, "").trim();
+        if (!/^-?\d+(?:\.\d{1,2})?$/.test(cleaned)) return null;
+        const num = Number(cleaned);
+        if (!Number.isFinite(num) || num < 0) return null;
+        const cents = Math.round(num * 100);
+        return Number.isSafeInteger(cents) ? cents : null;
+      };
+
+      const lines = rawText.split(/\r?\n/).map((l) => l.trim());
+      const readHdr = (re: RegExp): string | null => {
+        for (const l of lines) {
+          const m = re.exec(l);
+          if (m && m[1]?.trim()) return m[1].trim();
+        }
+        return null;
+      };
+
+      const vendorName = readHdr(/^(?:vendor|supplier|from)\s*:\s*(.+)$/i) ?? "Inbound Vendor Capture";
+      const invoiceNum =
+        readHdr(/^(?:invoice(?:\s*#|number|no)?|inv|bill(?:\s*#)?)?\s*:\s*([A-Za-z0-9._/-]+)$/i) ??
+        "VB-INBOUND-01";
+      const poRef = readHdr(/^(?:po(?:\s*#|reference|number)?|purchase\s*order)\s*:\s*(.+)$/i);
+      const parsedItems: Array<{ sku: string; quantity: number; unit_cost_cents: number }> = [];
+
+      for (const line of lines) {
+        const pipeM = /^([A-Za-z0-9._-]+)\s*\|\s*[^|]+\|\s*(?:qty\s*)?(\d+)\s*\|\s*(\$?[\d,]+(?:\.\d{1,2})?)/i.exec(
+          line,
+        );
+        if (pipeM) {
+          const uc = parseDollarStrict(pipeM[3]);
+          if (uc !== null) {
+            parsedItems.push({
+              sku: pipeM[1].trim().toUpperCase(),
+              quantity: Math.max(1, Math.trunc(Number(pipeM[2]))),
+              unit_cost_cents: uc,
+            });
+          }
+        }
+      }
+
+      let totalCents = parsedItems.reduce((s, i) => s + i.quantity * i.unit_cost_cents, 0);
+      if (totalCents === 0) {
+        const totM = /(?:total|amount\s*due|balance)\s*[:=]\s*(\$?[\d,]+(?:\.\d{1,2})?)/i.exec(rawText);
+        totalCents = (totM ? parseDollarStrict(totM[1]) : null) ?? 0;
+      }
+
+      const { data: billRows, error: billErr } = await admin
+        .from("vendor_bills")
+        .select("id, vendor_name, invoice_number, total_cents, items_json, created_at")
+        .eq("workspace_id", workspaceId)
+        .limit(200);
+      if (billErr) {
+        throw new Error("Failed to query vendor_bills for inbound simulation");
+      }
+
+      const baselineBySku = new Map<string, number>();
+      let duplicateHit = false;
+      const vNorm = vendorName.trim().toLowerCase();
+
+      for (const existing of (billRows ?? []) as Array<{
+        vendor_name?: string;
+        total_cents?: number;
+        items_json?: Array<{ sku?: string; unit_cost_cents?: number }>;
+      }>) {
+        if ((existing.vendor_name ?? "").trim().toLowerCase() === vNorm && existing.total_cents === totalCents && totalCents > 0) {
+          duplicateHit = true;
+        }
+        for (const it of existing.items_json ?? []) {
+          const k = (it.sku ?? "").trim().toUpperCase();
+          if (k && typeof it.unit_cost_cents === "number" && it.unit_cost_cents > 0 && !baselineBySku.has(k)) {
+            baselineBySku.set(k, it.unit_cost_cents);
+          }
+        }
+      }
+
+      let spikeHit = false;
+      let proofSummary = `Extracted ${formatCentsUsd(totalCents)} (${totalCents.toLocaleString("en-US")}c) from ${fileName}; ready for review.`;
+      for (const item of parsedItems) {
+        const base = baselineBySku.get(item.sku);
+        if (base && item.unit_cost_cents > base && (item.unit_cost_cents - base) * 100 > base * 10) {
+          spikeHit = true;
+          const overcharge = (item.unit_cost_cents - base) * item.quantity;
+          proofSummary = `Auto-frozen ${invoiceNum} (${vendorName}): ${item.sku} jumped >10% (${formatCentsUsd(overcharge)} overcharge).`;
+          break;
+        }
+      }
+      if (!spikeHit && duplicateHit) {
+        proofSummary = `Auto-frozen duplicate cent amount ${formatCentsUsd(totalCents)} for ${vendorName} matching existing bill.`;
+      }
+
+      toolResult = {
+        workspace_id: workspaceId,
+        file_name: fileName,
+        vendor_name: vendorName,
+        invoice_number: invoiceNum,
+        po_reference: poRef,
+        extracted_total_cents: totalCents,
+        line_item_count: parsedItems.length,
+        match_status: spikeHit || duplicateHit ? "fraud_frozen" : "needs_review",
+        proof_summary: proofSummary,
       };
     }
 

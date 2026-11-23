@@ -1124,4 +1124,154 @@ export interface BusinessPortabilityBundle {
   collection_touches: readonly CollectionTouchRecord[]
 }
 
+// Release 5: Complete Technical Moat (Multi-Entity, Inbox-to-Ledger, Bank Feed Auto-Reconcile, Job Margins)
+
+export type WorkspaceEntityType = 'llc' | 'scorp' | 'ccorp' | 'sole_prop'
+
+export interface WorkspaceEntityRecord {
+  id: string
+  workspace_id: string
+  legal_name: string
+  ein_last4: string
+  entity_type: WorkspaceEntityType
+  is_primary: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export type BankFeedSource = 'plaid_webhook' | 'ofx_qbo' | 'bank_csv'
+export type BankFeedDirection = 'inflow' | 'outflow'
+export type BankFeedStatus = 'unmatched' | 'auto_matched' | 'reconciled' | 'excluded'
+
+export interface BankFeedTransactionRecord {
+  id: string
+  workspace_id: string
+  entity_id: string | null
+  source: BankFeedSource
+  posted_date: string
+  merchant_name: string
+  amount_cents: number
+  direction: BankFeedDirection
+  matched_record_id: string | null
+  match_confidence_bps: number
+  status: BankFeedStatus
+  proof_summary: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ParsedBankTransactionInput {
+  posted_date: string
+  merchant_name: string
+  amount_cents: number
+  direction: BankFeedDirection
+  source: BankFeedSource
+}
+
+export interface BankReconciliationResult {
+  as_of_date: string
+  scanned_count: number
+  auto_matched_count: number
+  unmatched_count: number
+  matched_inflow_cents: number
+  matched_outflow_cents: number
+  transactions: BankFeedTransactionRecord[]
+}
+
+export interface BankReconcileCommitPlan {
+  reconciled_ids: string[]
+  updated_transactions: BankFeedTransactionRecord[]
+  total_reconciled_cents: number
+  ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+export type InboundBillMatchStatus = '3way_matched' | 'fraud_frozen' | 'needs_review' | 'posted'
+
+export interface InboundBillCaptureRecord {
+  id: string
+  workspace_id: string
+  entity_id: string | null
+  source_address: string
+  file_name: string
+  vendor_name: string
+  extracted_total_cents: number
+  po_reference: string | null
+  match_status: InboundBillMatchStatus
+  proof_summary: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ParsedInboundBillPayload {
+  vendor_name: string
+  invoice_number: string
+  po_reference: string | null
+  due_date: string
+  remit_account_hint: string | null
+  line_items: VendorBillLineItem[]
+  extracted_total_cents: number
+}
+
+export interface InboundBillCaptureEvaluation {
+  parsed: ParsedInboundBillPayload
+  capture_draft: Omit<InboundBillCaptureRecord, 'id' | 'created_at' | 'updated_at'>
+  fraud_alerts: VendorFraudAlertRecord[]
+  three_way_match: ThreeWayMatchResult | null
+}
+
+export interface InboundBillPostPlan {
+  updated_capture: InboundBillCaptureRecord
+  ledger_entry_draft: Omit<LedgerEntryRecord, 'id' | 'created_at'>
+  agent_ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+export type JobMarginStatus = 'healthy' | 'margin_warning' | 'over_budget'
+
+export interface JobMarginRecord {
+  id: string
+  workspace_id: string
+  entity_id: string | null
+  job_name: string
+  client_name: string
+  quoted_revenue_cents: number
+  material_po_cents: number
+  vendor_bill_cents: number
+  labor_cents: number
+  target_margin_bps: number
+  status: JobMarginStatus
+  created_at?: string
+  updated_at?: string
+}
+
+export interface EvaluatedJobMargin {
+  job: JobMarginRecord
+  total_cost_cents: number
+  net_margin_cents: number
+  actual_margin_bps: number
+  target_margin_bps: number
+  margin_delta_bps: number
+  computed_status: JobMarginStatus
+  suggested_change_order_cents: number
+  change_order_draft: string
+}
+
+export interface JobMarginPortfolioSummary {
+  job_count: number
+  healthy_count: number
+  warning_count: number
+  over_budget_count: number
+  total_quoted_cents: number
+  total_cost_cents: number
+  total_net_margin_cents: number
+  weighted_margin_bps: number
+  evaluated_jobs: EvaluatedJobMargin[]
+}
+
+export interface JobChangeOrderPlan {
+  updated_job: JobMarginRecord
+  change_order_cents: number
+  ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+
 
