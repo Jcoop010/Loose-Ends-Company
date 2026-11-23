@@ -25,7 +25,7 @@ export function filterByEntityId<T extends { entity_id?: string | null }>(
   rows: readonly T[],
   activeEntityId: string | null | undefined,
 ): T[] {
-  if (!activeEntityId || activeEntityId === 'consolidated') {
+  if (!activeEntityId || activeEntityId === 'consolidated' || activeEntityId === 'primary') {
     return [...rows]
   }
   return rows.filter(row => row.entity_id === activeEntityId)

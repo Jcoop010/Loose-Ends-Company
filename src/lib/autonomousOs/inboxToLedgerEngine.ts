@@ -1,3 +1,4 @@
+import { buildTextContentHashSync } from './documentParser'
 import { formatCents } from './engine'
 import { runThreeWayMatch } from './inventoryEngine'
 import { scanVendorBillsForFraud } from './vendorFraudEngine'
@@ -147,6 +148,19 @@ export function parseInboundBillText(
     }
   }
 
+  const hasExplicitVendor = vendorName !== 'Inbound Vendor Capture'
+  const hasExplicitInv = !invoiceNumber.startsWith('VB-') || /invoice\s*(?:#|no|num)?/i.test(text)
+  const extractionConfidenceBps =
+    lineItems.length > 0 && extractedTotalCents > 0
+      ? 10000
+      : extractedTotalCents > 0 && hasExplicitVendor
+        ? 8500
+        : extractedTotalCents > 0
+          ? 6500
+          : hasExplicitVendor || hasExplicitInv
+            ? 3500
+            : 0
+
   return {
     vendor_name: vendorName,
     invoice_number: invoiceNumber,
@@ -155,6 +169,7 @@ export function parseInboundBillText(
     remit_account_hint: remitHint,
     line_items: lineItems,
     extracted_total_cents: extractedTotalCents,
+    extraction_confidence_bps: extractionConfidenceBps,
   }
 }
 
@@ -320,6 +335,10 @@ export function processInboundBillCapture(params: {
       po_reference: parsed.po_reference,
       match_status: matchStatus,
       proof_summary: proofSummary,
+      content_hash: buildTextContentHashSync(`${params.fileName}|${params.rawText}`),
+      extraction_method: 'plain_text',
+      extraction_confidence_bps: parsed.extraction_confidence_bps ?? 0,
+      human_verified: false,
     },
     fraud_alerts: billAlerts,
     three_way_match: threeWayMatch,
@@ -330,14 +349,24 @@ export function buildPostCapturedBillPlan(params: {
   workspaceId: string
   capture: InboundBillCaptureRecord
   nowIso?: string
+  requireHumanVerified?: boolean
+  humanVerified?: boolean
 }): InboundBillPostPlan {
   if (params.capture.match_status === 'fraud_frozen') {
     throw new Error('Cannot post a fraud-frozen bill capture until Vendor Fraud Shield clears it.')
+  }
+  if (params.capture.match_status === 'posted') {
+    throw new Error('Inbound bill capture has already been posted to the AP Ledger.')
+  }
+  const verified = Boolean(params.humanVerified || params.capture.human_verified)
+  if (params.requireHumanVerified && !verified) {
+    throw new Error('Human verification of extracted vendor, PO, and total is required before GL posting.')
   }
   const nowIso = params.nowIso ?? new Date().toISOString()
   const updatedCapture: InboundBillCaptureRecord = {
     ...params.capture,
     match_status: 'posted',
+    human_verified: verified,
     updated_at: nowIso,
   }
 
@@ -345,6 +374,7 @@ export function buildPostCapturedBillPlan(params: {
     updated_capture: updatedCapture,
     ledger_entry_draft: {
       workspace_id: params.workspaceId,
+      entity_id: params.capture.entity_id ?? null,
       entry_type: 'cogs',
       category: 'Inbound AP Capture',
       description: `Posted ${params.capture.file_name} (${params.capture.vendor_name}${

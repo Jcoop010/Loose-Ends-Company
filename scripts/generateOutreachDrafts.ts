@@ -2,6 +2,10 @@
 // scripts/generateOutreachDrafts.ts
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
+  CAN_SPAM_PHYSICAL_ADDRESS,
+  isCanSpamFooterCompliant,
+} from '../src/lib/canSpamGuard.ts';
+import {
   callOllamaStructured,
   checkOllamaHealth,
   normalizeOllamaBaseUrl,
@@ -332,6 +336,14 @@ export function buildUniversalHook(industryRaw: string, notes: string): string {
   return 'catching unbilled work, open quotes, and overdue invoices in a single daily view';
 }
 
+export function ensureCanSpamOutreachFooter(body: string): string {
+  const trimmed = body.trim();
+  if (isCanSpamFooterCompliant(trimmed)) {
+    return trimmed;
+  }
+  return `${trimmed}\n\n---\nTo opt out, reply "unsubscribe" and we will remove your address immediately.\n${CAN_SPAM_PHYSICAL_ADDRESS}`;
+}
+
 export function normalizePublicAppUrl(rawAppUrl: string | undefined): string {
   const trimmed = (rawAppUrl ?? '').trim();
   if (trimmed && !isPlaceholderValue(trimmed)) {
@@ -505,6 +517,7 @@ async function generateLocalOllamaOutreach(
 // Fail-closed suppression lookup
 async function isEmailSuppressed(
   supabase: SupabaseClient,
+  workspaceId: string,
   email: string
 ): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
@@ -516,7 +529,8 @@ async function isEmailSuppressed(
     const { data: directEvents, error: directError } = await supabase
       .from('customer_contact_consent_events')
       .select('id, email, status, decision')
-      .eq('email', normalizedEmail);
+      .eq('workspace_id', workspaceId)
+      .ilike('email', normalizedEmail);
 
     if (directError) {
       return true;
@@ -536,6 +550,7 @@ async function isEmailSuppressed(
     const { data: matchingCustomers, error: customerError } = await supabase
       .from('customers')
       .select('id')
+      .eq('workspace_id', workspaceId)
       .ilike('email', normalizedEmail);
 
     if (customerError) {
@@ -552,6 +567,7 @@ async function isEmailSuppressed(
     const { data: customerEvents, error: customerEventError } = await supabase
       .from('customer_contact_consent_events')
       .select('id, status, decision')
+      .eq('workspace_id', workspaceId)
       .in('customer_id', customerIds);
 
     if (customerEventError) {
@@ -846,7 +862,7 @@ export async function generateDailyOutreachDrafts(
   const leadQuery = supabase
     .from('public_leads')
     .select('*')
-    .or(`workspace_id.eq.${verifiedWorkspaceId},workspace_id.is.null`);
+    .eq('workspace_id', verifiedWorkspaceId);
 
   const statusFilteredQuery = options.upgradeExisting
     ? leadQuery.in('status', ['DRAFT_READY', 'DRAFT_GENERATED'])
@@ -896,7 +912,7 @@ export async function generateDailyOutreachDrafts(
 
     // 1. Respect opt-out / consent rules before drafting (fail closed)
     if (contactEmail) {
-      const suppressed = await isEmailSuppressed(supabase, contactEmail);
+      const suppressed = await isEmailSuppressed(supabase, workspaceId, contactEmail);
       if (suppressed) {
         skippedCount += 1;
         console.log(`⏭️ Skipping ${companyName} (opt-out or consent check blocked)`);
@@ -962,11 +978,12 @@ export async function generateDailyOutreachDrafts(
       }
 
       if (existingDraft) {
+        const compliantBody = ensureCanSpamOutreachFooter(draftResult.body);
         const { error: upgradeError } = await supabase
           .from('ops_communication_drafts')
           .update({
             subject: draftResult.subject,
-            message: draftResult.body,
+            message: compliantBody,
             status: 'draft',
             delivery_status: 'not_sent',
             requires_approval: true,
@@ -990,7 +1007,8 @@ export async function generateDailyOutreachDrafts(
               status: 'DRAFT_GENERATED',
               workspace_id: workspaceId,
             })
-            .eq('id', lead.id);
+            .eq('id', lead.id)
+            .eq('workspace_id', workspaceId);
 
           if (leadLinkError) {
             console.warn(
@@ -1002,7 +1020,7 @@ export async function generateDailyOutreachDrafts(
         personalizedCount += 1;
         upgradedCount += 1;
         console.log(
-          `✨ Upgraded draft (${draftResult.provider}, ${countWords(draftResult.body)} words): ${companyName}`
+          `✨ Upgraded draft (${draftResult.provider}, ${countWords(compliantBody)} words): ${companyName}`
         );
         continue;
       }
@@ -1018,6 +1036,7 @@ export async function generateDailyOutreachDrafts(
         notes: lead.notes ?? '',
       });
 
+      const compliantNewBody = ensureCanSpamOutreachFooter(draftResult.body);
       const { error: insertError } = await supabase
         .from('ops_communication_drafts')
         .insert({
@@ -1029,7 +1048,7 @@ export async function generateDailyOutreachDrafts(
           recipient_name: contactName,
           company_name: companyName,
           subject: draftResult.subject,
-          message: draftResult.body,
+          message: compliantNewBody,
           status: 'draft',
           delivery_status: 'not_sent',
           requires_approval: true,
@@ -1051,7 +1070,8 @@ export async function generateDailyOutreachDrafts(
           status: 'DRAFT_GENERATED',
           workspace_id: workspaceId,
         })
-        .eq('id', lead.id);
+        .eq('id', lead.id)
+        .eq('workspace_id', workspaceId);
 
       if (updateError) {
         console.warn(
@@ -1096,6 +1116,7 @@ export async function generateDailyOutreachDrafts(
       }
     );
 
+    const compliantBody = ensureCanSpamOutreachFooter(draftResult.body);
     // 3. Insert into ops_communication_drafts as NOT_SENT (Owner Approval Gate)
     const { error: draftError } = await supabase
       .from('ops_communication_drafts')
@@ -1108,7 +1129,7 @@ export async function generateDailyOutreachDrafts(
         recipient_name: contactName,
         company_name: companyName,
         subject: draftResult.subject,
-        message: draftResult.body,
+        message: compliantBody,
         status: 'draft',
         delivery_status: 'not_sent',
         requires_approval: true,
@@ -1131,7 +1152,8 @@ export async function generateDailyOutreachDrafts(
         status: 'DRAFT_GENERATED',
         workspace_id: workspaceId,
       })
-      .eq('id', lead.id);
+      .eq('id', lead.id)
+      .eq('workspace_id', workspaceId);
 
     if (updateError) {
       skippedCount += 1;

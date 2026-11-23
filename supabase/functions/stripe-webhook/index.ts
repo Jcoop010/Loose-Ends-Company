@@ -91,6 +91,7 @@ Deno.serve(async (req: Request) => {
     }
     // Never create or overwrite a paid entitlement from a checkout missing a subscription.
     if (checkout?.mode === "subscription" && !subscriptionId) throw new Error("Subscription checkout is missing its subscription identifier");
+    const isRefundEvent = eventType === "charge.refunded" || eventType === "charge.refund.updated";
     const subscriptionInvoice = Boolean(invoice && subscriptionId);
     const relevant = (eventType === "checkout.session.completed" && obj.mode === "subscription") ||
       ["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "customer.subscription.paused", "customer.subscription.resumed"].includes(eventType) ||
@@ -231,6 +232,78 @@ Deno.serve(async (req: Request) => {
       });
       if (upsertError || applied !== true) throw new Error("Stripe processing lease expired before entitlement update");
       return json({ received: true });
+    }
+    if (isRefundEvent) {
+      let refundWorkspaceId: string | null =
+        typeof obj.metadata?.workspace_id === "string" && obj.metadata.workspace_id.trim()
+          ? obj.metadata.workspace_id.trim()
+          : null;
+      if (!refundWorkspaceId && customerId) {
+        const { data: custSub, error: custSubErr } = await admin
+          .from("workspace_subscriptions")
+          .select("workspace_id")
+          .eq("provider_customer_id", customerId)
+          .maybeSingle();
+        if (custSubErr) throw custSubErr;
+        refundWorkspaceId = (custSub as { workspace_id?: string | null } | null)?.workspace_id ?? null;
+      }
+      const refundList = Array.isArray(obj.refunds?.data) ? (obj.refunds.data as Array<Record<string, unknown>>) : [];
+      const firstRefund = refundList[0] ?? {};
+      const rawChargeId =
+        typeof obj.charge === "string"
+          ? obj.charge
+          : typeof obj.id === "string" && obj.id.startsWith("ch_")
+            ? obj.id
+            : null;
+      const rawRefundId =
+        typeof obj.id === "string" && obj.id.startsWith("re_")
+          ? obj.id
+          : typeof firstRefund.id === "string"
+            ? firstRefund.id
+            : null;
+      const rawRefundedCents =
+        typeof obj.amount_refunded === "number"
+          ? obj.amount_refunded
+          : typeof obj.amount === "number"
+            ? obj.amount
+            : 0;
+      const amountRefundedCents =
+        Number.isSafeInteger(rawRefundedCents) && rawRefundedCents >= 0 ? rawRefundedCents : 0;
+      const currency =
+        typeof obj.currency === "string" && obj.currency.trim()
+          ? obj.currency.trim().toLowerCase()
+          : "usd";
+      const refundStatus =
+        typeof obj.status === "string" && obj.status.trim()
+          ? obj.status.trim()
+          : eventType === "charge.refunded"
+            ? "succeeded"
+            : "updated";
+
+      const refundReason =
+        typeof firstRefund.reason === "string"
+          ? firstRefund.reason
+          : typeof obj.reason === "string"
+            ? obj.reason
+            : null;
+      const resolvedChargeId =
+        rawChargeId || (typeof obj.id === "string" && obj.id.trim() ? obj.id.trim() : event.id);
+
+      const { error: refundErr } = await admin.from("stripe_refund_events").upsert(
+        {
+          stripe_event_id: event.id,
+          workspace_id: refundWorkspaceId,
+          provider_customer_id: customerId ?? null,
+          charge_id: resolvedChargeId,
+          refund_id: rawRefundId,
+          amount_refunded_cents: amountRefundedCents,
+          currency,
+          reason: refundReason,
+          refund_status: refundStatus,
+        },
+        { onConflict: "stripe_event_id" },
+      );
+      if (refundErr) throw refundErr;
     }
     const { data: completed, error: completionError } = await admin.rpc("finish_stripe_webhook_event", {
       p_event_id: event.id, p_token: claimToken, p_error: null,

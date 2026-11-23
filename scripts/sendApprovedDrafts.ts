@@ -107,7 +107,7 @@ interface WorkspaceRow {
 
 async function verifyDatabaseAndWorkspace(
   supabase: SupabaseClient
-): Promise<{ workspaceId: string | null; workspaceName: string | null }> {
+): Promise<{ workspaceId: string; workspaceName: string | null }> {
   const configuredWorkspaceId = (process.env.DEFAULT_WORKSPACE_ID ?? '').trim();
   if (configuredWorkspaceId && isPlaceholderValue(configuredWorkspaceId)) {
     throw new Error('DEFAULT_WORKSPACE_ID contains a literal placeholder.');
@@ -136,7 +136,13 @@ async function verifyDatabaseAndWorkspace(
   if (typedWorkspaces.length === 1) {
     return { workspaceId: typedWorkspaces[0].id, workspaceName: typedWorkspaces[0].name };
   }
-  return { workspaceId: null, workspaceName: null };
+  if (typedWorkspaces.length === 0) {
+    throw new Error('No rows found in public.workspaces. Set DEFAULT_WORKSPACE_ID explicitly.');
+  }
+  const summary = typedWorkspaces.map((w) => `${w.id} (${w.name})`).join(', ');
+  throw new Error(
+    `Multiple workspaces found in public.workspaces (${summary}). Set DEFAULT_WORKSPACE_ID explicitly; cross-workspace broadcast is blocked.`
+  );
 }
 
 interface ApprovedDraftRow {
@@ -181,16 +187,20 @@ interface ResendSendResponse {
 
 async function isRecipientSuppressed(
   supabase: SupabaseClient,
+  workspaceId: string,
   email: string,
   customerId: string | null
 ): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
 
   if (normalizedEmail) {
-    const { data: directEvents } = await supabase
+    const { data: directEvents, error: directErr } = await supabase
       .from('customer_contact_consent_events')
       .select('id, email, status, decision')
-      .eq('email', normalizedEmail);
+      .eq('workspace_id', workspaceId)
+      .ilike('email', normalizedEmail);
+
+    if (directErr) return true;
 
     const typedDirect = (directEvents ?? []) as ConsentSuppressionRow[];
     if (typedDirect.some((evt) => isConsentEventSuppressed(evt))) {
@@ -199,14 +209,17 @@ async function isRecipientSuppressed(
   }
 
   if (customerId) {
-    const { data: custEvents } = await supabase
+    const { data: custEvents, error: custErr } = await supabase
       .from('customer_contact_consent_events')
       .select('id, status, decision')
+      .eq('workspace_id', workspaceId)
       .eq('customer_id', customerId)
       .eq('channel', 'email')
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(1);
+
+    if (custErr) return true;
 
     const latestCust = ((custEvents ?? []) as ConsentSuppressionRow[])[0];
     if (isConsentEventSuppressed(latestCust)) {
@@ -219,12 +232,14 @@ async function isRecipientSuppressed(
 
 async function hasGrantedEmailConsent(
   supabase: SupabaseClient,
+  workspaceId: string,
   customerId: string | null
 ): Promise<boolean> {
   if (!customerId) return false;
   const { data } = await supabase
     .from('customer_contact_consent_events')
     .select('id, status, decision')
+    .eq('workspace_id', workspaceId)
     .eq('customer_id', customerId)
     .eq('channel', 'email')
     .order('created_at', { ascending: false })
@@ -255,6 +270,7 @@ async function inspectOutboundEmailDraft(
     const { data: custData } = await supabase
       .from('customers')
       .select('id, email, first_name, last_name')
+      .eq('workspace_id', draft.workspace_id)
       .eq('id', draft.customer_id)
       .maybeSingle();
 
@@ -280,7 +296,7 @@ async function inspectOutboundEmailDraft(
     };
   }
 
-  const suppressed = await isRecipientSuppressed(supabase, recipientEmail, draft.customer_id);
+  const suppressed = await isRecipientSuppressed(supabase, draft.workspace_id, recipientEmail, draft.customer_id);
   if (suppressed) {
     return {
       recipientEmail,
@@ -292,7 +308,7 @@ async function inspectOutboundEmailDraft(
     };
   }
 
-  const granted = await hasGrantedEmailConsent(supabase, draft.customer_id);
+  const granted = await hasGrantedEmailConsent(supabase, draft.workspace_id, draft.customer_id);
   if (granted) {
     return {
       recipientEmail,
@@ -369,10 +385,23 @@ async function sendViaSmtpConfig(params: {
   subject: string;
   text: string;
 }): Promise<{ ok: boolean; providerId?: string; error?: string }> {
-  // Supports HTTP-bridged SMTP relay endpoints or standard HTTPS mail gateway on SMTP_HOST
+  // Supports HTTPS-bridged SMTP relay endpoints or standard HTTPS mail gateway on SMTP_HOST
   const endpoint = /^https?:\/\//i.test(params.smtpHost)
     ? params.smtpHost
     : `https://${params.smtpHost}/send`;
+  let parsedEndpoint: URL;
+  try {
+    parsedEndpoint = new URL(endpoint);
+  } catch {
+    return { ok: false, error: 'Invalid SMTP relay endpoint URL' };
+  }
+  const isLoopback = parsedEndpoint.hostname === 'localhost' || parsedEndpoint.hostname === '127.0.0.1';
+  if (parsedEndpoint.protocol !== 'https:' && !isLoopback) {
+    return {
+      ok: false,
+      error: 'Refusing cleartext HTTP SMTP relay with Basic credentials; configure an https:// SMTP gateway.',
+    };
+  }
   const authToken = Buffer.from(
     `${params.smtpUser}:${params.smtpPass}`,
     'utf8'
@@ -402,12 +431,14 @@ async function sendViaSmtpConfig(params: {
 
 async function isLeadSequencePaused(
   supabase: SupabaseClient,
+  workspaceId: string,
   leadId: string | null | undefined,
 ): Promise<boolean> {
   if (!leadId) return false;
   const { data } = await supabase
     .from('public_leads')
     .select('id, status, auto_paused_reason')
+    .eq('workspace_id', workspaceId)
     .eq('id', leadId)
     .maybeSingle();
 
@@ -500,6 +531,7 @@ async function sendApprovedDrafts(): Promise<void> {
           last_reset_date: todayIso,
           updated_at: new Date().toISOString(),
         })
+        .eq('workspace_id', workspaceId)
         .eq('id', rawInbox.id);
     }
     inboxPool.push(normalized);
@@ -569,7 +601,7 @@ async function sendApprovedDrafts(): Promise<void> {
     let simulatedPool = [...inboxPool];
 
     for (const draft of typedDrafts) {
-      if (draft.auto_paused_reason || (await isLeadSequencePaused(supabase, draft.lead_id))) {
+      if (draft.auto_paused_reason || (await isLeadSequencePaused(supabase, draft.workspace_id, draft.lead_id))) {
         skippedCount += 1;
         console.log(
           `⏸️  [DRY-RUN] Auto-paused draft ${draft.id} (${draft.subject}): sequence paused.`
@@ -627,13 +659,14 @@ async function sendApprovedDrafts(): Promise<void> {
   let deferredCapCount = 0;
 
   for (const draft of typedDrafts) {
-    if (draft.auto_paused_reason || (await isLeadSequencePaused(supabase, draft.lead_id))) {
+    if (draft.auto_paused_reason || (await isLeadSequencePaused(supabase, draft.workspace_id, draft.lead_id))) {
       await supabase
         .from('ops_communication_drafts')
         .update({
           status: 'rejected',
           auto_paused_reason: draft.auto_paused_reason ?? 'manual',
         })
+        .eq('workspace_id', draft.workspace_id)
         .eq('id', draft.id);
       console.log(`⏸️  Skipping & cancelling auto-paused draft ${draft.id}.`);
       continue;
@@ -655,6 +688,7 @@ async function sendApprovedDrafts(): Promise<void> {
             status: 'rejected',
             auto_paused_reason: 'unsubscribed',
           })
+          .eq('workspace_id', draft.workspace_id)
           .eq('id', draft.id);
       } else {
         console.warn(
@@ -721,6 +755,7 @@ async function sendApprovedDrafts(): Promise<void> {
         last_reset_date: todayIso,
         updated_at: sentTimestamp,
       })
+      .eq('workspace_id', draft.workspace_id)
       .eq('id', senderInbox.id);
 
     if (inboxUpdateErr) {
@@ -737,6 +772,7 @@ async function sendApprovedDrafts(): Promise<void> {
         sent_at: sentTimestamp,
         assigned_sender_id: senderInbox.id,
       })
+      .eq('workspace_id', draft.workspace_id)
       .eq('id', draft.id);
 
     if (updateDraftErr) {
@@ -754,11 +790,13 @@ async function sendApprovedDrafts(): Promise<void> {
           assigned_sender_id: senderInbox.id,
           sequence_step: draft.sequence_step ?? 1,
         })
+        .eq('workspace_id', draft.workspace_id)
         .eq('id', draft.lead_id);
     } else if (companyLabel) {
       await supabase
         .from('public_leads')
         .update({ status: 'CONTACTED', assigned_sender_id: senderInbox.id })
+        .eq('workspace_id', draft.workspace_id)
         .eq('business', companyLabel);
     }
 

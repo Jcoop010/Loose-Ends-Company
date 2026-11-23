@@ -269,6 +269,17 @@ export async function resolveVendorFraudAlertInDb(params: {
     throw alertErr ?? new Error('Unable to update vendor fraud alert.')
   }
 
+  const typedUpdatedAlert = updatedAlert as VendorFraudAlertRecord
+  if (params.nextStatus === 'approved_override' && typedUpdatedAlert.capture_id) {
+    const { error: unfreezeErr } = await supabase
+      .from('inbound_bill_captures')
+      .update({ match_status: 'needs_review', updated_at: nowIso })
+      .eq('workspace_id', params.workspaceId)
+      .eq('id', typedUpdatedAlert.capture_id)
+      .eq('match_status', 'fraud_frozen')
+    if (unfreezeErr) throw unfreezeErr
+  }
+
   const { data: ledgerData, error: ledgerErr } = await supabase
     .from('agent_action_ledger')
     .insert({

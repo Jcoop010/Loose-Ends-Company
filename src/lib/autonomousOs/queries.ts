@@ -599,15 +599,52 @@ export async function reverseLedgerEntryInDb(params: {
 }): Promise<AgentActionLedgerEntry> {
   assertSupabaseConfigured()
   const { workspaceId, entry } = params
+
+  // Prefer single transactional PostgreSQL RPC when deployed on database
+  if (typeof supabase.rpc === 'function') {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('reverse_agent_action_atomic', {
+      p_workspace_id: workspaceId,
+      p_ledger_id: entry.id,
+    })
+    if (!rpcErr && rpcData && typeof rpcData === 'object') {
+      return rpcData as AgentActionLedgerEntry
+    }
+    const missingRpc =
+      rpcErr?.code === 'PGRST202' ||
+      rpcErr?.code === '42883' ||
+      /could not find the function|does not exist/i.test(rpcErr?.message ?? '')
+    if (rpcErr && !missingRpc) {
+      throw rpcErr
+    }
+  }
+
   const { updatedEntry, restoredState } = reverseLedgerAction(entry)
 
+  // Atomic compare-and-set claim on agent_action_ledger FIRST so concurrent retries fail closed
+  const { data: claimedLedger, error: claimErr } = await supabase
+    .from('agent_action_ledger')
+    .update({
+      status: 'reversed',
+      reversed_at: updatedEntry.reversed_at,
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', entry.id)
+    .eq('status', 'executed')
+    .select('*')
+    .single()
+
+  if (claimErr || !claimedLedger) {
+    throw claimErr ?? new Error('Agent action ledger entry is already reversed or unavailable.')
+  }
+
   const after = entry.after_state ?? {}
-  if (typeof after.invoice_id === 'string' && after.invoice_id) {
-    await supabase
+  if (entry.action_type === 'create_invoice' && typeof after.invoice_id === 'string' && after.invoice_id) {
+    const { error } = await supabase
       .from('invoices')
       .update({ status: 'void', updated_at: updatedEntry.reversed_at })
       .eq('workspace_id', workspaceId)
       .eq('id', after.invoice_id)
+    if (error) throw error
   }
 
   if (
@@ -618,7 +655,7 @@ export async function reverseLedgerEntryInDb(params: {
   ) {
     const prevPaid =
       typeof restoredState.amount_paid_cents === 'number' ? restoredState.amount_paid_cents : 0
-    await supabase
+    const { error } = await supabase
       .from('invoices')
       .update({
         status: restoredState.invoice_status,
@@ -627,14 +664,16 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', after.invoice_id)
+    if (error) throw error
   }
 
   if (entry.action_type === 'stage_auto_po' && typeof after.po_id === 'string' && after.po_id) {
-    await supabase
+    const { error } = await supabase
       .from('purchase_orders')
       .update({ status: 'closed', updated_at: updatedEntry.reversed_at })
       .eq('workspace_id', workspaceId)
       .eq('id', after.po_id)
+    if (error) throw error
   }
 
   if (
@@ -645,7 +684,7 @@ export async function reverseLedgerEntryInDb(params: {
     restoredState &&
     typeof restoredState.bill_match_status === 'string'
   ) {
-    await supabase
+    const { error } = await supabase
       .from('vendor_bills')
       .update({
         match_status: restoredState.bill_match_status,
@@ -653,6 +692,16 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', after.bill_id)
+    if (error) throw error
+
+    if (typeof after.ledger_entry_id === 'string' && after.ledger_entry_id) {
+      const { error: revLeErr } = await supabase
+        .from('ledger_entries')
+        .delete()
+        .eq('workspace_id', workspaceId)
+        .eq('id', after.ledger_entry_id)
+      if (revLeErr) throw revLeErr
+    }
   }
 
   if (
@@ -661,7 +710,7 @@ export async function reverseLedgerEntryInDb(params: {
     restoredState &&
     typeof restoredState.vault_status === 'string'
   ) {
-    await supabase
+    const { error } = await supabase
       .from('compliance_vault_items')
       .update({
         status: restoredState.vault_status,
@@ -669,6 +718,7 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', after.vault_item_id)
+    if (error) throw error
   }
 
   if (
@@ -686,7 +736,7 @@ export async function reverseLedgerEntryInDb(params: {
         : []
 
     if (openIds.length > 0) {
-      await supabase
+      const { error: findErr } = await supabase
         .from('shadow_findings')
         .update({
           status: 'open',
@@ -695,9 +745,10 @@ export async function reverseLedgerEntryInDb(params: {
         .eq('workspace_id', workspaceId)
         .eq('session_id', after.shadow_session_id)
         .in('id', openIds)
+      if (findErr) throw findErr
     }
 
-    await supabase
+    const { error: sessErr } = await supabase
       .from('shadow_sessions')
       .update({
         status: prevSessionStatus,
@@ -705,6 +756,7 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', after.shadow_session_id)
+    if (sessErr) throw sessErr
   }
 
   if (entry.action_type === 'stage_collections_run') {
@@ -713,7 +765,7 @@ export async function reverseLedgerEntryInDb(params: {
       : []
 
     if (touchIds.length > 0) {
-      await supabase
+      const { error } = await supabase
         .from('collection_touches')
         .update({
           status: 'reversed',
@@ -721,6 +773,7 @@ export async function reverseLedgerEntryInDb(params: {
         })
         .eq('workspace_id', workspaceId)
         .in('id', touchIds)
+      if (error) throw error
     }
   }
 
@@ -734,7 +787,7 @@ export async function reverseLedgerEntryInDb(params: {
       typeof restoredState.sop_status === 'string' ? restoredState.sop_status : 'paused'
     const prevRuns =
       typeof restoredState.run_count === 'number' ? restoredState.run_count : 0
-    await supabase
+    const { error } = await supabase
       .from('executable_sops')
       .update({
         status: prevStatus,
@@ -743,6 +796,7 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', restoredState.executable_sop_id)
+    if (error) throw error
   }
 
   if (
@@ -753,7 +807,7 @@ export async function reverseLedgerEntryInDb(params: {
   ) {
     const prevAlertStatus =
       typeof restoredState.alert_status === 'string' ? restoredState.alert_status : 'frozen'
-    await supabase
+    const { error } = await supabase
       .from('vendor_fraud_alerts')
       .update({
         status: prevAlertStatus,
@@ -761,6 +815,7 @@ export async function reverseLedgerEntryInDb(params: {
       })
       .eq('workspace_id', workspaceId)
       .eq('id', restoredState.alert_id)
+    if (error) throw error
   }
 
   if (
@@ -773,14 +828,26 @@ export async function reverseLedgerEntryInDb(params: {
       typeof restoredState.previous_match_status === 'string'
         ? restoredState.previous_match_status
         : '3way_matched'
-    await supabase
+    const { error: capErr } = await supabase
       .from('inbound_bill_captures')
       .update({
         match_status: prevMatchStatus,
+        human_verified: false,
+        posted_ledger_entry_id: null,
         updated_at: updatedEntry.reversed_at,
       })
       .eq('workspace_id', workspaceId)
       .eq('id', restoredState.capture_id)
+    if (capErr) throw capErr
+
+    if (typeof after.ledger_entry_id === 'string' && after.ledger_entry_id) {
+      const { error: leDelErr } = await supabase
+        .from('ledger_entries')
+        .delete()
+        .eq('workspace_id', workspaceId)
+        .eq('id', after.ledger_entry_id)
+      if (leDelErr) throw leDelErr
+    }
   }
 
   if (entry.action_type === 'reconcile_bank_feed' && restoredState) {
@@ -792,7 +859,7 @@ export async function reverseLedgerEntryInDb(params: {
         ? restoredState.previous_status
         : 'auto_matched'
     if (txIds.length > 0) {
-      await supabase
+      const { error } = await supabase
         .from('bank_feed_transactions')
         .update({
           status: prevStatus,
@@ -800,6 +867,7 @@ export async function reverseLedgerEntryInDb(params: {
         })
         .eq('workspace_id', workspaceId)
         .in('id', txIds)
+      if (error) throw error
     }
   }
 
@@ -816,7 +884,7 @@ export async function reverseLedgerEntryInDb(params: {
     const prevStatus =
       typeof restoredState.status === 'string' ? restoredState.status : 'margin_warning'
     if (prevQuoted !== undefined) {
-      await supabase
+      const { error } = await supabase
         .from('job_margin_records')
         .update({
           quoted_revenue_cents: prevQuoted,
@@ -825,25 +893,11 @@ export async function reverseLedgerEntryInDb(params: {
         })
         .eq('workspace_id', workspaceId)
         .eq('id', restoredState.job_margin_id)
+      if (error) throw error
     }
   }
 
-  const { data, error } = await supabase
-    .from('agent_action_ledger')
-    .update({
-      status: 'reversed',
-      reversed_at: updatedEntry.reversed_at,
-    })
-    .eq('workspace_id', workspaceId)
-    .eq('id', entry.id)
-    .eq('status', 'executed')
-    .select('*')
-    .single()
-
-  if (error || !data) {
-    throw error ?? new Error('Unable to reverse agent ledger action.')
-  }
-  return data as AgentActionLedgerEntry
+  return claimedLedger as AgentActionLedgerEntry
 }
 
 export async function fetchPublicQuotePortal(

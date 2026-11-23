@@ -1644,7 +1644,7 @@ export function AutonomousSandboxPanel(): React.ReactElement {
                     <Landmark className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
                     Bank Feed Auto-Reconcile
                   </span>
-                  <Badge tone="emerald">Plaid / OFX / CSV</Badge>
+                  <Badge tone="emerald">Bank CSV / OFX / JSON (Sandbox)</Badge>
                 </div>
                 <p className="mt-1 text-xs text-slate-300">
                   Matches inflows to invoices and outflows to AP bills with exact cent Proof Cards.
@@ -1736,7 +1736,7 @@ export function AutonomousSandboxPanel(): React.ReactElement {
               </div>
             ) : (
               <p className="text-xs text-slate-400">
-                Click <strong className="text-slate-200">Run Bank Feed Auto-Reconcile</strong> to match CSV/OFX/Plaid inflows &amp; outflows.
+                Click <strong className="text-slate-200">Run Bank Feed Auto-Reconcile</strong> to match CSV/OFX/manual JSON inflows &amp; outflows.
               </p>
             )}
           </div>

@@ -439,12 +439,15 @@ export type LedgerEntryType = 'revenue' | 'cogs' | 'expense' | 'ap_scheduled'
 export interface LedgerEntryRecord {
   id: string
   workspace_id: string
+  entity_id?: string | null
   entry_type: LedgerEntryType
   category: string
   description: string
   amount_cents: number
   occurred_on: string
   source_ref: string | null
+  idempotency_key?: string | null
+  reversal_of_entry_id?: string | null
   created_at?: string
 }
 
@@ -1054,6 +1057,7 @@ export interface VendorFraudAlertRecord {
   id: string
   workspace_id: string
   bill_id: string | null
+  capture_id?: string | null
   vendor_name: string
   alert_type: VendorFraudAlertType
   variance_cents: number
@@ -1128,11 +1132,15 @@ export interface BusinessPortabilityBundle {
 
 export type WorkspaceEntityType = 'llc' | 'scorp' | 'ccorp' | 'sole_prop'
 
+export type EntityIdentityStatus = 'unverified' | 'owner_supplied' | 'verified'
+
 export interface WorkspaceEntityRecord {
   id: string
   workspace_id: string
   legal_name: string
-  ein_last4: string
+  ein_last4: string | null
+  ein_verified?: boolean
+  identity_status?: EntityIdentityStatus
   entity_type: WorkspaceEntityType
   is_primary: boolean
   created_at?: string
@@ -1156,6 +1164,10 @@ export interface BankFeedTransactionRecord {
   match_confidence_bps: number
   status: BankFeedStatus
   proof_summary: string
+  external_tx_id?: string | null
+  source_fingerprint?: string | null
+  manual_override_reason?: string | null
+  idempotency_key?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -1166,6 +1178,8 @@ export interface ParsedBankTransactionInput {
   amount_cents: number
   direction: BankFeedDirection
   source: BankFeedSource
+  external_tx_id?: string | null
+  source_fingerprint?: string | null
 }
 
 export interface BankReconciliationResult {
@@ -1198,6 +1212,11 @@ export interface InboundBillCaptureRecord {
   po_reference: string | null
   match_status: InboundBillMatchStatus
   proof_summary: string
+  content_hash?: string | null
+  extraction_method?: string
+  extraction_confidence_bps?: number
+  human_verified?: boolean
+  posted_ledger_entry_id?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -1210,6 +1229,7 @@ export interface ParsedInboundBillPayload {
   remit_account_hint: string | null
   line_items: VendorBillLineItem[]
   extracted_total_cents: number
+  extraction_confidence_bps?: number
 }
 
 export interface InboundBillCaptureEvaluation {

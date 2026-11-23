@@ -97,6 +97,8 @@ interface WorkspaceMcpTokenRow {
   label: string;
   scopes: string[] | null;
   revoked_at: string | null;
+  owner_user_id?: string | null;
+  role?: string | null;
 }
 
 interface BotRunStateRow {
@@ -549,6 +551,35 @@ function escapeHtml(raw: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function sanitizeAuditHtml(raw: string): string {
+  return raw
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/<\/?\s*(?:iframe|object|embed|svg|style|link|meta|base)[^>]*>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/(?:javascript|vbscript|data\s*:\s*text\/html)\s*:/gi, "blocked:")
+    .trim();
+}
+
+async function assertBotNotObserveOnly(
+  admin: SupabaseClient,
+  workspaceId: string,
+  botRole: string
+): Promise<void> {
+  const { data } = await admin
+    .from("bot_manuals")
+    .select("mode")
+    .eq("workspace_id", workspaceId)
+    .eq("bot_role", botRole)
+    .maybeSingle();
+
+  const row = data as { mode?: string | null } | null;
+  if (row?.mode === "observe") {
+    throw new Error(
+      `Bot role "${botRole}" is set to Observe-Only mode in workspace bot_manuals and cannot stage or mutate records`
+    );
+  }
 }
 
 function isOneOf<T extends string>(
@@ -1365,7 +1396,7 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
     name: "get_bank_reconciliation_status",
     requiredScope: "read_all",
     description:
-      "Read-only status across workspace bank_feed_transactions (Plaid webhook, OFX/QBO, CSV) with integer-cent auto-match totals, confidence bps, and Proof Cards capped <= 10.",
+      "Read-only status across workspace bank_feed_transactions (Manual JSON Statement, OFX/QBO, CSV — live Plaid sync not connected) with integer-cent auto-match totals, confidence bps, and Proof Cards capped <= 10.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1452,9 +1483,9 @@ async function checkCustomerConsentFailClosed(
         .from("customer_contact_consent_events")
         .select("id, workspace_id, customer_id, email, channel, status, decision, created_at")
         .eq("workspace_id", workspaceId)
-        .eq("email", email)
+        .ilike("email", email)
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(500);
 
       if (byEmailErr) {
         return {
@@ -1472,7 +1503,7 @@ async function checkCustomerConsentFailClosed(
         .select("id")
         .eq("workspace_id", workspaceId)
         .ilike("email", email)
-        .limit(10);
+        .limit(100);
 
       if (custLookupErr) {
         return {
@@ -1495,7 +1526,7 @@ async function checkCustomerConsentFailClosed(
         .eq("workspace_id", workspaceId)
         .in("customer_id", checkedCustomerIds)
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(500);
 
       if (byCustErr) {
         return {
@@ -1789,7 +1820,7 @@ Deno.serve(async (req: Request) => {
   const tokenHash = await sha256Hex(token);
   const { data: rawTokenRow, error: tokenErr } = await admin
     .from("workspace_mcp_tokens")
-    .select("id, workspace_id, label, scopes, revoked_at")
+    .select("id, workspace_id, label, scopes, revoked_at, owner_user_id, role")
     .eq("token_hash", tokenHash)
     .is("revoked_at", null)
     .maybeSingle();
@@ -1800,6 +1831,23 @@ Deno.serve(async (req: Request) => {
   }
 
   const workspaceId = tokenRow.workspace_id;
+  if (tokenRow.owner_user_id) {
+    const { data: activeMember, error: memberErr } = await admin
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", tokenRow.owner_user_id)
+      .maybeSingle();
+    const memberRole = String((activeMember as { role?: string | null } | null)?.role ?? "");
+    if (memberErr || !["owner", "admin"].includes(memberRole)) {
+      return jsonRpcError(
+        null,
+        -32003,
+        "Workspace MCP token owner is no longer an active owner or admin",
+        403
+      );
+    }
+  }
   const tokenId = tokenRow.id;
   const tokenScopes = Array.isArray(tokenRow.scopes) ? tokenRow.scopes : [];
 
@@ -2276,6 +2324,7 @@ Deno.serve(async (req: Request) => {
       }
     } else if (toolName === "upsert_public_lead") {
       auditBotRole = "scout";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const business = typeof args.business === "string" ? args.business.trim() : "";
       const industry = typeof args.industry === "string" ? args.industry.trim() : "";
       const location = typeof args.location === "string" ? args.location.trim() : "";
@@ -2312,6 +2361,30 @@ Deno.serve(async (req: Request) => {
         score = contactEmail ? 92 : 85;
       }
 
+      const { data: existingLeadRow } = await admin
+        .from("public_leads")
+        .select("id, status")
+        .eq("workspace_id", workspaceId)
+        .eq("business", business)
+        .maybeSingle();
+
+      const existingLeadStatus = String(
+        (existingLeadRow as { status?: string | null } | null)?.status ?? ""
+      ).trim();
+      const preservedLeadStatuses = new Set([
+        "DRAFT_GENERATED",
+        "CONTACTED",
+        "REPLIED",
+        "BOUNCED",
+        "UNSUBSCRIBED",
+        "QUALIFIED",
+        "WON",
+        "LOST",
+      ]);
+      const nextLeadStatus = preservedLeadStatuses.has(existingLeadStatus)
+        ? existingLeadStatus
+        : "DRAFT_READY";
+
       const { data: leadRow, error } = await admin
         .from("public_leads")
         .upsert(
@@ -2329,7 +2402,7 @@ Deno.serve(async (req: Request) => {
             website,
             notes,
             score,
-            status: "DRAFT_READY",
+            status: nextLeadStatus,
           },
           { onConflict: "workspace_id,business" }
         )
@@ -2339,9 +2412,10 @@ Deno.serve(async (req: Request) => {
       if (error || !leadRow) {
         throw new Error("Failed to upsert workspace public lead");
       }
-      toolResult = { lead: leadRow, status: "DRAFT_READY" };
+      toolResult = { lead: leadRow, status: nextLeadStatus };
     } else if (toolName === "save_ops_readiness_audit") {
       auditBotRole = "scout";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const businessName =
         typeof args.business_name === "string" ? args.business_name.trim() : "";
       if (!businessName) {
@@ -2390,12 +2464,15 @@ Deno.serve(async (req: Request) => {
         leadId = (leadMatch as { id: string }).id;
       }
 
-      const reportHtml =
+      const sanitizedCustomHtml =
         typeof args.report_html === "string" && args.report_html.trim()
-          ? args.report_html.trim()
-          : `<div class="ops-scorecard"><h2>${escapeHtml(businessName)} — Operations Readiness Grade: ${grade} (${score0100}/100)</h2><ul>${findings
-              .map((f) => `<li>${escapeHtml(f)}</li>`)
-              .join("")}</ul></div>`;
+          ? sanitizeAuditHtml(args.report_html.trim())
+          : "";
+      const reportHtml =
+        sanitizedCustomHtml ||
+        `<div class="ops-scorecard"><h2>${escapeHtml(businessName)} — Operations Readiness Grade: ${grade} (${score0100}/100)</h2><ul>${findings
+          .map((f) => `<li>${escapeHtml(f)}</li>`)
+          .join("")}</ul></div>`;
 
       const { data: auditRow, error: auditErr } = await admin
         .from("ops_readiness_audits")
@@ -2449,6 +2526,7 @@ Deno.serve(async (req: Request) => {
       };
     } else if (toolName === "queue_communication_draft") {
       auditBotRole = "scout";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const companyName =
         typeof args.company_name === "string" ? args.company_name.trim() : "";
       const recipientName =
@@ -2655,6 +2733,7 @@ Deno.serve(async (req: Request) => {
       }
       const botRole: BotRole = args.bot_role;
       auditBotRole = botRole;
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
 
       if (!isOneOf(args.workspace_domain, ALLOWED_DOMAINS)) {
         throw new Error(
@@ -2746,6 +2825,7 @@ Deno.serve(async (req: Request) => {
       };
     } else if (toolName === "dismiss_communication_draft") {
       auditBotRole = "qa";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const draftId = typeof args.draft_id === "string" ? args.draft_id.trim() : "";
       if (!draftId) {
         throw new Error("draft_id is required");
@@ -2776,6 +2856,9 @@ Deno.serve(async (req: Request) => {
 
       if (existing.delivery_status === "sent") {
         throw new Error("Sent communication drafts cannot be dismissed");
+      }
+      if (existing.status === "approved") {
+        throw new Error("Approved communication drafts cannot be dismissed via MCP");
       }
 
       if (existing.status === "rejected") {
@@ -2814,6 +2897,7 @@ Deno.serve(async (req: Request) => {
       }
     } else if (toolName === "create_quote_draft") {
       auditBotRole = "scout";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const title = typeof args.title === "string" ? args.title.trim() : "";
       const customerName =
         typeof args.customer_name === "string" ? args.customer_name.trim() : "";
@@ -2918,7 +3002,7 @@ Deno.serve(async (req: Request) => {
         customerId = (custMatch as CustomerIdRow).id;
       }
 
-      const quoteStatus: "draft" | "sent" = args.status === "draft" ? "draft" : "sent";
+      const quoteStatus: "draft" | "sent" = args.status === "sent" ? "sent" : "draft";
       const customerEmail =
         typeof args.customer_email === "string" && args.customer_email.trim()
           ? args.customer_email.trim().toLowerCase()
@@ -3119,15 +3203,15 @@ Deno.serve(async (req: Request) => {
       }
       const impactCents = args.impact_cents;
 
-      let status: LedgerStatus = "executed";
       if (args.status !== undefined) {
         if (!isOneOf(args.status, ALLOWED_LEDGER_STATUSES)) {
           throw new Error(
             `status must be one of: ${ALLOWED_LEDGER_STATUSES.join(", ")}`
           );
         }
-        status = args.status;
       }
+      // Server enforces pending_approval so remote MCP clients cannot forge 'executed' or 'reversed' ledger states.
+      const status: LedgerStatus = "pending_approval";
 
       const beforeState =
         args.before_state && typeof args.before_state === "object" && !Array.isArray(args.before_state)
@@ -3139,6 +3223,7 @@ Deno.serve(async (req: Request) => {
           : null;
 
       auditBotRole = isOneOf(moduleName, ALLOWED_BOT_ROLES) ? moduleName : "chief_of_staff";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
 
       const { data: ledgerRow, error: ledgerErr } = await admin
         .from("agent_action_ledger")
@@ -3237,6 +3322,7 @@ Deno.serve(async (req: Request) => {
       };
     } else if (toolName === "stage_purchase_order") {
       auditBotRole = "buyer";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const vendorName = typeof args.vendor_name === "string" ? args.vendor_name.trim() : "";
       if (!vendorName) {
         throw new Error("vendor_name is required");
@@ -3303,6 +3389,30 @@ Deno.serve(async (req: Request) => {
           unit_cost_cents: unitCostCents,
           line_total_cents: lineTotalCents,
         });
+      }
+
+      const uniqueInventoryItemIds = Array.from(
+        new Set(
+          computedPoItems
+            .map((line) => line.inventory_item_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        )
+      );
+      if (uniqueInventoryItemIds.length > 0) {
+        const { data: ownedItems, error: invCheckErr } = await admin
+          .from("inventory_items")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .in("id", uniqueInventoryItemIds);
+        const ownedIds = new Set(
+          ((ownedItems ?? []) as Array<{ id: string }>).map((row) => row.id)
+        );
+        if (
+          invCheckErr ||
+          uniqueInventoryItemIds.some((invId) => !ownedIds.has(invId))
+        ) {
+          throw new Error("inventory_item_id not found in authenticated workspace");
+        }
       }
 
       const poNumber =
@@ -3383,6 +3493,7 @@ Deno.serve(async (req: Request) => {
       };
     } else if (toolName === "run_three_way_match") {
       auditBotRole = "qa";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const rawTolerance =
         typeof args.tolerance_bps === "number" ? Math.trunc(args.tolerance_bps) : 200;
       if (!Number.isSafeInteger(rawTolerance) || rawTolerance < 0 || rawTolerance > 5000) {
@@ -3403,16 +3514,30 @@ Deno.serve(async (req: Request) => {
       const billItems: McpBillLineItem[] = [];
 
       if (billId) {
+        if (
+          Array.isArray(args.bill_items) ||
+          Array.isArray(args.po_items) ||
+          Array.isArray(args.receipt_items)
+        ) {
+          throw new Error(
+            "Inline item overrides are forbidden when evaluating a persisted vendor_bill_id"
+          );
+        }
         const { data: billRow, error: billErr } = await admin
           .from("vendor_bills")
-          .select("id, po_id, vendor_name, invoice_number, items_json")
+          .select("id, po_id, vendor_name, invoice_number, items_json, match_status")
           .eq("workspace_id", workspaceId)
           .eq("id", billId)
           .maybeSingle();
         if (billErr || !billRow) {
           throw new Error("vendor_bill_id not found in authenticated workspace");
         }
-        const typedBill = billRow as Release2VendorBillRow;
+        const typedBill = billRow as Release2VendorBillRow & { match_status?: string };
+        if (typedBill.match_status === "paid" || typedBill.match_status === "disputed") {
+          throw new Error(
+            `vendor_bill_id is in terminal "${typedBill.match_status}" status and cannot be overwritten via 3-way match`
+          );
+        }
         if (!resolvedPoId && typedBill.po_id) {
           resolvedPoId = typedBill.po_id;
         }
@@ -3808,6 +3933,7 @@ Deno.serve(async (req: Request) => {
       };
     } else if (toolName === "stage_compliance_notice") {
       auditBotRole = "chief_of_staff";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const vaultItemId =
         typeof args.vault_item_id === "string" ? args.vault_item_id.trim() : "";
       if (!vaultItemId) {
@@ -3968,6 +4094,7 @@ Deno.serve(async (req: Request) => {
       };
     } else if (toolName === "upsert_living_sop") {
       auditBotRole = "qa";
+      await assertBotNotObserveOnly(admin, workspaceId, auditBotRole);
       const moduleKey =
         typeof args.module_key === "string" ? args.module_key.trim().toLowerCase() : "";
       const title = typeof args.title === "string" ? args.title.trim() : "";

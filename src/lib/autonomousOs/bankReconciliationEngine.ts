@@ -19,7 +19,7 @@ export const BANK_FEED_STATUS_LABELS: Readonly<Record<BankFeedStatus, string>> =
 }
 
 export const BANK_FEED_SOURCE_LABELS: Readonly<Record<BankFeedSource, string>> = {
-  plaid_webhook: 'Plaid Webhook',
+  plaid_webhook: 'Manual JSON Statement (No Live Plaid)',
   ofx_qbo: 'OFX / QBO File',
   bank_csv: 'Bank CSV',
 }
@@ -120,9 +120,20 @@ function toCentsSigned(raw: string): number | null {
   return Number.isSafeInteger(cents) ? cents : null
 }
 
+export function computeBankTransactionFingerprint(params: {
+  source: BankFeedSource
+  posted_date: string
+  merchant_name: string
+  amount_cents: number
+  direction: BankFeedDirection
+}): string {
+  const normMerchant = params.merchant_name.trim().toLowerCase().replace(/\s+/g, ' ')
+  return `${params.source}|${params.posted_date}|${params.direction}|${params.amount_cents}|${normMerchant}`
+}
+
 /**
- * Pure deterministic parser for OFX/QBO `<STMTTRN>` XML/SGML, Plaid webhook JSON payloads,
- * or standard Bank CSV exports in exact integer cents.
+ * Pure deterministic parser for OFX/QBO `<STMTTRN>` XML/SGML, manual JSON statement payloads,
+ * or standard Bank CSV exports in exact integer cents with preserved external IDs & fingerprints.
  */
 export function parseBankFeedPayload(
   rawInput: string,
@@ -146,6 +157,8 @@ export function parseBankFeedPayload(
     for (const item of rawList) {
       if (!item || typeof item !== 'object') continue
       const rec = item as {
+        transaction_id?: unknown
+        id?: unknown
         date?: unknown
         posted_date?: unknown
         merchant_name?: unknown
@@ -154,6 +167,12 @@ export function parseBankFeedPayload(
         amount_cents?: unknown
         direction?: unknown
       }
+      const extId =
+        typeof rec.transaction_id === 'string' && rec.transaction_id.trim()
+          ? rec.transaction_id.trim()
+          : typeof rec.id === 'string' && rec.id.trim()
+            ? rec.id.trim()
+            : null
       const merchant =
         (typeof rec.merchant_name === 'string' && rec.merchant_name.trim()) ||
         (typeof rec.name === 'string' && rec.name.trim()) ||
@@ -179,7 +198,7 @@ export function parseBankFeedPayload(
               ? 'outflow'
               : 'inflow'
       } else if (typeof rec.amount === 'number' && Number.isFinite(rec.amount)) {
-        // Plaid standard: negative amount = money in (credit/inflow), positive = debit/outflow
+        // Negative amount = inflow credit, positive = outflow debit
         cents = Math.round(Math.abs(rec.amount) * 100)
         if (rec.direction === 'inflow' || rec.direction === 'outflow') {
           direction = rec.direction
@@ -195,6 +214,14 @@ export function parseBankFeedPayload(
           amount_cents: cents,
           direction,
           source: 'plaid_webhook',
+          external_tx_id: extId,
+          source_fingerprint: computeBankTransactionFingerprint({
+            source: 'plaid_webhook',
+            posted_date: postedDate,
+            merchant_name: merchant,
+            amount_cents: cents,
+            direction,
+          }),
         })
       }
     }
@@ -207,18 +234,31 @@ export function parseBankFeedPayload(
     for (const block of blocks) {
       const dateRaw = /<DTPOSTED>([^<\r\n]+)/i.exec(block)?.[1] ?? fallbackDate
       const amtRaw = /<TRNAMT>([^<\r\n]+)/i.exec(block)?.[1] ?? '0'
+      const fitId = /<FITID>([^<\r\n]+)/i.exec(block)?.[1]?.trim() ?? null
       const nameRaw =
         /<NAME>([^<\r\n]+)/i.exec(block)?.[1] ??
         /<MEMO>([^<\r\n]+)/i.exec(block)?.[1] ??
         'OFX Transaction'
       const signedCents = toCentsSigned(amtRaw)
       if (signedCents === null || signedCents === 0) continue
+      const postedDate = parseIsoDateFlexible(dateRaw, fallbackDate)
+      const merchant = nameRaw.trim()
+      const amountCents = Math.abs(signedCents)
+      const direction: BankFeedDirection = signedCents > 0 ? 'inflow' : 'outflow'
       results.push({
-        posted_date: parseIsoDateFlexible(dateRaw, fallbackDate),
-        merchant_name: nameRaw.trim(),
-        amount_cents: Math.abs(signedCents),
-        direction: signedCents > 0 ? 'inflow' : 'outflow',
+        posted_date: postedDate,
+        merchant_name: merchant,
+        amount_cents: amountCents,
+        direction,
         source: 'ofx_qbo',
+        external_tx_id: fitId,
+        source_fingerprint: computeBankTransactionFingerprint({
+          source: 'ofx_qbo',
+          posted_date: postedDate,
+          merchant_name: merchant,
+          amount_cents: amountCents,
+          direction,
+        }),
       })
     }
     return results
@@ -238,6 +278,7 @@ export function parseBankFeedPayload(
   const dirIdx = headers.findIndex(h => /(direction|type)/.test(h))
   const creditIdx = headers.findIndex(h => /credit|deposit|inflow/.test(h))
   const debitIdx = headers.findIndex(h => /debit|withdrawal|outflow/.test(h))
+  const idIdx = headers.findIndex(h => /^(id|tx_id|transaction_id|fitid|ref)$/.test(h))
 
   const results: ParsedBankTransactionInput[] = []
   for (let i = 1; i < lines.length; i += 1) {
@@ -247,7 +288,8 @@ export function parseBankFeedPayload(
       fallbackDate,
     )
     const merchantName =
-      (merchantIdx >= 0 ? cells[merchantIdx] : cells[1] ?? 'Bank Row') || 'Bank Row'
+      ((merchantIdx >= 0 ? cells[merchantIdx] : cells[1] ?? 'Bank Row') || 'Bank Row').trim()
+    const extId = idIdx >= 0 && cells[idIdx]?.trim() ? cells[idIdx].trim() : null
 
     let amountCents = 0
     let direction: BankFeedDirection = 'outflow'
@@ -284,10 +326,18 @@ export function parseBankFeedPayload(
     if (amountCents > 0) {
       results.push({
         posted_date: postedDate,
-        merchant_name: merchantName.trim(),
+        merchant_name: merchantName,
         amount_cents: amountCents,
         direction,
         source: 'bank_csv',
+        external_tx_id: extId,
+        source_fingerprint: computeBankTransactionFingerprint({
+          source: 'bank_csv',
+          posted_date: postedDate,
+          merchant_name: merchantName,
+          amount_cents: amountCents,
+          direction,
+        }),
       })
     }
   }
@@ -304,6 +354,7 @@ export function autoReconcileBankFeed(params: {
   transactions: readonly ParsedBankTransactionInput[]
   invoices: readonly AutonomousInvoice[]
   vendorBills: readonly VendorBillRecord[]
+  existingMatchedRecordIds?: ReadonlySet<string>
   asOfDate?: string
 }): BankReconciliationResult {
   const asOfDate =
@@ -311,8 +362,8 @@ export function autoReconcileBankFeed(params: {
       ? params.asOfDate
       : new Date().toISOString().slice(0, 10)
 
-  const usedInvoiceIds = new Set<string>()
-  const usedBillIds = new Set<string>()
+  const usedInvoiceIds = new Set<string>(params.existingMatchedRecordIds ?? [])
+  const usedBillIds = new Set<string>(params.existingMatchedRecordIds ?? [])
 
   let autoMatchedCount = 0
   let unmatchedCount = 0
@@ -321,6 +372,15 @@ export function autoReconcileBankFeed(params: {
 
   const records: BankFeedTransactionRecord[] = params.transactions.map((tx, idx) => {
     const txId = `bf_${idx + 1}_${tx.posted_date.replace(/-/g, '')}`
+    const fingerprint =
+      tx.source_fingerprint ??
+      computeBankTransactionFingerprint({
+        source: tx.source,
+        posted_date: tx.posted_date,
+        merchant_name: tx.merchant_name,
+        amount_cents: tx.amount_cents,
+        direction: tx.direction,
+      })
 
     if (tx.direction === 'inflow') {
       let bestInv: AutonomousInvoice | null = null
@@ -328,17 +388,23 @@ export function autoReconcileBankFeed(params: {
       let bestDays = 999
 
       for (const inv of params.invoices) {
-        if (inv.status === 'void' || inv.status === 'draft') continue
+        if (inv.status === 'void' || inv.status === 'draft' || inv.status === 'paid') continue
         if (usedInvoiceIds.has(inv.id)) continue
         const openCents = Math.max(0, inv.total_cents - inv.amount_paid_cents)
-        const matchAmount = openCents > 0 ? openCents : inv.total_cents
-        if (matchAmount !== tx.amount_cents) continue
+        if (openCents <= 0 || openCents !== tx.amount_cents) continue
 
         const invDate = (inv.due_date || inv.created_at || tx.posted_date).slice(0, 10)
         const daysDelta = diffUtcDays(tx.posted_date, invDate)
         const nameOverlap = hasCounterpartyOverlap(tx.merchant_name, inv.customer_name)
-        const confidence =
-          nameOverlap || daysDelta <= 3 ? 10000 : daysDelta <= 14 ? 9200 : 8500
+        const confidence = nameOverlap
+          ? daysDelta <= 3
+            ? 10000
+            : 9400
+          : daysDelta <= 3
+            ? 9000
+            : daysDelta <= 14
+              ? 8500
+              : 7500
 
         if (confidence > bestConfidence || (confidence === bestConfidence && daysDelta < bestDays)) {
           bestInv = inv
@@ -363,6 +429,8 @@ export function autoReconcileBankFeed(params: {
           matched_record_id: bestInv.id,
           match_confidence_bps: bestConfidence,
           status: 'auto_matched',
+          external_tx_id: tx.external_tx_id ?? null,
+          source_fingerprint: fingerprint,
           proof_summary:
             `Matched +${formatCents(tx.amount_cents)} (${tx.amount_cents.toLocaleString('en-US')}c) inflow ` +
             `to ${bestInv.invoice_number} (${bestInv.customer_name}) · ${(bestConfidence / 100).toFixed(1)}% confidence.`,
@@ -374,15 +442,28 @@ export function autoReconcileBankFeed(params: {
       let bestDays = 999
 
       for (const bill of params.vendorBills) {
-        if (bill.match_status === 'disputed' || bill.match_status === 'exception_flagged') continue
+        if (
+          bill.match_status === 'disputed' ||
+          bill.match_status === 'exception_flagged' ||
+          bill.match_status === 'paid'
+        ) {
+          continue
+        }
         if (usedBillIds.has(bill.id)) continue
         if (bill.total_cents !== tx.amount_cents) continue
 
         const billDate = (bill.due_date || bill.created_at || tx.posted_date).slice(0, 10)
         const daysDelta = diffUtcDays(tx.posted_date, billDate)
         const nameOverlap = hasCounterpartyOverlap(tx.merchant_name, bill.vendor_name)
-        const confidence =
-          nameOverlap || daysDelta <= 3 ? 10000 : daysDelta <= 14 ? 9200 : 8500
+        const confidence = nameOverlap
+          ? daysDelta <= 3
+            ? 10000
+            : 9400
+          : daysDelta <= 3
+            ? 9000
+            : daysDelta <= 14
+              ? 8500
+              : 7500
 
         if (confidence > bestConfidence || (confidence === bestConfidence && daysDelta < bestDays)) {
           bestBill = bill
@@ -407,6 +488,8 @@ export function autoReconcileBankFeed(params: {
           matched_record_id: bestBill.id,
           match_confidence_bps: bestConfidence,
           status: 'auto_matched',
+          external_tx_id: tx.external_tx_id ?? null,
+          source_fingerprint: fingerprint,
           proof_summary:
             `Matched -${formatCents(tx.amount_cents)} (${tx.amount_cents.toLocaleString('en-US')}c) outflow ` +
             `to ${bestBill.invoice_number} (${bestBill.vendor_name}) · ${(bestConfidence / 100).toFixed(1)}% confidence.`,
@@ -427,6 +510,8 @@ export function autoReconcileBankFeed(params: {
       matched_record_id: null,
       match_confidence_bps: 0,
       status: 'unmatched',
+      external_tx_id: tx.external_tx_id ?? null,
+      source_fingerprint: fingerprint,
       proof_summary: `No exact ${formatCents(tx.amount_cents)} open AR invoice or clean AP vendor bill match found.`,
     }
   })

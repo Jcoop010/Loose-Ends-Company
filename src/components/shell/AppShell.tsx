@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   BookOpenCheck,
   Boxes,
@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Plus,
   Radar,
   ReceiptText,
   Settings2,
@@ -16,9 +17,10 @@ import {
   SlidersHorizontal,
   Users,
 } from 'lucide-react'
-import { normalizeModulesEnabled } from '../../lib/autonomousOs'
+import { normalizeModulesEnabled, type WorkspaceEntityType } from '../../lib/autonomousOs'
 import { useAppRouter, type DashboardSection } from '../../state/RouterContext'
 import { useSession } from '../../state/SessionContext'
+import { Dialog } from '../ui/Dialog'
 import { Badge } from '../ui/MetricCard'
 import { useToast } from '../ui/Toast'
 import { GlobalSearch } from './GlobalSearch'
@@ -96,13 +98,51 @@ export function AppShell({
     activeEntityId,
     activeEntity,
     role,
+    isAdminOrOwner,
     settings,
     hasActiveSubscription,
     switchWorkspace,
     switchEntity,
+    createEntity,
     signOut,
   } = useSession()
   const toast = useToast()
+
+  const [entityModalOpen, setEntityModalOpen] = useState(false)
+  const [newEntityName, setNewEntityName] = useState('')
+  const [newEntityType, setNewEntityType] = useState<WorkspaceEntityType>('llc')
+  const [newEntityEin, setNewEntityEin] = useState('')
+  const [creatingEntity, setCreatingEntity] = useState(false)
+  const [entityFormError, setEntityFormError] = useState<string | null>(null)
+
+  const handleCreateEntity = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (creatingEntity) return
+    setEntityFormError(null)
+    const trimmedEin = newEntityEin.trim()
+    if (trimmedEin.length > 0 && !/^\d{4}$/.test(trimmedEin)) {
+      setEntityFormError('EIN last 4 digits must be exact 4 numeric digits, or leave blank until verified.')
+      return
+    }
+    setCreatingEntity(true)
+    try {
+      const created = await createEntity({
+        legalName: newEntityName,
+        entityType: newEntityType,
+        einLast4: trimmedEin || null,
+        isPrimary: entities.length === 0,
+      })
+      toast.success('Legal Entity Added', `${created.legal_name} is now active in the Entity Switcher.`)
+      setNewEntityName('')
+      setNewEntityEin('')
+      setNewEntityType('llc')
+      setEntityModalOpen(false)
+    } catch (err) {
+      setEntityFormError(err instanceof Error ? err.message : 'Unable to create legal entity.')
+    } finally {
+      setCreatingEntity(false)
+    }
+  }
 
   const modules = normalizeModulesEnabled(settings?.modules_enabled)
   const activeNavTitle = ALL_SECTION_TITLES[section] ?? 'Command Center'
@@ -411,18 +451,27 @@ export function AppShell({
                   <option value="consolidated" className="bg-[#0e1726] text-slate-100">
                     Consolidated View
                   </option>
-                  {entities.length > 0 ? (
-                    entities.map(ent => (
-                      <option key={ent.id} value={ent.id} className="bg-[#0e1726] text-slate-100">
-                        {ent.legal_name} (···{ent.ein_last4})
-                      </option>
-                    ))
-                  ) : (
-                    <option value="primary" className="bg-[#0e1726] text-slate-100">
-                      {workspace?.name ?? 'Primary'} LLC (Primary)
+                  {entities.map(ent => (
+                    <option key={ent.id} value={ent.id} className="bg-[#0e1726] text-slate-100">
+                      {ent.legal_name}
+                      {ent.ein_last4 ? ` (···${ent.ein_last4})` : ' (EIN Unverified)'}
                     </option>
-                  )}
+                  ))}
                 </select>
+                {isAdminOrOwner ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEntityFormError(null)
+                      setEntityModalOpen(true)
+                    }}
+                    aria-label="Add legal entity"
+                    className="ml-1 inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-[#131f33] px-2 py-0.5 text-[11px] font-semibold text-[#fdba74] hover:border-[#fb923c]/50"
+                  >
+                    <Plus className="h-3 w-3" aria-hidden="true" />
+                    Entity
+                  </button>
+                ) : null}
               </div>
               <GlobalSearch workspaceId={workspace?.id} />
               <button
@@ -551,6 +600,89 @@ export function AppShell({
           })}
         </div>
       </nav>
+
+      <Dialog
+        open={entityModalOpen}
+        onClose={() => setEntityModalOpen(false)}
+        title="Add Legal Entity"
+        description="Register a verified workspace legal entity for isolated AP/bank feeds and consolidated reporting. Leave EIN last 4 blank until verified."
+      >
+        <form onSubmit={e => void handleCreateEntity(e)} className="space-y-4">
+          {entityFormError ? (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              {entityFormError}
+            </div>
+          ) : null}
+
+          <div className="space-y-1.5">
+            <label htmlFor="new-entity-legal-name" className="block text-xs font-semibold text-slate-200">
+              Legal Entity Name
+            </label>
+            <input
+              id="new-entity-legal-name"
+              type="text"
+              required
+              minLength={2}
+              value={newEntityName}
+              onChange={e => setNewEntityName(e.target.value)}
+              placeholder="e.g., Mid-Ohio Mechanical LLC"
+              className="w-full rounded-xl border border-slate-700 bg-[#0b1320] px-3 py-2 text-sm text-white placeholder:text-slate-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="new-entity-type" className="block text-xs font-semibold text-slate-200">
+                Entity Structure
+              </label>
+              <select
+                id="new-entity-type"
+                value={newEntityType}
+                onChange={e => setNewEntityType(e.target.value as WorkspaceEntityType)}
+                className="w-full rounded-xl border border-slate-700 bg-[#0b1320] px-3 py-2 text-sm text-white"
+              >
+                <option value="llc">LLC</option>
+                <option value="scorp">S-Corp</option>
+                <option value="ccorp">C-Corp</option>
+                <option value="sole_prop">Sole Proprietorship</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="new-entity-ein-last4" className="block text-xs font-semibold text-slate-200">
+                EIN Last 4 Digits (Optional)
+              </label>
+              <input
+                id="new-entity-ein-last4"
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                value={newEntityEin}
+                onChange={e => setNewEntityEin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Blank until verified"
+                className="w-full rounded-xl border border-slate-700 bg-[#0b1320] px-3 py-2 font-mono text-sm text-white placeholder:text-slate-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setEntityModalOpen(false)}
+              className="exec-btn-secondary !px-3.5 !py-2 !text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={creatingEntity || newEntityName.trim().length < 2}
+              className="exec-btn-primary !px-4 !py-2 !text-xs disabled:opacity-50"
+            >
+              {creatingEntity ? 'Saving Entity…' : 'Save Legal Entity'}
+            </button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   )
 }

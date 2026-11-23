@@ -28,11 +28,23 @@ const json = (body: unknown, status = 200, origin = CANONICAL_ORIGIN) =>
     headers: { ...corsHeaders(origin), "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
-async function stripePost(path: string, params: Record<string, string>, secret: string) {
+async function stripePost(
+  path: string,
+  params: Record<string, string>,
+  secret: string,
+  idempotencyKey?: string,
+) {
   const body = new URLSearchParams(params);
+  const headers: Record<string, string> = {
+    Authorization: "Bearer " + secret,
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
   const response = await fetch("https://api.stripe.com/v1/" + path, {
     method: "POST",
-    headers: { Authorization: "Bearer " + secret, "Content-Type": "application/x-www-form-urlencoded" },
+    headers,
     body,
     signal: AbortSignal.timeout(12000),
   });
@@ -54,7 +66,7 @@ Deno.serve(async (req: Request) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
     const prices: Record<string, string> = {
-      revenue_recovery: "price_1URCPvIS04s94hSMFJ9azsC8",
+      revenue_recovery: Deno.env.get("STRIPE_PRICE_ID_REVENUE_RECOVERY") || "price_1URCPvIS04s94hSMFJ9azsC8",
     };
     if (!supabaseUrl || !anonKey || !serviceKey || !stripeSecret) {
       return json({ error: "Billing is not configured yet. Please contact the administrator." }, 503, origin);
@@ -112,7 +124,10 @@ Deno.serve(async (req: Request) => {
       delete params.customer_email;
       params.customer = subRow.provider_customer_id;
     }
-    const session = await stripePost("checkout/sessions", params, stripeSecret);
+    const idempotencyKey =
+      req.headers.get("X-Idempotency-Key")?.trim() ||
+      `chk_${workspaceId}_${user.id}_${Math.floor(Date.now() / 60_000)}`;
+    const session = await stripePost("checkout/sessions", params, stripeSecret, idempotencyKey);
     if (!session?.url) throw new Error("Stripe did not return a Checkout URL");
     const hosted = new URL(session.url);
     if (hosted.protocol !== "https:" || hosted.hostname !== "checkout.stripe.com") throw new Error("Unexpected Stripe hosted URL");

@@ -475,7 +475,7 @@ export function LandingPage(): React.ReactElement {
                     'Branded Client /portal/[token] e-sign + payment handoff',
                     'Manual, 1-Tap Approve & Full Auto dial with 1-Click Undo',
                     'Consent-Gated Outbound Drafts + Full Audit Trail',
-                    'QuickBooks Online Sync + Stripe Verified Collections Ledger',
+                    'QuickBooks & Zoho CSV Shadow Audit + Stripe Collections Ledger',
                   ].map(feature => (
                     <li key={feature} className="flex items-start gap-2.5">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />

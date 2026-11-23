@@ -1,15 +1,33 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const ALLOWED_ORIGINS = new Set([
+  "https://looseendsos.app",
+  "https://www.looseendsos.app",
+  "https://loose-ends-os.vercel.app",
+]);
 
-function respond(status: number, data: unknown): Response {
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://looseendsos.app";
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    Vary: "Origin",
+  };
+}
+
+function respond(status: number, data: unknown, req?: Request): Response {
+  const headers = req
+    ? getCorsHeaders(req)
+    : {
+        "Access-Control-Allow-Origin": "https://looseendsos.app",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+      };
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
   });
 }
 
@@ -205,22 +223,22 @@ function deterministicParseDocument(rawText: string): ParsedDocumentStructuredOu
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return new Response(null, { status: 204, headers: getCorsHeaders(req) });
   }
   if (req.method !== "POST") {
-    return respond(405, { error: "Method not allowed" });
+    return respond(405, { error: "Method not allowed" }, req);
   }
 
   try {
     const token = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
     if (!token) {
-      return respond(401, { error: "Authentication required" });
+      return respond(401, { error: "Authentication required" }, req);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     if (!supabaseUrl || !supabaseAnonKey) {
-      return respond(503, { error: "Supabase environment not configured" });
+      return respond(503, { error: "Supabase environment not configured" }, req);
     }
 
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -230,12 +248,12 @@ Deno.serve(async (req: Request) => {
 
     const { data: authData, error: authError } = await userClient.auth.getUser(token);
     if (authError || !authData?.user) {
-      return respond(401, { error: "Invalid user session" });
+      return respond(401, { error: "Invalid user session" }, req);
     }
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || typeof body.workspace_id !== "string" || typeof body.action !== "string") {
-      return respond(400, { error: "workspace_id and action are required" });
+      return respond(400, { error: "workspace_id and action are required" }, req);
     }
 
     const workspaceId = body.workspace_id.trim();
@@ -256,7 +274,11 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (!membership) {
-      return respond(403, { error: "Workspace membership required" });
+      return respond(403, { error: "Workspace membership required" }, req);
+    }
+    const memberRole = String((membership as { role?: string }).role ?? "");
+    if (!["owner", "admin"].includes(memberRole)) {
+      return respond(403, { error: "Owner or admin role required for Autonomous Bot Router" }, req);
     }
 
     // Load read-only SOP manual for this bot role
@@ -286,7 +308,13 @@ Deno.serve(async (req: Request) => {
         typeof body.image_base64 === "string" ? body.image_base64.trim() : "";
 
       if (!documentText && !imageBase64) {
-        return respond(400, { error: "document_text or image_base64 is required" });
+        return respond(400, { error: "document_text or image_base64 is required" }, req);
+      }
+      if (documentText.length > 64_000) {
+        return respond(413, { error: "document_text exceeds 64 KB limit" }, req);
+      }
+      if (imageBase64.length > 7_000_000) {
+        return respond(413, { error: "image_base64 exceeds 5 MB limit" }, req);
       }
 
       let parsed: ParsedDocumentStructuredOutput | null = null;
@@ -353,19 +381,26 @@ Deno.serve(async (req: Request) => {
       }
 
       if (!parsed) {
+        if (!documentText) {
+          return respond(502, {
+            error:
+              "Image OCR requires XAI_API_KEY and vision extraction. Upload text/CSV/PDF with selectable text or enter receipt details manually.",
+          }, req);
+        }
         runStatus = "fallback_deterministic";
-        parsed = deterministicParseDocument(
-          documentText || "Uploaded Receipt Image $249.00"
-        );
+        parsed = deterministicParseDocument(documentText);
       }
+
+      const boundedTotalCents = Math.max(0, Math.trunc(parsed.total_cents));
 
       // Deterministic TypeScript arithmetic recomputation & discrepancy guard
       const computedSubtotalCents = parsed.line_items.reduce(
-        (sum, item) => sum + Math.round(item.quantity * item.unit_price_cents),
+        (sum, item) => sum + Math.round(Math.max(1, item.quantity) * Math.max(0, item.unit_price_cents)),
         0
       );
-      const computedTotalCents = computedSubtotalCents + parsed.tax_cents;
-      const arithmeticDeltaCents = parsed.total_cents - computedTotalCents;
+      const boundedTaxCents = Math.max(0, Math.trunc(parsed.tax_cents));
+      const computedTotalCents = computedSubtotalCents + boundedTaxCents;
+      const arithmeticDeltaCents = boundedTotalCents - computedTotalCents;
       const hasDiscrepancy = Math.abs(arithmeticDeltaCents) > 1;
 
       const finalEntryType = hasDiscrepancy
@@ -374,15 +409,49 @@ Deno.serve(async (req: Request) => {
 
       const reasoningParts = [
         `Invoice ${parsed.invoice_number} (${parsed.invoice_date})`,
-        `Recomputed subtotal: $${(computedSubtotalCents / 100).toFixed(2)} + tax $${(parsed.tax_cents / 100).toFixed(2)} = $${(computedTotalCents / 100).toFixed(2)}`,
+        `Recomputed subtotal: $${(computedSubtotalCents / 100).toFixed(2)} + tax $${(boundedTaxCents / 100).toFixed(2)} = $${(computedTotalCents / 100).toFixed(2)}`,
       ];
       if (hasDiscrepancy) {
         reasoningParts.push(
-          `ARITHMETIC MISMATCH FLAGGED: Document stated $${(parsed.total_cents / 100).toFixed(2)} (delta ${arithmeticDeltaCents} cents).`
+          `ARITHMETIC MISMATCH FLAGGED: Document stated $${(boundedTotalCents / 100).toFixed(2)} (delta ${arithmeticDeltaCents} cents).`
         );
       }
       if (parsed.discrepancy_notes) {
         reasoningParts.push(parsed.discrepancy_notes);
+      }
+
+      if (botMode === "observe") {
+        const { data: observeRunRow } = await userClient
+          .from("bot_runs")
+          .insert({
+            workspace_id: workspaceId,
+            bot_role: botRole,
+            model: xaiModel,
+            mode: "observe",
+            status: runStatus,
+            input_summary: `parse_document (observe): ${parsed.vendor_name} (${parsed.invoice_number})`,
+            output_json: {
+              parsed: { ...parsed, total_cents: boundedTotalCents, tax_cents: boundedTaxCents },
+              computed_subtotal_cents: computedSubtotalCents,
+              computed_total_cents: computedTotalCents,
+              has_discrepancy: hasDiscrepancy,
+              observe_only: true,
+              staged: false,
+            },
+          })
+          .select("*")
+          .single();
+
+        return respond(200, {
+          mode: "observe",
+          staged: false,
+          staged_entry: null,
+          bot_run: observeRunRow,
+          parsed: { ...parsed, total_cents: boundedTotalCents, tax_cents: boundedTaxCents },
+          computed_subtotal_cents: computedSubtotalCents,
+          computed_total_cents: computedTotalCents,
+          has_discrepancy: hasDiscrepancy,
+        }, req);
       }
 
       const { data: stagedRow, error: stageErr } = await userClient
@@ -392,7 +461,7 @@ Deno.serve(async (req: Request) => {
           bot_role: botRole,
           entry_type: finalEntryType,
           vendor_name: parsed.vendor_name,
-          amount_cents: parsed.total_cents,
+          amount_cents: boundedTotalCents,
           currency: "USD",
           line_items: parsed.line_items,
           reasoning_summary: reasoningParts.join(" · "),
@@ -403,7 +472,7 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (stageErr) {
-        return respond(400, { error: stageErr.message });
+        return respond(400, { error: stageErr.message }, req);
       }
 
       const { data: runRow } = await userClient
@@ -416,7 +485,7 @@ Deno.serve(async (req: Request) => {
           status: runStatus,
           input_summary: `parse_document: ${parsed.vendor_name} (${parsed.invoice_number})`,
           output_json: {
-            parsed,
+            parsed: { ...parsed, total_cents: boundedTotalCents, tax_cents: boundedTaxCents },
             computed_subtotal_cents: computedSubtotalCents,
             computed_total_cents: computedTotalCents,
             has_discrepancy: hasDiscrepancy,
@@ -432,7 +501,7 @@ Deno.serve(async (req: Request) => {
         computed_subtotal_cents: computedSubtotalCents,
         computed_total_cents: computedTotalCents,
         has_discrepancy: hasDiscrepancy,
-      });
+      }, req);
     }
 
     // =========================================================================
@@ -604,13 +673,13 @@ Deno.serve(async (req: Request) => {
         executive_summary: auditOutput.executive_summary,
         staged_entries: insertedEntries,
         bot_run: runRow,
-      });
+      }, req);
     }
 
-    return respond(400, { error: `Unsupported action: ${action}` });
+    return respond(400, { error: `Unsupported action: ${action}` }, req);
   } catch (err) {
     return respond(400, {
       error: err instanceof Error ? err.message : "Grok bot router error",
-    });
+    }, req);
   }
 });

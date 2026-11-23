@@ -9,7 +9,8 @@ import React, {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { signOutUser } from '../lib/auth'
-import type { WorkspaceEntityRecord } from '../lib/autonomousOs/types'
+import { createWorkspaceEntity as createWorkspaceEntityInDb } from '../lib/autonomousOs/release5Queries'
+import type { WorkspaceEntityRecord, WorkspaceEntityType } from '../lib/autonomousOs/types'
 import { bootstrapWorkspace } from '../lib/edgeFunctions'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import type {
@@ -63,6 +64,12 @@ export interface SessionContextValue {
   error: string | null
   switchWorkspace: (workspaceId: string) => Promise<void>
   switchEntity: (entityId: ActiveEntityScope) => void
+  createEntity: (params: {
+    legalName: string
+    einLast4?: string | null
+    entityType: WorkspaceEntityType
+    isPrimary?: boolean
+  }) => Promise<WorkspaceEntityRecord>
   refreshWorkspaceContext: () => Promise<void>
   clearPasswordRecovery: () => void
   signOut: () => Promise<void>
@@ -86,7 +93,7 @@ async function fetchWorkspaceEntitiesSafe(
   try {
     const res = await supabase
       .from('workspace_entities')
-      .select('id,workspace_id,legal_name,ein_last4,entity_type,is_primary,created_at')
+      .select('id,workspace_id,legal_name,ein_last4,ein_verified,identity_status,entity_type,is_primary,created_at')
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: true })
     if (res?.error || !Array.isArray(res?.data)) return []
@@ -317,6 +324,35 @@ export function SessionProvider({
     setActiveEntityId(entityId)
   }, [])
 
+  const createEntity = useCallback(
+    async (params: {
+      legalName: string
+      einLast4?: string | null
+      entityType: WorkspaceEntityType
+      isPrimary?: boolean
+    }): Promise<WorkspaceEntityRecord> => {
+      if (!bundle.activeWorkspace) {
+        throw new Error('Select or create a workspace before adding a legal entity.')
+      }
+      const created = await createWorkspaceEntityInDb({
+        workspaceId: bundle.activeWorkspace.id,
+        legalName: params.legalName,
+        einLast4: params.einLast4 ?? null,
+        entityType: params.entityType,
+        isPrimary: params.isPrimary,
+      })
+      setBundle(prev => ({
+        ...prev,
+        entities: [...prev.entities, created].sort(
+          (a, b) => Number(b.is_primary) - Number(a.is_primary),
+        ),
+      }))
+      setActiveEntityId(created.id)
+      return created
+    },
+    [bundle.activeWorkspace],
+  )
+
   const refreshWorkspaceContext = useCallback(async () => {
     if (!user) return
     await hydrateForUser(user, preferredWorkspaceIdRef.current)
@@ -365,6 +401,7 @@ export function SessionProvider({
       error,
       switchWorkspace,
       switchEntity,
+      createEntity,
       refreshWorkspaceContext,
       clearPasswordRecovery,
       signOut,
@@ -382,6 +419,7 @@ export function SessionProvider({
       error,
       switchWorkspace,
       switchEntity,
+      createEntity,
       refreshWorkspaceContext,
       clearPasswordRecovery,
       signOut,
