@@ -8,8 +8,15 @@ import {
   FileSpreadsheet,
   RefreshCw,
   ShieldAlert,
+  Sparkles,
   Wrench,
 } from 'lucide-react'
+import {
+  compileOwnerMorningBrief,
+  formatCents as formatExactCents,
+  type OwnerMorningBrief,
+} from '../../../lib/autonomousOs'
+import * as release4bQueries from '../../../lib/autonomousOs/release4bQueries'
 import { formatCurrency } from '../../../lib/format'
 import {
   fetchOpsCoordinationSummary,
@@ -56,11 +63,12 @@ interface CommandCenterSnapshot {
   followUps: FollowUp[]
   tasks: Task[]
   expenses: OpsExpense[]
+  morningBrief: OwnerMorningBrief | null
 }
 
 export function CommandCenterPage(): React.ReactElement {
   const { workspace, settings } = useSession()
-  const { navigateSection } = useAppRouter()
+  const { navigateSection, navigate } = useAppRouter()
 
   const [snapshot, setSnapshot] = useState<CommandCenterSnapshot | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
@@ -98,6 +106,7 @@ export function CommandCenterPage(): React.ReactElement {
           followUps,
           tasks,
           expenses,
+          briefInputs,
         ] = await Promise.all([
           fetchOpsSummary(workspaceId),
           fetchOpsCoordinationSummary(workspaceId),
@@ -121,6 +130,7 @@ export function CommandCenterPage(): React.ReactElement {
           fetchAllWorkspaceRows<FollowUp>({ table: 'follow_ups', workspaceId, shouldAbort }),
           fetchAllWorkspaceRows<Task>({ table: 'tasks', workspaceId, shouldAbort }),
           fetchAllWorkspaceRows<OpsExpense>({ table: 'ops_expenses', workspaceId, shouldAbort }),
+          release4bQueries.fetchMorningBriefInputs(workspaceId).catch(() => null),
         ])
 
         if (shouldAbort()) return
@@ -138,6 +148,17 @@ export function CommandCenterPage(): React.ReactElement {
           return
         }
 
+        const morningBrief = briefInputs
+          ? compileOwnerMorningBrief({
+              workspaceName: workspace?.name ?? 'Workspace',
+              ledgerEntries: briefInputs.ledgerEntries,
+              invoices: briefInputs.invoices,
+              vendorBills: briefInputs.vendorBills,
+              fraudAlerts: briefInputs.fraudAlerts,
+              collectionTouches: briefInputs.collectionTouches,
+            })
+          : null
+
         setSnapshot({
           summary,
           coordination,
@@ -151,6 +172,7 @@ export function CommandCenterPage(): React.ReactElement {
           followUps,
           tasks,
           expenses,
+          morningBrief,
         })
         setRefreshToken(prev => prev + 1)
       } catch (err) {
@@ -342,6 +364,86 @@ export function CommandCenterPage(): React.ReactElement {
 
       {snapshot ? (
         <>
+          {/* Pinned 60-Second Owner Morning Brief */}
+          {snapshot.morningBrief ? (
+            <section
+              aria-label="60-Second Owner Morning Brief"
+              className="exec-surface border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-3 text-slate-100"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                  <h2 className="text-sm font-bold text-white">60-Second Owner Morning Brief</h2>
+                  <Badge
+                    tone={snapshot.morningBrief.runway_status === 'healthy' ? 'emerald' : 'rose'}
+                  >
+                    {snapshot.morningBrief.runway_status === 'healthy'
+                      ? '90d Runway Healthy'
+                      : '90d Runway Below Floor'}
+                  </Badge>
+                </div>
+                <span className="text-xs text-slate-400">
+                  As of {snapshot.morningBrief.as_of_date}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs tabular-nums">
+                <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">Cash Position</p>
+                  <p className="mt-1 text-lg font-extrabold text-white">
+                    {formatExactCents(snapshot.morningBrief.cash_position_cents)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                    Collected Yesterday
+                  </p>
+                  <p className="mt-1 text-lg font-extrabold text-emerald-300">
+                    {formatExactCents(snapshot.morningBrief.collected_yesterday_cents)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                    1-Click Approvals
+                  </p>
+                  <p className="mt-1 text-lg font-extrabold text-[#fb923c]">
+                    {snapshot.morningBrief.pending_approval_count} (
+                    {formatExactCents(snapshot.morningBrief.pending_approval_total_cents)})
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-3">
+                  <p className="text-[10px] font-semibold uppercase text-slate-400">
+                    90d Runway Low
+                  </p>
+                  <p className="mt-1 text-lg font-extrabold text-white">
+                    {formatExactCents(snapshot.morningBrief.runway_90d_lowest_cents)}
+                  </p>
+                </div>
+              </div>
+
+              {snapshot.morningBrief.approval_items.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {snapshot.morningBrief.approval_items.slice(0, 4).map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => navigate(item.route)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-[#131f33] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-[#fb923c] hover:text-white transition"
+                    >
+                      <span>{item.title}</span>
+                      <span className="font-mono text-[#fdba74] tabular-nums">
+                        {formatExactCents(item.amount_cents)}
+                      </span>
+                      <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">{snapshot.morningBrief.executive_summary}</p>
+              )}
+            </section>
+          ) : null}
+
           {/* 6 Executive KPI Cards (`ops_summary`) */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <MetricCard

@@ -7,23 +7,34 @@ import {
   FileCheck2,
   Plus,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
+  ShieldCheck,
   TrendingUp,
 } from 'lucide-react'
 import { formatCents } from '../../../lib/format'
 import * as release2Queries from '../../../lib/autonomousOs/release2Queries'
+import * as autonomousQueries from '../../../lib/autonomousOs/queries'
+import * as release4bQueries from '../../../lib/autonomousOs/release4bQueries'
 import {
   compileCpaAuditPacket,
+  compileFullBusinessPortabilityBundle,
   computeBookkeepingKpis,
   formatCents as formatExactCents,
+  FRAUD_ALERT_STATUS_LABELS,
+  FRAUD_ALERT_TYPE_LABELS,
   serializeCpaPacketToCsv,
   serializeCpaPacketToJson,
+  serializePortabilityBundleToCsv,
+  serializePortabilityBundleToJson,
   simulateCashflow90Day,
+  type AgentActionLedgerEntry,
   type AutonomousInvoice,
   type CpaAuditPacket,
   type LedgerEntryRecord,
   type LedgerEntryType,
   type VendorBillRecord,
+  type VendorFraudAlertRecord,
 } from '../../../lib/autonomousOs'
 import { useSession } from '../../../state/SessionContext'
 import { Dialog } from '../../../components/ui/Dialog'
@@ -41,6 +52,12 @@ export function BookkeepingApPage(): React.ReactElement {
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntryRecord[]>([])
   const [openInvoices, setOpenInvoices] = useState<AutonomousInvoice[]>([])
   const [allInvoices, setAllInvoices] = useState<AutonomousInvoice[]>([])
+  const [fraudAlerts, setFraudAlerts] = useState<VendorFraudAlertRecord[]>([])
+  const [scanningFraud, setScanningFraud] = useState(false)
+  const [busyFraudId, setBusyFraudId] = useState<string | null>(null)
+  const [latestFraudLedger, setLatestFraudLedger] = useState<AgentActionLedgerEntry | null>(null)
+  const [undoingFraud, setUndoingFraud] = useState(false)
+  const [exportingPortability, setExportingPortability] = useState(false)
   const [cpaPacketOpen, setCpaPacketOpen] = useState(false)
   const [cpaPacket, setCpaPacket] = useState<CpaAuditPacket | null>(null)
   const [startingBalanceDollars, setStartingBalanceDollars] = useState('25000')
@@ -63,11 +80,15 @@ export function BookkeepingApPage(): React.ReactElement {
         setLoading(true)
       }
       try {
-        const res = await release2Queries.fetchBookkeepingData(workspaceId)
+        const [res, alerts] = await Promise.all([
+          release2Queries.fetchBookkeepingData(workspaceId),
+          release4bQueries.fetchVendorFraudAlerts(workspaceId).catch(() => []),
+        ])
         setVendorBills(res.vendorBills)
         setLedgerEntries(res.ledgerEntries)
         setOpenInvoices(res.openInvoices)
         setAllInvoices(res.allInvoices)
+        setFraudAlerts(alerts)
       } catch (err) {
         toast.error(
           'Unable to load Bookkeeping & AP',
@@ -181,18 +202,120 @@ export function BookkeepingApPage(): React.ReactElement {
     setCpaPacketOpen(true)
   }
 
-  const triggerDownload = (content: string, mimeType: string, extension: 'csv' | 'json') => {
-    if (!cpaPacket || typeof document === 'undefined') return
+  const triggerDownload = (content: string, mimeType: string, extension: 'csv' | 'json', prefix = 'cpa_audit_packet') => {
+    if (typeof document === 'undefined') return
+    const dateTag = cpaPacket?.as_of_date ?? new Date().toISOString().slice(0, 10)
     const blob = new Blob([content], { type: mimeType })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `cpa_audit_packet_${cpaPacket.as_of_date}.${extension}`
+    anchor.download = `${prefix}_${dateTag}.${extension}`
     document.body.appendChild(anchor)
     anchor.click()
     document.body.removeChild(anchor)
     URL.revokeObjectURL(url)
-    toast.success(`CPA Packet downloaded (${extension.toUpperCase()})`, cpaPacket.proof_summary)
+  }
+
+  const handleFullPortabilityExport = async (format: 'json' | 'csv') => {
+    if (!workspaceId || exportingPortability) return
+    setExportingPortability(true)
+    try {
+      const extra = await release4bQueries.fetchFullPortabilityExportInputs(workspaceId)
+      const bundle = compileFullBusinessPortabilityBundle({
+        workspaceName: workspace?.name ?? 'Workspace',
+        ledgerEntries,
+        invoices: allInvoices,
+        vendorBills,
+        quotes: extra.quotes,
+        complianceItems: extra.complianceItems,
+        livingSops: extra.livingSops,
+        executableSops: extra.executableSops,
+        vendorFraudAlerts: fraudAlerts,
+        collectionTouches: extra.collectionTouches,
+      })
+      const payload =
+        format === 'json'
+          ? serializePortabilityBundleToJson(bundle)
+          : serializePortabilityBundleToCsv(bundle)
+      triggerDownload(
+        payload,
+        format === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8',
+        format,
+        'loose_ends_full_portability',
+      )
+      toast.success(
+        `Full Business Portability Export (${format.toUpperCase()})`,
+        `${bundle.record_counts.invoices} invoices · ${bundle.record_counts.ledger_entries} ledger rows · zero lock-in.`,
+      )
+    } catch (err) {
+      toast.error('Portability export failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setExportingPortability(false)
+    }
+  }
+
+  const handleScanFraud = async () => {
+    if (!workspaceId || scanningFraud) return
+    setScanningFraud(true)
+    try {
+      const alerts = await release4bQueries.persistVendorFraudScanInDb({
+        workspaceId,
+        vendorBills,
+      })
+      setFraudAlerts(alerts)
+      const frozen = alerts.filter(a => a.status === 'frozen')
+      toast.success(
+        'Vendor Fraud Shield Scan Complete',
+        `${frozen.length} bill(s) currently frozen pending owner verification.`,
+      )
+    } catch (err) {
+      toast.error('Fraud scan failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setScanningFraud(false)
+    }
+  }
+
+  const handleResolveFraudAlert = async (
+    alert: VendorFraudAlertRecord,
+    nextStatus: 'approved_override' | 'dismissed',
+  ) => {
+    if (!workspaceId || busyFraudId) return
+    setBusyFraudId(alert.id)
+    try {
+      const res = await release4bQueries.resolveVendorFraudAlertInDb({
+        workspaceId,
+        alert,
+        nextStatus,
+      })
+      setFraudAlerts(prev => prev.map(a => (a.id === alert.id ? res.alert : a)))
+      setLatestFraudLedger(res.ledgerEntry)
+      toast.info(
+        nextStatus === 'approved_override' ? 'Override approved' : 'Fraud alert dismissed',
+        `${alert.vendor_name} · Undo available in 1 click.`,
+      )
+    } catch (err) {
+      toast.error('Fraud update failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setBusyFraudId(null)
+    }
+  }
+
+  const handleUndoFraudOverride = async () => {
+    if (!workspaceId || !latestFraudLedger || undoingFraud) return
+    setUndoingFraud(true)
+    try {
+      const reversed = await autonomousQueries.reverseLedgerEntryInDb({
+        workspaceId,
+        entry: latestFraudLedger,
+      })
+      setLatestFraudLedger(reversed)
+      await loadData(true)
+      toast.info('1-Click Undo completed', 'Vendor fraud alert restored to frozen state.')
+    } catch (err) {
+      toast.error('Undo failed', err instanceof Error ? err.message : 'Retry 1-Click Undo.')
+    } finally {
+      setUndoingFraud(false)
+    }
   }
 
   if (!workspaceId) return <div />
@@ -219,6 +342,24 @@ export function BookkeepingApPage(): React.ReactElement {
           </button>
           <button
             type="button"
+            disabled={loading || exportingPortability}
+            onClick={() => void handleFullPortabilityExport('json')}
+            className="exec-btn-secondary !px-3 !py-2 !text-xs touch-target"
+          >
+            <Download className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+            Full Portability (JSON)
+          </button>
+          <button
+            type="button"
+            disabled={loading || exportingPortability}
+            onClick={() => void handleFullPortabilityExport('csv')}
+            className="exec-btn-secondary !px-3 !py-2 !text-xs touch-target"
+          >
+            <Download className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+            Full Portability (CSV)
+          </button>
+          <button
+            type="button"
             disabled={refreshing}
             onClick={() => void loadData(true)}
             className="exec-btn-secondary !px-3.5 !py-2 !text-xs touch-target"
@@ -228,6 +369,108 @@ export function BookkeepingApPage(): React.ReactElement {
           </button>
         </div>
       </div>
+
+      {/* Vendor Fraud Shield Queue */}
+      <section className="exec-surface border border-slate-800 bg-[#0b1320] p-5 sm:p-6 space-y-4 text-slate-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-rose-400" aria-hidden="true" />
+              <h3 className="text-base font-bold text-white">
+                Vendor Fraud Shield (Auto-Freeze &gt;10% Price Spikes / Duplicates / Remit Changes)
+              </h3>
+              <Badge tone={fraudAlerts.some(a => a.status === 'frozen') ? 'rose' : 'emerald'}>
+                {fraudAlerts.filter(a => a.status === 'frozen').length} Frozen
+              </Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Automatically holds suspicious vendor bills in AP until you verify Proof Cards or approve a reversible override.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {latestFraudLedger && latestFraudLedger.status === 'executed' ? (
+              <button
+                type="button"
+                disabled={undoingFraud}
+                onClick={() => void handleUndoFraudOverride()}
+                className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                {undoingFraud ? 'Reversing…' : '1-Click Undo Override'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={scanningFraud || loading}
+              onClick={() => void handleScanFraud()}
+              className="exec-btn-primary !px-3.5 !py-2 !text-xs"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              {scanningFraud ? 'Scanning Bills…' : 'Scan Bills for Fraud'}
+            </button>
+          </div>
+        </div>
+
+        {fraudAlerts.length === 0 ? (
+          <p className="text-xs text-slate-400">
+            No frozen vendor fraud alerts on file. Click <strong className="text-slate-200">Scan Bills for Fraud</strong> to run deterministic checks across POs and remit hints.
+          </p>
+        ) : (
+          <div className="space-y-2.5">
+            {fraudAlerts.map(alert => (
+              <div
+                key={alert.id}
+                className="rounded-xl border border-slate-800 bg-[#0e1726] p-3.5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="rose">{FRAUD_ALERT_TYPE_LABELS[alert.alert_type]}</Badge>
+                    <Badge
+                      tone={
+                        alert.status === 'frozen'
+                          ? 'amber'
+                          : alert.status === 'approved_override'
+                            ? 'emerald'
+                            : 'neutral'
+                      }
+                    >
+                      {FRAUD_ALERT_STATUS_LABELS[alert.status]}
+                    </Badge>
+                  </div>
+                  <p className="text-sm font-bold text-white">{alert.vendor_name}</p>
+                  <p className="text-xs text-slate-300">{alert.proof_summary}</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <span className="text-sm font-bold text-white tabular-nums mr-1">
+                    {formatExactCents(alert.variance_cents)}
+                  </span>
+                  {alert.status === 'frozen' ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busyFraudId === alert.id}
+                        onClick={() => void handleResolveFraudAlert(alert, 'approved_override')}
+                        className="exec-btn-emerald !px-3 !py-1.5 !text-xs"
+                      >
+                        Approve Override
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyFraudId === alert.id}
+                        onClick={() => void handleResolveFraudAlert(alert, 'dismissed')}
+                        className="exec-btn-secondary !px-3 !py-1.5 !text-xs"
+                      >
+                        Dismiss
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Top KPI Bar */}
       {loading ? (

@@ -323,6 +323,18 @@ export function ClientPortalPage({ token }: ClientPortalPageProps): React.ReactE
           </>
         ) : null}
       </main>
+
+      <footer className="mx-auto max-w-4xl px-4 pb-8 pt-2 sm:px-6 flex justify-center">
+        <a
+          href="https://www.looseendsos.app/demo"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-[#0b1320] px-3.5 py-1.5 text-xs font-semibold text-slate-200 hover:border-[#fb923c] hover:text-white transition"
+        >
+          <span className="inline-block h-2 w-2 rounded-full bg-[#fb923c]" aria-hidden="true" />
+          Powered by Loose Ends OS
+        </a>
+      </footer>
     </div>
   )
 }

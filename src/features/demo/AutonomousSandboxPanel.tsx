@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BellRing,
   CheckCircle2,
+  Cpu,
   Download,
   EyeOff,
   FileCheck2,
@@ -15,8 +16,10 @@ import {
   Radar,
   ReceiptText,
   RotateCcw,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Sun,
 } from 'lucide-react'
 import {
   AUTONOMY_ACTION_META,
@@ -24,10 +27,15 @@ import {
   COLLECTION_STATUS_LABELS,
   evaluateComplianceDeadlines,
   formatCents as formatExactCents,
+  FRAUD_ALERT_STATUS_LABELS,
+  FRAUD_ALERT_TYPE_LABELS,
   serializeCpaPacketToCsv,
   serializeCpaPacketToJson,
   SHADOW_CATEGORY_LABELS,
   SHADOW_SOURCE_LABELS,
+  SOP_ACTION_LABELS,
+  SOP_COMPILER_PRESETS,
+  SOP_TRIGGER_LABELS,
   WORKSPACE_MODULE_META,
   type AutonomyMode,
   type ShadowFindingCategory,
@@ -51,6 +59,8 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const [shadowCategoryFilter, setShadowCategoryFilter] = useState<'all' | ShadowFindingCategory>(
     'all',
   )
+  const [sopPrompt, setSopPrompt] = useState(SOP_COMPILER_PRESETS[0]?.prompt ?? '')
+  const [sopCapDollars, setSopCapDollars] = useState('2500')
 
   const quotes = demo.state.osQuotes
   const invoices = demo.state.osInvoices
@@ -66,6 +76,12 @@ export function AutonomousSandboxPanel(): React.ReactElement {
   const collectionTouches = demo.state.osCollectionTouches
   const collectionsRunLedgerId = demo.state.osCollectionsRunLedgerId
   const disputedInvoiceIds = demo.state.osDisputedInvoiceIds
+  const morningBrief = demo.ownerMorningBrief
+  const sopSimulation = demo.state.osSopSimulation
+  const sopExecutionLedgerId = demo.state.osSopExecutionLedgerId
+  const executableSops = demo.state.osExecutableSops
+  const fraudAlerts = demo.state.osVendorFraudAlerts
+  const fraudOverrideLedgerId = demo.state.osFraudOverrideLedgerId
   const visibleShadowFindings = shadowFindings.filter(item =>
     shadowCategoryFilter === 'all' ? true : item.category === shadowCategoryFilter,
   )
@@ -1107,6 +1123,333 @@ export function AutonomousSandboxPanel(): React.ReactElement {
               })}
             </div>
           ) : null}
+        </div>
+      </div>
+
+      {/* Release 4B: 60-Second Morning Brief, Operations Compiler & Vendor Fraud Shield */}
+      <div id="release-4b-sandbox" className="space-y-5">
+        {/* 60-Second Owner Morning Brief Live Strip */}
+        <div className="rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                  <Sun className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                  60-Second Owner Morning Brief
+                </span>
+                <Badge tone={morningBrief.runway_status === 'healthy' ? 'emerald' : 'amber'}>
+                  {morningBrief.runway_status === 'healthy'
+                    ? '90d Runway Healthy'
+                    : 'Buffer Alert'}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-slate-300">{morningBrief.executive_summary}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Cash Position
+              </p>
+              <p className="mt-1 text-base font-bold text-white tabular-nums">
+                {formatExactCents(morningBrief.cash_position_cents)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Collected Yesterday
+              </p>
+              <p className="mt-1 text-base font-bold text-emerald-300 tabular-nums">
+                {formatExactCents(morningBrief.collected_yesterday_cents)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                1-Click Approvals
+              </p>
+              <p className="mt-1 text-base font-bold text-[#fdba74] tabular-nums">
+                {morningBrief.pending_approval_count} ({formatExactCents(morningBrief.pending_approval_total_cents)})
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                90-Day Low Balance
+              </p>
+              <p className="mt-1 text-base font-bold text-white tabular-nums">
+                {formatExactCents(morningBrief.runway_90d_lowest_cents)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start">
+          {/* Operations Compiler */}
+          <div className="lg:col-span-6 rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                    <Cpu className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                    Operations Compiler (Plain-English AST)
+                  </span>
+                  <Badge tone="brand">
+                    {executableSops.filter(s => s.status === 'active').length} Active
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">
+                  Compile natural language into a bounded rule, dry-run Proof Cards, execute, or 1-Click Undo.
+                </p>
+              </div>
+              {sopExecutionLedgerId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    demo.undoDemoLedgerAction(sopExecutionLedgerId)
+                    toast.info('1-Click Undo SOP Run', 'Executable SOP activation reversed.')
+                  }}
+                  className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  1-Click Undo SOP Run
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {SOP_COMPILER_PRESETS.map(preset => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => {
+                    setSopPrompt(preset.prompt)
+                    setSopCapDollars(String(Math.round(preset.safety_cap_cents / 100)))
+                  }}
+                  className="rounded-lg border border-slate-700 bg-[#0e1726] px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 hover:border-[#fb923c]/50 hover:bg-[#131f33] transition"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2.5">
+              <label className="block space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  Plain-English Rule Prompt
+                </span>
+                <textarea
+                  value={sopPrompt}
+                  onChange={e => setSopPrompt(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-700 bg-[#0e1726] px-3 py-2 text-xs text-slate-100 focus:border-[#fb923c] focus:outline-none"
+                />
+              </label>
+
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <label className="space-y-1">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Safety Cap ($)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={50}
+                    value={sopCapDollars}
+                    onChange={e => setSopCapDollars(e.target.value)}
+                    className="w-28 rounded-xl border border-slate-700 bg-[#0e1726] px-2.5 py-1.5 text-xs text-slate-100 tabular-nums"
+                  />
+                </label>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const capDollars = Number(sopCapDollars)
+                      const capCents = Number.isFinite(capDollars)
+                        ? Math.max(0, Math.round(capDollars * 100))
+                        : 250000
+                      const sim = demo.compileAndSimulateDemoSop(sopPrompt, capCents)
+                      toast.info(
+                        'Compiled & Dry-Run Complete',
+                        `${sim.matched_count} match(es) · ${formatExactCents(sim.total_impact_cents)}`,
+                      )
+                    }}
+                    className="exec-btn-secondary !px-3 !py-2 !text-xs"
+                  >
+                    Compile &amp; Dry-Run
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!sopSimulation}
+                    onClick={() => {
+                      const res = demo.executeDemoCompiledSop()
+                      if (res) {
+                        toast.success(
+                          'Executable SOP Activated',
+                          `${res.sop.name} recorded in Agent Action Ledger.`,
+                        )
+                      }
+                    }}
+                    className="exec-btn-primary !px-3.5 !py-2 !text-xs disabled:opacity-45"
+                  >
+                    <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
+                    Activate &amp; Execute
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {sopSimulation ? (
+              <div className="space-y-2.5 border-t border-slate-800 pt-3">
+                <div className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3 space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone="brand">{SOP_TRIGGER_LABELS[sopSimulation.rule.trigger]}</Badge>
+                      <Badge tone="neutral">{SOP_ACTION_LABELS[sopSimulation.rule.action]}</Badge>
+                    </div>
+                    <span className="text-xs font-bold text-[#fdba74] tabular-nums">
+                      Cap: {formatExactCents(sopSimulation.rule.safety_cap_cents)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">{sopSimulation.summary}</p>
+                </div>
+
+                {sopSimulation.proof_cards.length > 0 ? (
+                  <div className="space-y-2">
+                    {sopSimulation.proof_cards.map(card => (
+                      <div
+                        key={card.record_id}
+                        className="rounded-xl border border-slate-800 bg-[#0e1726] p-3 space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white">
+                            {card.record_ref} · {card.counterparty}
+                          </span>
+                          <Badge tone={card.within_safety_cap ? 'emerald' : 'amber'}>
+                            {formatExactCents(card.impact_cents)}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-snug">{card.proof_summary}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Vendor Fraud Shield */}
+          <div className="lg:col-span-6 rounded-2xl border border-slate-800 bg-[#0b1320] p-4 sm:p-5 space-y-4 text-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-200">
+                    <ShieldAlert className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+                    Vendor Fraud Shield
+                  </span>
+                  <Badge tone={fraudAlerts.some(a => a.status === 'frozen') ? 'rose' : 'emerald'}>
+                    {fraudAlerts.filter(a => a.status === 'frozen').length} Frozen
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">
+                  Auto-freezes &gt;10% price spikes, exact-cent duplicates (&lt;=7d), and unverified remit changes.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {fraudOverrideLedgerId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      demo.undoDemoLedgerAction(fraudOverrideLedgerId)
+                      toast.info('1-Click Undo Override', 'Vendor bill alert re-frozen in AP guard.')
+                    }}
+                    className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                    1-Click Undo Override
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const alerts = demo.runDemoVendorFraudScan()
+                    toast.info(
+                      'Vendor Fraud Shield Scan',
+                      `${alerts.length} exception alert(s) auto-frozen before AP payout.`,
+                    )
+                  }}
+                  className="exec-btn-primary !px-3.5 !py-2 !text-xs"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                  Run Vendor Fraud Shield
+                </button>
+              </div>
+            </div>
+
+            {fraudAlerts.length > 0 ? (
+              <div className="space-y-2.5 border-t border-slate-800 pt-3">
+                {fraudAlerts.map(alert => (
+                  <div
+                    key={alert.id}
+                    className="rounded-xl border border-slate-800 bg-[#131f33]/85 p-3 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone="amber">{FRAUD_ALERT_TYPE_LABELS[alert.alert_type]}</Badge>
+                        <Badge
+                          tone={
+                            alert.status === 'frozen'
+                              ? 'rose'
+                              : alert.status === 'approved_override'
+                                ? 'emerald'
+                                : 'neutral'
+                          }
+                        >
+                          {FRAUD_ALERT_STATUS_LABELS[alert.status]}
+                        </Badge>
+                      </div>
+                      <span className="text-xs font-bold text-white tabular-nums">
+                        {formatExactCents(alert.variance_cents)}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] font-semibold text-slate-200">{alert.vendor_name}</p>
+                    <p className="text-[11px] text-slate-300 leading-snug">{alert.proof_summary}</p>
+
+                    {alert.status === 'frozen' ? (
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            demo.overrideDemoVendorFraudAlert(alert.id, 'dismissed')
+                            toast.info('Alert Dismissed', alert.vendor_name)
+                          }}
+                          className="exec-btn-secondary !px-2.5 !py-1 !text-[11px]"
+                        >
+                          Dismiss (Safe)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            demo.overrideDemoVendorFraudAlert(alert.id, 'approved_override')
+                            toast.success('Override Approved', `${alert.vendor_name} released from freeze`)
+                          }}
+                          className="exec-btn-emerald !px-2.5 !py-1 !text-[11px]"
+                        >
+                          Approve Override
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">
+                Click <strong className="text-slate-200">Run Vendor Fraud Shield</strong> to scan pending vendor bills against PO unit costs and remit history.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </section>

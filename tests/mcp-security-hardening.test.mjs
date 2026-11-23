@@ -462,6 +462,56 @@ const state = {
   ],
   invoice_items: [],
   agent_action_ledger: [],
+  executable_sops: [
+    {
+      id: 'esop-a-1',
+      workspace_id: wsA,
+      name: 'Vendor >5% Freeze Guard',
+      plain_english_prompt: 'Freeze vendor bills >5% spike up to $2,500',
+      compiled_rule_json: { trigger: 'vendor_bill_received', safety_cap_cents: 250000 },
+      status: 'active',
+      safety_cap_cents: 250000,
+      last_simulated_impact_cents: 124000,
+      run_count: 1,
+      created_at: '2026-11-22T09:00:00Z',
+    },
+    {
+      id: 'esop-b-secret',
+      workspace_id: wsB,
+      name: 'Other Tenant Secret SOP',
+      plain_english_prompt: 'Secret B SOP',
+      compiled_rule_json: { trigger: 'invoice_overdue', safety_cap_cents: 999900 },
+      status: 'active',
+      safety_cap_cents: 999900,
+      last_simulated_impact_cents: 999900,
+      run_count: 1,
+      created_at: '2026-11-22T09:00:00Z',
+    },
+  ],
+  vendor_fraud_alerts: [
+    ...Array.from({ length: 11 }, (_, idx) => ({
+      id: `vfa-a-${idx + 1}`,
+      workspace_id: wsA,
+      bill_id: `vb-a-${idx + 1}`,
+      vendor_name: `Apex Supply ${idx + 1}`,
+      alert_type: idx % 2 === 0 ? 'price_spike_over_10pct' : 'duplicate_cent_amount',
+      variance_cents: 45000 + idx * 1000,
+      proof_summary: `Frozen fraud proof ${idx + 1}`,
+      status: 'frozen',
+      created_at: `2026-11-22T0${idx % 9}:00:00Z`,
+    })),
+    {
+      id: 'vfa-b-secret',
+      workspace_id: wsB,
+      bill_id: 'vb-b-secret',
+      vendor_name: 'Secret Tenant Fraud Co',
+      alert_type: 'remit_change',
+      variance_cents: 9999900,
+      proof_summary: 'Secret tenant fraud alert',
+      status: 'frozen',
+      created_at: '2026-11-22T10:00:00Z',
+    },
+  ],
 }
 
 function createMockSupabase() {
@@ -715,19 +765,19 @@ async function callMcp(token, method, params = {}) {
 assert.equal((await callMcp(null, 'tools/list')).status, 401)
 assert.equal((await callMcp('bad_token', 'tools/list')).status, 401)
 
-// B. initialize returns v2.4.0 and tools/list returns all 27 tools including Release 4A CPA & Collections tools
+// B. initialize returns v2.5.0 and tools/list returns all 29 tools including Release 4B Compiler & Morning Brief tools
 const initRes = await callMcp(rawTokenA, 'initialize', {
   protocolVersion: '2024-11-05',
   capabilities: {},
   clientInfo: { name: 'qa-client', version: '1.0.0' },
 })
 assert.equal(initRes.status, 200)
-assert.equal(initRes.json.result.serverInfo.version, '2.4.0')
+assert.equal(initRes.json.result.serverInfo.version, '2.5.0')
 
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 27)
+assert.equal(toolNames.length, 29)
 for (const reqTool of [
   'ops_readiness_audits',
   'save_ops_readiness_audit',
@@ -747,6 +797,8 @@ for (const reqTool of [
   'get_shadow_leak_summary',
   'get_cpa_audit_summary',
   'get_collections_queue',
+  'compile_and_simulate_sop',
+  'get_owner_morning_brief',
 ]) {
   assert.ok(toolNames.includes(reqTool), `Missing required tool: ${reqTool}`)
 }
@@ -1288,6 +1340,36 @@ assert.equal(colSc.total_staged_cents, 250000)
 assert.equal(colSc.touches.length, 10, 'get_collections_queue must strictly cap touches at <= 10')
 assert.ok(colSc.touches.every(t => t.workspace_id === wsA))
 
+const compileSopRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'compile_and_simulate_sop',
+  arguments: {
+    plain_english_prompt:
+      'Automate: When vendor bill unit price spikes >5%, freeze bill up to $2,500 safety cap.',
+  },
+})
+assert.equal(compileSopRes.status, 200)
+const sopSc = compileSopRes.json.result.structuredContent
+assert.equal(sopSc.workspace_id, wsA)
+assert.equal(sopSc.rule.trigger, 'vendor_bill_received')
+assert.equal(sopSc.rule.safety_cap_cents, 250000)
+assert.equal(sopSc.matched_count, 1)
+assert.equal(sopSc.total_impact_cents, 124000)
+assert.ok(sopSc.proof_cards.length <= 10)
+assert.ok(sopSc.proof_cards.every(c => c.record_id !== 'vb-b-secret'))
+
+const morningBriefRes = await callMcp(rawTokenAReadOnly, 'tools/call', {
+  name: 'get_owner_morning_brief',
+  arguments: { starting_cash_cents: 1000000, limit: 10 },
+})
+assert.equal(morningBriefRes.status, 200)
+const briefSc = morningBriefRes.json.result.structuredContent
+assert.equal(briefSc.workspace_id, wsA)
+assert.equal(briefSc.frozen_fraud_count, 11)
+assert.equal(briefSc.staged_collection_count, 10)
+assert.equal(briefSc.pending_approval_count, 21)
+assert.equal(briefSc.approval_items.length, 10, 'get_owner_morning_brief must cap approval_items at <= 10')
+assert.ok(briefSc.approval_items.every(item => item.workspace_id === wsA))
+
 // G. Verify EVERY non-token DB query since test start filtered by workspace_id = wsA
 const workspaceTables = new Set([
   'public_leads',
@@ -1307,6 +1389,8 @@ const workspaceTables = new Set([
   'shadow_sessions',
   'shadow_findings',
   'collection_touches',
+  'executable_sops',
+  'vendor_fraud_alerts',
   'ops_readiness_audits',
   'staged_ops_actions',
   'staged_ledger_entries',

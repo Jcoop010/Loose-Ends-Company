@@ -1,14 +1,35 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  CheckCircle2,
   Copy,
   Download,
   FileText,
+  PauseCircle,
+  Play,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react'
-import { type LivingSopRecord } from '../../../lib/autonomousOs'
+import {
+  compilePlainEnglishSop,
+  DEFAULT_AUTONOMY_CONFIG,
+  formatCents as formatExactCents,
+  simulateCompiledSop,
+  SOP_ACTION_LABELS,
+  SOP_COMPILER_PRESETS,
+  SOP_TRIGGER_LABELS,
+  type AgentActionLedgerEntry,
+  type ExecutableSopRecord,
+  type LivingSopRecord,
+  type SopSimulationResult,
+  type WorkspaceAutonomyConfig,
+} from '../../../lib/autonomousOs'
+import * as autonomousQueries from '../../../lib/autonomousOs/queries'
 import * as release3Queries from '../../../lib/autonomousOs/release3Queries'
+import * as release4bQueries from '../../../lib/autonomousOs/release4bQueries'
 import { formatDateTime } from '../../../lib/format'
+import { useAppRouter } from '../../../state/RouterContext'
 import { useSession } from '../../../state/SessionContext'
 import { Badge, EmptyState, Skeleton } from '../../../components/ui/MetricCard'
 import { useToast } from '../../../components/ui/Toast'
@@ -38,13 +59,34 @@ function sopToMarkdown(sop: LivingSopRecord): string {
 
 export function LivingSopsPage(): React.ReactElement {
   const { workspace } = useSession()
+  const { getParam } = useAppRouter()
   const toast = useToast()
   const workspaceId = workspace?.id ?? null
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [sops, setSops] = useState<LivingSopRecord[]>([])
+  const [executableSops, setExecutableSops] = useState<ExecutableSopRecord[]>([])
+  const [autonomyConfig, setAutonomyConfig] =
+    useState<WorkspaceAutonomyConfig>(DEFAULT_AUTONOMY_CONFIG)
   const [moduleFilter, setModuleFilter] = useState<string>('all')
+
+  const [compilerPrompt, setCompilerPrompt] = useState(
+    () => getParam('prompt') || SOP_COMPILER_PRESETS[0].prompt,
+  )
+  const [compilerCapDollars, setCompilerCapDollars] = useState('2500')
+  const [dryRunResult, setDryRunResult] = useState<SopSimulationResult | null>(null)
+  const [compilingBusy, setCompilingBusy] = useState(false)
+  const [activatingBusy, setActivatingBusy] = useState(false)
+  const [latestSopLedger, setLatestSopLedger] = useState<AgentActionLedgerEntry | null>(null)
+  const [undoingSop, setUndoingSop] = useState(false)
+
+  const urlPromptParam = getParam('prompt')
+  useEffect(() => {
+    if (urlPromptParam && urlPromptParam.trim()) {
+      setCompilerPrompt(urlPromptParam.trim())
+    }
+  }, [urlPromptParam])
 
   const [moduleKey, setModuleKey] = useState('quotes')
   const [title, setTitle] = useState('')
@@ -58,8 +100,14 @@ export function LivingSopsPage(): React.ReactElement {
       if (background) setRefreshing(true)
       else setLoading(true)
       try {
-        const rows = await release3Queries.fetchLivingSops(workspaceId)
+        const [rows, execRows, autoCfg] = await Promise.all([
+          release3Queries.fetchLivingSops(workspaceId),
+          release4bQueries.fetchExecutableSops(workspaceId).catch(() => []),
+          autonomousQueries.fetchWorkspaceAutonomySettings(workspaceId).catch(() => null),
+        ])
         setSops(rows)
+        setExecutableSops(execRows)
+        if (autoCfg) setAutonomyConfig(autoCfg)
       } catch (err) {
         toast.error('Unable to load Living SOPs', err instanceof Error ? err.message : 'Retry.')
       } finally {
@@ -133,6 +181,80 @@ export function LivingSopsPage(): React.ReactElement {
     toast.success('Exported Markdown playbook', a.download)
   }
 
+  const parsedCapCents = Math.max(0, Math.round(Number(compilerCapDollars || 0) * 100))
+  const safeCapCents = Number.isSafeInteger(parsedCapCents) ? parsedCapCents : 250000
+
+  const handleCompileDryRun = async (overridePrompt?: string, overrideCapCents?: number) => {
+    if (!workspaceId || compilingBusy) return
+    const targetPrompt = (overridePrompt ?? compilerPrompt).trim()
+    if (!targetPrompt) {
+      toast.error('Prompt required', 'Enter or pick an operational rule to compile.')
+      return
+    }
+    setCompilingBusy(true)
+    try {
+      const compiled = compilePlainEnglishSop(targetPrompt, {
+        safetyCapCents: overrideCapCents ?? safeCapCents,
+      })
+      const inputs = await release4bQueries.fetchSopSimulationInputs(workspaceId)
+      const sim = simulateCompiledSop(compiled.rule, {
+        sopName: compiled.name,
+        plainEnglishPrompt: compiled.plain_english_prompt,
+        vendorBills: inputs.vendorBills,
+        invoices: inputs.invoices,
+        complianceItems: inputs.complianceItems,
+      })
+      setDryRunResult(sim)
+      toast.success('SOP Compiled & Dry-Run Complete', sim.summary)
+    } catch (err) {
+      toast.error('SOP Compile failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setCompilingBusy(false)
+    }
+  }
+
+  const handleActivateCompiledSop = async () => {
+    if (!workspaceId || activatingBusy || !compilerPrompt.trim()) return
+    setActivatingBusy(true)
+    try {
+      const res = await release4bQueries.saveAndExecuteCompiledSopInDb({
+        workspaceId,
+        plainEnglishPrompt: compilerPrompt,
+        safetyCapCents: safeCapCents,
+        config: autonomyConfig,
+      })
+      setDryRunResult(res.execution.simulation)
+      setLatestSopLedger(res.ledgerEntry)
+      setExecutableSops(prev => [res.execution.executable_sop, ...prev])
+      toast.success(
+        'Executable SOP Activated',
+        `${res.execution.executable_sop.name} · Logged to Agent Ledger with 1-Click Undo.`,
+      )
+    } catch (err) {
+      toast.error('Activation failed', err instanceof Error ? err.message : 'Retry.')
+    } finally {
+      setActivatingBusy(false)
+    }
+  }
+
+  const handleUndoSopActivation = async () => {
+    if (!workspaceId || !latestSopLedger || undoingSop) return
+    setUndoingSop(true)
+    try {
+      const reversed = await autonomousQueries.reverseLedgerEntryInDb({
+        workspaceId,
+        entry: latestSopLedger,
+      })
+      setLatestSopLedger(reversed)
+      await loadSops(true)
+      toast.info('1-Click Undo completed', 'Executable SOP status & run count restored.')
+    } catch (err) {
+      toast.error('Undo failed', err instanceof Error ? err.message : 'Retry 1-Click Undo.')
+    } finally {
+      setUndoingSop(false)
+    }
+  }
+
   if (!workspaceId) return <div />
 
   return (
@@ -158,6 +280,179 @@ export function LivingSopsPage(): React.ReactElement {
           {refreshing ? 'Syncing…' : 'Refresh'}
         </button>
       </div>
+
+      {/* Operations Compiler Panel */}
+      <section className="exec-surface border border-slate-800 bg-[#0b1320] p-5 sm:p-6 space-y-4 text-slate-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Sparkles className="h-4 w-4 text-[#fb923c]" aria-hidden="true" />
+              <h3 className="text-base font-bold text-white">
+                Operations Compiler (Plain-English -&gt; Safe Executable AST)
+              </h3>
+              <Badge tone="brand">Read-Only Dry-Run + Cap Guard</Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Compile natural rules into deterministic AST policies, test against live records, and activate with hard cent safety caps + 1-Click Undo.
+            </p>
+          </div>
+          {latestSopLedger && latestSopLedger.status === 'executed' ? (
+            <button
+              type="button"
+              disabled={undoingSop}
+              onClick={() => void handleUndoSopActivation()}
+              className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-amber-500/40 text-amber-300"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              {undoingSop ? 'Reversing…' : '1-Click Undo'}
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {SOP_COMPILER_PRESETS.map(preset => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => {
+                setCompilerPrompt(preset.prompt)
+                setCompilerCapDollars(String(Math.round(preset.safety_cap_cents / 100)))
+                void handleCompileDryRun(preset.prompt, preset.safety_cap_cents)
+              }}
+              className="exec-btn-secondary !px-3 !py-1.5 !text-xs border-slate-700 bg-[#131f33] text-slate-200 hover:border-[#fb923c]"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 items-end">
+          <div className="sm:col-span-7">
+            <label htmlFor="sop-compiler-prompt" className="block text-[11px] font-semibold text-slate-300 mb-1">
+              Plain-English Rule
+            </label>
+            <input
+              id="sop-compiler-prompt"
+              value={compilerPrompt}
+              onChange={e => setCompilerPrompt(e.target.value)}
+              placeholder='e.g. "Automate: When vendor bill price spikes >5%, freeze up to $2,500 cap."'
+              className="exec-input w-full text-xs"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="sop-compiler-cap" className="block text-[11px] font-semibold text-slate-300 mb-1">
+              Safety Cap ($)
+            </label>
+            <input
+              id="sop-compiler-cap"
+              type="number"
+              min="0"
+              step="10"
+              value={compilerCapDollars}
+              onChange={e => setCompilerCapDollars(e.target.value)}
+              className="exec-input w-full text-xs tabular-nums"
+            />
+          </div>
+          <div className="sm:col-span-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={compilingBusy}
+              onClick={() => void handleCompileDryRun()}
+              className="exec-btn-secondary !px-3 !py-2 !text-xs flex-1"
+            >
+              <Play className="h-3.5 w-3.5 text-[#fb923c]" aria-hidden="true" />
+              {compilingBusy ? 'Simulating…' : 'Compile & Dry-Run'}
+            </button>
+            <button
+              type="button"
+              disabled={activatingBusy}
+              onClick={() => void handleActivateCompiledSop()}
+              className="exec-btn-emerald !px-3 !py-2 !text-xs flex-1"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+              {activatingBusy ? 'Saving…' : 'Activate'}
+            </button>
+          </div>
+        </div>
+
+        {dryRunResult ? (
+          <div className="rounded-xl border border-slate-800 bg-[#0e1726] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="brand">{SOP_TRIGGER_LABELS[dryRunResult.rule.trigger]}</Badge>
+                <Badge tone="neutral">{SOP_ACTION_LABELS[dryRunResult.rule.action]}</Badge>
+              </div>
+              <span className="text-xs font-bold text-emerald-300 tabular-nums">
+                {dryRunResult.matched_count} match(es) · {formatExactCents(dryRunResult.total_impact_cents)}
+              </span>
+            </div>
+            <p className="text-xs text-slate-300">{dryRunResult.summary}</p>
+            {dryRunResult.proof_cards.length > 0 ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {dryRunResult.proof_cards.slice(0, 4).map(card => (
+                  <div
+                    key={card.record_id}
+                    className="rounded-lg border border-slate-700 bg-[#0b1320] p-2.5 text-[11px] space-y-1"
+                  >
+                    <div className="flex items-center justify-between font-semibold text-white">
+                      <span>{card.counterparty}</span>
+                      <span className="tabular-nums text-[#fdba74]">
+                        {formatExactCents(card.impact_cents)}
+                      </span>
+                    </div>
+                    <p className="text-slate-300 leading-snug">{card.proof_summary}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {executableSops.length > 0 ? (
+          <div className="space-y-2 border-t border-slate-800 pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Compiled Executable SOPs ({executableSops.length})
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {executableSops.map(sop => (
+                <div
+                  key={sop.id}
+                  className="rounded-xl border border-slate-800 bg-[#0e1726] p-3 flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Badge tone={sop.status === 'active' ? 'emerald' : 'neutral'}>
+                        {sop.status}
+                      </Badge>
+                      <span className="font-bold text-white truncate">{sop.name}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400 truncate">
+                      Cap {formatExactCents(sop.safety_cap_cents)} · Runs: {sop.run_count}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!workspaceId) return
+                      const nextStatus = sop.status === 'active' ? 'paused' : 'active'
+                      const updated = await release4bQueries.toggleExecutableSopStatusInDb({
+                        workspaceId,
+                        sop,
+                        nextStatus,
+                      })
+                      setExecutableSops(prev => prev.map(x => (x.id === sop.id ? updated : x)))
+                    }}
+                    className="exec-btn-secondary !px-2.5 !py-1 !text-[11px]"
+                  >
+                    <PauseCircle className="h-3 w-3" aria-hidden="true" />
+                    {sop.status === 'active' ? 'Pause' : 'Resume'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-1.5">

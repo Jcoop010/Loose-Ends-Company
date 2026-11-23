@@ -1,5 +1,6 @@
 import { formatCents } from './engine'
 import { evaluateStockLevels } from './inventoryEngine'
+import { compilePlainEnglishSop, SOP_TRIGGER_LABELS } from './sopCompiler'
 import type {
   CommandResultItem,
   CommandRouteResult,
@@ -303,7 +304,37 @@ export function routeNaturalCommand(
   const refDate = (snapshot.referenceDate ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
   const normalized = raw.toLowerCase()
 
-  // 1. Undo last action
+  // 1. Operations Compiler ("Automate: ...") direct Cmd+K routing
+  if (/^automate\b|\bcompile\s+sop\b/i.test(normalized)) {
+    const compiled = compilePlainEnglishSop(raw)
+    return {
+      intent: 'compile_sop',
+      headline: `Compile Operational SOP: ${compiled.name}`,
+      summary: compiled.rule.condition_summary,
+      items: [
+        {
+          id: 'compile-sop-preview',
+          title: `Trigger: ${SOP_TRIGGER_LABELS[compiled.rule.trigger]}`,
+          subtitle: `Hard Safety Cap ${formatCents(compiled.rule.safety_cap_cents)} · Click to inspect AST, run historical dry-run & activate`,
+          badge: compiled.rule.trigger,
+          amount_cents: compiled.rule.safety_cap_cents,
+          action: {
+            label: 'Open Operations Compiler',
+            kind: 'navigate',
+            route: `/dashboard/sops?prompt=${encodeURIComponent(raw)}`,
+          },
+        },
+      ],
+      primary_action: {
+        label: 'Compile & Dry-Run in SOPs',
+        kind: 'navigate',
+        route: `/dashboard/sops?prompt=${encodeURIComponent(raw)}`,
+      },
+      simulation: null,
+    }
+  }
+
+  // 2. Undo last action
   if (/\b(undo|reverse|rollback)\b/i.test(normalized)) {
     const reversible = snapshot.ledgerEntries.filter(e => e.status === 'executed')
     const latest = reversible[0] ?? null

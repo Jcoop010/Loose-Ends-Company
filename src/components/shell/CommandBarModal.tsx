@@ -115,12 +115,20 @@ const WORKSPACE_QUICK_JUMPS: Array<{
     subtitle: 'Workspace tokens, bot manuals & subscription status',
     icon: <ShieldCheck className="h-4 w-4" />,
   },
+  {
+    section: 'autopilot',
+    route: '/dashboard/settings',
+    title: 'Settings & BYO-Agent MCP Hub',
+    subtitle: 'Connect Claude, ChatGPT, or Grok in 1 click (29 tools · v2.5.0)',
+    icon: <Sparkles className="h-4 w-4" />,
+  },
 ]
 
 const SAMPLE_COMMANDS: ReadonlyArray<string> = [
   'overdue invoices over $1000',
   'low stock skus',
   'expiring contracts',
+  'Automate: freeze vendor bills >5% price spike',
   'simulate hiring 2 staff at $5000/mo',
   'undo last action',
 ]

@@ -739,6 +739,7 @@ export type CommandIntent =
   | 'what_if_simulation'
   | 'undo_last_action'
   | 'living_sops'
+  | 'compile_sop'
   | 'quick_jump'
 
 export interface CommandRouteResult {
@@ -957,6 +958,170 @@ export interface CollectionsRunPlan {
   existing_touch_ids_to_pause_paid: string[]
   existing_touch_ids_to_pause_disputed: string[]
   ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+// Release 4B: Operations Compiler, Vendor Fraud Shield, Morning Brief & Portability
+
+export type SopTriggerType =
+  | 'vendor_bill_received'
+  | 'invoice_overdue'
+  | 'cashflow_threshold'
+  | 'contract_expiring'
+
+export type SopActionKind =
+  | 'freeze_bill_for_approval'
+  | 'stage_collection_chase'
+  | 'trigger_runway_protection'
+  | 'stage_compliance_renewal_notice'
+
+export type ExecutableSopStatus = 'draft' | 'active' | 'paused'
+
+export interface CompiledSopRule {
+  trigger: SopTriggerType
+  action: SopActionKind
+  autonomy_action_key: AutonomyActionKey
+  threshold_bps: number | null
+  threshold_cents: number | null
+  threshold_days: number | null
+  safety_cap_cents: number
+  condition_summary: string
+}
+
+export interface ExecutableSopRecord {
+  id: string
+  workspace_id: string
+  name: string
+  plain_english_prompt: string
+  compiled_rule_json: CompiledSopRule
+  status: ExecutableSopStatus
+  safety_cap_cents: number
+  last_simulated_impact_cents: number
+  run_count: number
+  created_at?: string
+  updated_at?: string
+}
+
+export interface SopSimulationProofCard {
+  record_id: string
+  record_ref: string
+  counterparty: string
+  impact_cents: number
+  within_safety_cap: boolean
+  proof_summary: string
+}
+
+export interface SopSimulationResult {
+  rule: CompiledSopRule
+  sop_name: string
+  plain_english_prompt: string
+  as_of_date: string
+  matched_count: number
+  within_cap_count: number
+  cap_exceeded_count: number
+  total_impact_cents: number
+  executable_impact_cents: number
+  proof_cards: SopSimulationProofCard[]
+  summary: string
+}
+
+export interface SopExecutionResult {
+  executable_sop: ExecutableSopRecord
+  simulation: SopSimulationResult
+  autonomy_decision: AutonomyGateDecision
+  ledger_draft: Omit<AgentActionLedgerEntry, 'id' | 'created_at'>
+}
+
+export interface SopCompilerPreset {
+  id: string
+  label: string
+  name: string
+  prompt: string
+  safety_cap_cents: number
+}
+
+export type VendorFraudAlertType =
+  | 'price_spike_over_10pct'
+  | 'duplicate_cent_amount'
+  | 'remit_change'
+
+export type VendorFraudAlertStatus = 'frozen' | 'approved_override' | 'dismissed'
+
+export interface VendorBillFraudInput extends VendorBillRecord {
+  remit_account_hint?: string | null
+}
+
+export interface VendorFraudAlertRecord {
+  id: string
+  workspace_id: string
+  bill_id: string | null
+  vendor_name: string
+  alert_type: VendorFraudAlertType
+  variance_cents: number
+  proof_summary: string
+  status: VendorFraudAlertStatus
+  created_at?: string
+  updated_at?: string
+}
+
+export interface VendorFraudScanResult {
+  as_of_date: string
+  scanned_bill_count: number
+  frozen_count: number
+  total_frozen_cents: number
+  counts_by_type: Record<VendorFraudAlertType, number>
+  alerts: VendorFraudAlertRecord[]
+}
+
+export interface MorningBriefApprovalItem {
+  id: string
+  kind: 'vendor_fraud_freeze' | 'staged_collection'
+  title: string
+  subtitle: string
+  amount_cents: number
+  route: string
+  cta_label: string
+}
+
+export interface OwnerMorningBrief {
+  workspace_name: string
+  as_of_date: string
+  cash_position_cents: number
+  collected_yesterday_cents: number
+  open_ar_cents: number
+  pending_approval_count: number
+  pending_approval_total_cents: number
+  frozen_fraud_count: number
+  staged_collection_count: number
+  runway_90d_lowest_cents: number
+  safety_buffer_cents: number
+  runway_status: 'healthy' | 'buffer_breach'
+  approval_items: MorningBriefApprovalItem[]
+  executive_summary: string
+}
+
+export interface BusinessPortabilityBundle {
+  exported_at: string
+  workspace_name: string
+  record_counts: {
+    ledger_entries: number
+    invoices: number
+    vendor_bills: number
+    quotes: number
+    compliance_vault_items: number
+    living_sops: number
+    executable_sops: number
+    vendor_fraud_alerts: number
+    collection_touches: number
+  }
+  ledger_entries: readonly LedgerEntryRecord[]
+  invoices: readonly AutonomousInvoice[]
+  vendor_bills: readonly VendorBillRecord[]
+  quotes: readonly AutonomousQuote[]
+  compliance_vault_items: readonly ComplianceVaultItem[]
+  living_sops: readonly LivingSopRecord[]
+  executable_sops: readonly ExecutableSopRecord[]
+  vendor_fraud_alerts: readonly VendorFraudAlertRecord[]
+  collection_touches: readonly CollectionTouchRecord[]
 }
 
 

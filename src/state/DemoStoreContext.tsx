@@ -1,20 +1,26 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import {
   analyzeShadowCsv,
+  buildFraudOverridePlan,
   buildShadowPromotionPlan,
   calculateLineTotals,
   compileCpaAuditPacket,
+  compileOwnerMorningBrief,
+  compilePlainEnglishSop,
   computeArSummary,
   convertSignedQuoteToInvoice,
   DEFAULT_AUTONOMY_CONFIG,
   evaluateAutonomyGate,
   evaluateAutonomousCollections,
   evaluateComplianceDeadlines,
+  executeCompiledSop,
   formatCents as formatOsCents,
   loadSampleQuickBooksExport,
   recomputeShadowLeakTotalCents,
   reverseLedgerAction,
   runThreeWayMatch,
+  scanVendorBillsForFraud,
+  simulateCompiledSop,
   type AgentActionLedgerEntry,
   type ArSummaryMetrics,
   type AutonomyActionKey,
@@ -28,13 +34,18 @@ import {
   type CommandRouterSnapshot,
   type ComplianceVaultItem,
   type CpaAuditPacket,
+  type ExecutableSopRecord,
   type LedgerEntryRecord,
   type LivingSopRecord,
+  type OwnerMorningBrief,
   type Release2InventoryItem,
   type ShadowFinding,
   type ShadowSession,
+  type SopSimulationResult,
   type ThreeWayMatchResult,
+  type VendorBillFraudInput,
   type VendorBillRecord,
+  type VendorFraudAlertRecord,
   type WorkspaceAutonomyConfig,
   type WorkspaceModuleKey,
 } from '../lib/autonomousOs'
@@ -174,6 +185,11 @@ export interface DemoSandboxState {
   osCollectionTouches: CollectionTouchRecord[]
   osDisputedInvoiceIds: string[]
   osCollectionsRunLedgerId: string | null
+  osExecutableSops: ExecutableSopRecord[]
+  osSopSimulation: SopSimulationResult | null
+  osSopExecutionLedgerId: string | null
+  osVendorFraudAlerts: VendorFraudAlertRecord[]
+  osFraudOverrideLedgerId: string | null
 }
 
 export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandboxState {
@@ -1691,7 +1707,33 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
       discrepancy_summary: null,
       created_at: isoOffsetFrom(anchorMs, -5 * DAY_MS),
     },
+    {
+      id: 'vb-demo-2',
+      workspace_id: DEMO_WORKSPACE_ID,
+      po_id: null,
+      vendor_name: 'Titan Mechanical Supply',
+      invoice_number: 'VB-9048',
+      subtotal_cents: 280000,
+      tax_cents: 0,
+      total_cents: 280000,
+      due_date: isoOffsetFrom(anchorMs, 10 * DAY_MS).slice(0, 10),
+      items_json: [
+        {
+          sku: 'VALVE-42',
+          description: 'Brass Control Valve Batch',
+          quantity: 50,
+          unit_cost_cents: 5600,
+        },
+      ],
+      match_status: 'exception_flagged',
+      match_variance_cents: 70000,
+      discrepancy_summary: 'Unit cost jumped +33.3% ($56.00 vs $42.00 PO baseline)',
+      created_at: isoOffsetFrom(anchorMs, -2 * DAY_MS),
+    },
   ]
+
+  const osExecutableSops: ExecutableSopRecord[] = []
+  const osVendorFraudAlerts: VendorFraudAlertRecord[] = []
 
   return {
     workspace,
@@ -1745,6 +1787,11 @@ export function createInitialDemoState(anchorMs: number = Date.now()): DemoSandb
     osCollectionTouches: [],
     osDisputedInvoiceIds: [],
     osCollectionsRunLedgerId: null,
+    osExecutableSops,
+    osSopSimulation: null,
+    osSopExecutionLedgerId: null,
+    osVendorFraudAlerts,
+    osFraudOverrideLedgerId: null,
   }
 }
 
@@ -1847,6 +1894,14 @@ export interface DemoStoreContextValue {
     ledgerId: string | null
   }
   toggleDemoInvoiceDisputed: (invoiceId: string) => void
+  ownerMorningBrief: OwnerMorningBrief
+  compileAndSimulateDemoSop: (prompt: string, safetyCapCents?: number) => SopSimulationResult
+  executeDemoCompiledSop: () => { sop: ExecutableSopRecord; ledgerId: string } | null
+  runDemoVendorFraudScan: () => VendorFraudAlertRecord[]
+  overrideDemoVendorFraudAlert: (
+    alertId: string,
+    nextStatus: 'approved_override' | 'dismissed',
+  ) => void
   commandSnapshot: CommandRouterSnapshot
   resetDemo: () => void
 }
@@ -3092,6 +3147,51 @@ export function DemoStoreProvider({
         }
       }
 
+      let nextExecutableSops = prev.osExecutableSops
+      let nextSopExecutionLedgerId = prev.osSopExecutionLedgerId
+
+      if (
+        target.action_type === 'execute_compiled_sop' &&
+        restoredState &&
+        typeof restoredState.executable_sop_id === 'string'
+      ) {
+        const prevSopStatus =
+          typeof restoredState.sop_status === 'string'
+            ? (restoredState.sop_status as ExecutableSopRecord['status'])
+            : 'paused'
+        const prevRuns = typeof restoredState.run_count === 'number' ? restoredState.run_count : 0
+        nextExecutableSops = prev.osExecutableSops.map(s =>
+          s.id === restoredState.executable_sop_id
+            ? { ...s, status: prevSopStatus, run_count: prevRuns, updated_at: nowIso }
+            : s,
+        )
+        if (prev.osSopExecutionLedgerId === entryId) {
+          nextSopExecutionLedgerId = null
+        }
+      }
+
+      let nextVendorFraudAlerts = prev.osVendorFraudAlerts
+      let nextFraudOverrideLedgerId = prev.osFraudOverrideLedgerId
+
+      if (
+        target.action_type === 'override_vendor_fraud_alert' &&
+        restoredState &&
+        typeof restoredState.alert_id === 'string'
+      ) {
+        const prevAlertStatus =
+          typeof restoredState.alert_status === 'string'
+            ? (restoredState.alert_status as VendorFraudAlertRecord['status'])
+            : 'frozen'
+        nextVendorFraudAlerts = prev.osVendorFraudAlerts.map(a =>
+          a.id === restoredState.alert_id
+            ? { ...a, status: prevAlertStatus, updated_at: nowIso }
+            : a,
+        )
+        if (prev.osFraudOverrideLedgerId === entryId) {
+          nextFraudOverrideLedgerId = null
+        }
+      }
+
       return {
         ...prev,
         osQuotes: nextQuotes,
@@ -3104,6 +3204,10 @@ export function DemoStoreProvider({
         osShadowPromotionLedgerId: nextShadowPromotionLedgerId,
         osCollectionTouches: nextCollectionTouches,
         osCollectionsRunLedgerId: nextCollectionsRunLedgerId,
+        osExecutableSops: nextExecutableSops,
+        osSopExecutionLedgerId: nextSopExecutionLedgerId,
+        osVendorFraudAlerts: nextVendorFraudAlerts,
+        osFraudOverrideLedgerId: nextFraudOverrideLedgerId,
       }
     })
   }, [])
@@ -3538,6 +3642,151 @@ export function DemoStoreProvider({
     })
   }, [])
 
+  const ownerMorningBrief = useMemo<OwnerMorningBrief>(
+    () =>
+      compileOwnerMorningBrief({
+        workspaceName: state.workspace.name,
+        ledgerEntries: state.osLedgerEntries,
+        invoices: state.osInvoices,
+        vendorBills: state.osVendorBills,
+        fraudAlerts: state.osVendorFraudAlerts,
+        collectionTouches: state.osCollectionTouches,
+        startingCashCents: 2500000,
+        safetyBufferCents: 500000,
+      }),
+    [
+      state.workspace.name,
+      state.osLedgerEntries,
+      state.osInvoices,
+      state.osVendorBills,
+      state.osVendorFraudAlerts,
+      state.osCollectionTouches,
+    ],
+  )
+
+  const compileAndSimulateDemoSop = useCallback(
+    (prompt: string, safetyCapCents?: number): SopSimulationResult => {
+      const compiled = compilePlainEnglishSop(prompt, { safetyCapCents })
+      const simulation = simulateCompiledSop(compiled.rule, {
+        sopName: compiled.name,
+        plainEnglishPrompt: compiled.plain_english_prompt,
+        vendorBills: state.osVendorBills,
+        invoices: state.osInvoices,
+        complianceItems: state.osComplianceItems,
+        startingCashCents: ownerMorningBrief.cash_position_cents,
+      })
+      setState(prev => ({
+        ...prev,
+        osSopSimulation: simulation,
+      }))
+      return simulation
+    },
+    [
+      state.osVendorBills,
+      state.osInvoices,
+      state.osComplianceItems,
+      ownerMorningBrief.cash_position_cents,
+    ],
+  )
+
+  const executeDemoCompiledSop = useCallback((): {
+    sop: ExecutableSopRecord
+    ledgerId: string
+  } | null => {
+    const sim = state.osSopSimulation
+    if (!sim) return null
+    const nowIso = new Date().toISOString()
+    const draftSop: ExecutableSopRecord = {
+      id: `exec_sop_demo_${Date.now()}`,
+      workspace_id: DEMO_WORKSPACE_ID,
+      name: sim.sop_name,
+      plain_english_prompt: sim.plain_english_prompt,
+      compiled_rule_json: sim.rule,
+      status: 'draft',
+      safety_cap_cents: sim.rule.safety_cap_cents,
+      last_simulated_impact_cents: sim.total_impact_cents,
+      run_count: 0,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }
+    const res = executeCompiledSop({
+      workspaceId: DEMO_WORKSPACE_ID,
+      sop: draftSop,
+      simulation: sim,
+      config: state.osAutonomyConfig,
+      nowIso,
+    })
+    const ledgerId = `led_sop_${Date.now()}`
+    const ledgerEntry: AgentActionLedgerEntry = {
+      ...res.ledger_draft,
+      id: ledgerId,
+      created_at: nowIso,
+    }
+    setState(prev => ({
+      ...prev,
+      osExecutableSops: [res.executable_sop, ...prev.osExecutableSops],
+      osSopExecutionLedgerId: ledgerId,
+      osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+    }))
+    return { sop: res.executable_sop, ledgerId }
+  }, [state.osSopSimulation, state.osAutonomyConfig])
+
+  const runDemoVendorFraudScan = useCallback((): VendorFraudAlertRecord[] => {
+    const nowIso = new Date().toISOString()
+    const billInputs: VendorBillFraudInput[] = state.osVendorBills.map(bill =>
+      bill.id === 'vb-demo-2'
+        ? { ...bill, remit_account_hint: 'ACH-9988 (Unverified Remit)' }
+        : bill,
+    )
+    const scan = scanVendorBillsForFraud({
+      workspaceId: DEMO_WORKSPACE_ID,
+      bills: billInputs,
+      priorUnitCostsBySku: { 'VALVE-42': 4200 },
+      knownRemitByVendor: { 'titan mechanical supply': 'ACH-4401' },
+      asOfDate: nowIso.slice(0, 10),
+    })
+    const alertsWithTimestamps = scan.alerts.map(alert => ({
+      ...alert,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }))
+    setState(prev => ({
+      ...prev,
+      osVendorFraudAlerts: alertsWithTimestamps,
+      osFraudOverrideLedgerId: null,
+    }))
+    return alertsWithTimestamps
+  }, [state.osVendorBills])
+
+  const overrideDemoVendorFraudAlert = useCallback(
+    (alertId: string, nextStatus: 'approved_override' | 'dismissed') => {
+      const target = state.osVendorFraudAlerts.find(a => a.id === alertId)
+      if (!target || target.status !== 'frozen') return
+      const nowIso = new Date().toISOString()
+      const plan = buildFraudOverridePlan({
+        workspaceId: DEMO_WORKSPACE_ID,
+        alert: target,
+        nextStatus,
+        nowIso,
+      })
+      const ledgerId = `led_fraud_${Date.now()}`
+      const ledgerEntry: AgentActionLedgerEntry = {
+        ...plan.ledgerDraft,
+        id: ledgerId,
+        created_at: nowIso,
+      }
+      setState(prev => ({
+        ...prev,
+        osVendorFraudAlerts: prev.osVendorFraudAlerts.map(a =>
+          a.id === alertId ? plan.updatedAlert : a,
+        ),
+        osFraudOverrideLedgerId: ledgerId,
+        osAgentLedger: [ledgerEntry, ...prev.osAgentLedger],
+      }))
+    },
+    [state.osVendorFraudAlerts],
+  )
+
   const resetDemo = useCallback(() => {
     setState(createInitialDemoState())
   }, [])
@@ -3589,6 +3838,11 @@ export function DemoStoreProvider({
       generateDemoCpaPacket,
       runDemoAutonomousCollections,
       toggleDemoInvoiceDisputed,
+      ownerMorningBrief,
+      compileAndSimulateDemoSop,
+      executeDemoCompiledSop,
+      runDemoVendorFraudScan,
+      overrideDemoVendorFraudAlert,
       commandSnapshot,
       resetDemo,
     }),
@@ -3638,6 +3892,11 @@ export function DemoStoreProvider({
       generateDemoCpaPacket,
       runDemoAutonomousCollections,
       toggleDemoInvoiceDisputed,
+      ownerMorningBrief,
+      compileAndSimulateDemoSop,
+      executeDemoCompiledSop,
+      runDemoVendorFraudScan,
+      overrideDemoVendorFraudAlert,
       commandSnapshot,
       resetDemo,
     ],

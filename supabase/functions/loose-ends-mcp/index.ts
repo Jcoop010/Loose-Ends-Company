@@ -1329,6 +1329,38 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "compile_and_simulate_sop",
+    requiredScope: "read_all",
+    description:
+      "Read-only Operations Compiler: deterministically compiles a plain-English SOP rule into a typed AST with integer-cent safety_cap_cents and runs a dry-run Proof Card simulation across workspace records (cards capped <= 10).",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["plain_english_prompt"],
+      properties: {
+        plain_english_prompt: { type: "string", minLength: 3, maxLength: 500 },
+        safety_cap_cents: { type: "integer", minimum: 0 },
+        as_of_date: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "get_owner_morning_brief",
+    requiredScope: "read_all",
+    description:
+      "Read-only 60-Second Owner Morning Brief synthesizing live cash position, collected yesterday, frozen Vendor Fraud Shield & staged collection approval items (capped <= 10), and 90-day runway status.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        as_of_date: { type: "string" },
+        starting_cash_cents: { type: "integer", minimum: 0 },
+        safety_buffer_cents: { type: "integer", minimum: 0 },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1633,6 +1665,23 @@ function buildSanitizedAuditOutput(
       touch_count: Array.isArray(toolResult.touches) ? toolResult.touches.length : 0,
     };
   }
+  if (toolName === "compile_and_simulate_sop") {
+    const rule = toolResult.rule as { trigger?: string; safety_cap_cents?: number } | null;
+    return {
+      trigger: rule?.trigger ?? null,
+      safety_cap_cents: rule?.safety_cap_cents ?? 0,
+      matched_count: toolResult.matched_count ?? 0,
+      total_impact_cents: toolResult.total_impact_cents ?? 0,
+    };
+  }
+  if (toolName === "get_owner_morning_brief") {
+    return {
+      cash_position_cents: toolResult.cash_position_cents ?? 0,
+      collected_yesterday_cents: toolResult.collected_yesterday_cents ?? 0,
+      pending_approval_count: toolResult.pending_approval_count ?? 0,
+      runway_status: toolResult.runway_status ?? "healthy",
+    };
+  }
   if (toolName === "upsert_public_lead") {
     const lead = toolResult.lead as { id?: string; status?: string } | null;
     return {
@@ -1706,7 +1755,7 @@ Deno.serve(async (req: Request) => {
       capabilities: { tools: {} },
       serverInfo: {
         name: "loose-ends-mcp",
-        version: "2.4.0",
+        version: "2.5.0",
         workspace_id: workspaceId,
       },
     });
@@ -4256,6 +4305,505 @@ Deno.serve(async (req: Request) => {
         stage_counts: stageCounts,
         status_counts: statusCounts,
         touches: typedTouches.slice(0, limit),
+      };
+    } else if (toolName === "compile_and_simulate_sop") {
+      auditBotRole = "qa";
+      const promptRaw =
+        typeof args.plain_english_prompt === "string" ? args.plain_english_prompt.trim() : "";
+      if (promptRaw.length < 3) {
+        throw new Error("plain_english_prompt (min 3 chars) is required");
+      }
+      const asOfDate =
+        typeof args.as_of_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.as_of_date.trim())
+          ? args.as_of_date.trim()
+          : new Date().toISOString().slice(0, 10);
+
+      const parseDollarCents = (text: string): number | null => {
+        const m = /\$\s*([\d,]+(?:\.\d{1,2})?)\s*([kKmM])?/i.exec(text);
+        if (!m) return null;
+        const base = Number(m[1].replace(/,/g, ""));
+        if (!Number.isFinite(base) || base < 0) return null;
+        const suffix = (m[2] ?? "").toLowerCase();
+        const mult = suffix === "m" ? 1_000_000 : suffix === "k" ? 1_000 : 1;
+        const cents = Math.round(base * mult * 100);
+        return Number.isSafeInteger(cents) ? cents : null;
+      };
+      const parsePctBps = (text: string): number | null => {
+        const m = /(\d+(?:\.\d{1,2})?)\s*%/i.exec(text);
+        if (!m) return null;
+        const pct = Number(m[1]);
+        return Number.isFinite(pct) && pct >= 0 ? Math.round(pct * 100) : null;
+      };
+      const parseDays = (text: string): number | null => {
+        const m = /\b(\d{1,3})\s*(?:-|\s)?(?:day|days|d)\b/i.exec(text);
+        if (!m) return null;
+        const d = Math.trunc(Number(m[1]));
+        return d >= 0 ? d : null;
+      };
+
+      const capPhrase = /(?:cap|up to|limit|max)\s*(?:of\s*)?\$\s*([\d,]+(?:\.\d{1,2})?)\s*([kKmM])?/i.exec(
+        promptRaw,
+      );
+      const capFromText = capPhrase ? parseDollarCents(capPhrase[0]) : null;
+      const argCap =
+        typeof args.safety_cap_cents === "number" &&
+        Number.isSafeInteger(args.safety_cap_cents) &&
+        args.safety_cap_cents >= 0
+          ? args.safety_cap_cents
+          : null;
+      const safetyCapCents = capFromText ?? argCap ?? 500000;
+      const normalized = promptRaw.toLowerCase();
+      const parsedDollars = parseDollarCents(promptRaw);
+
+      let trigger: "vendor_bill_received" | "cashflow_threshold" | "contract_expiring" | "invoice_overdue" =
+        "invoice_overdue";
+      let action = "stage_collection_chase";
+      let autonomyActionKey = "send_invoice_reminder";
+      let thresholdBps: number | null = null;
+      let thresholdCents: number | null = null;
+      let thresholdDays: number | null = null;
+
+      if (
+        /(cashflow|cash\s*flow|runway|safety\s*floor|liquidity|cash\s+balance|projected\s+cash|working\s+capital)/i.test(
+          normalized,
+        ) ||
+        (/\bcash\b/i.test(normalized) && !/\b(invoice|vendor|bill)\b/i.test(normalized))
+      ) {
+        trigger = "cashflow_threshold";
+        action = "trigger_runway_protection";
+        autonomyActionKey = "flag_overdue_ar";
+        const floorMatch = /(?:below|under|<|<=|floor|threshold)\s*\$\s*([\d,]+(?:\.\d{1,2})?)\s*([kKmM])?/i.exec(
+          promptRaw,
+        );
+        thresholdCents =
+          (floorMatch ? parseDollarCents(floorMatch[0]) : null) ?? parsedDollars ?? 1500000;
+      } else if (/(vendor|bill|price|hike|spike|supplier|\bap\b|\bpo\b|overcharge|remit)/i.test(normalized)) {
+        trigger = "vendor_bill_received";
+        action = "freeze_bill_for_approval";
+        autonomyActionKey = "approve_clean_vendor_bill";
+        thresholdBps = parsePctBps(promptRaw) ?? 500;
+      } else if (/(coi|contract|license|saas|renewal|expir|insurance|notice)/i.test(normalized)) {
+        trigger = "contract_expiring";
+        action = "stage_compliance_renewal_notice";
+        autonomyActionKey = "stage_compliance_notice";
+        thresholdDays = parseDays(promptRaw) ?? 30;
+      } else {
+        trigger = "invoice_overdue";
+        action = "stage_collection_chase";
+        autonomyActionKey = "send_invoice_reminder";
+        thresholdDays = parseDays(promptRaw) ?? 3;
+        thresholdCents = parsedDollars ?? 0;
+      }
+
+      const cards: Array<{
+        record_id: string;
+        record_ref: string;
+        counterparty: string;
+        impact_cents: number;
+        within_safety_cap: boolean;
+        proof_summary: string;
+      }> = [];
+
+      const startMs = Date.parse(`${asOfDate}T00:00:00Z`);
+
+      if (trigger === "vendor_bill_received") {
+        const minBps = thresholdBps ?? 500;
+        const { data: billRows, error: billErr } = await admin
+          .from("vendor_bills")
+          .select("id, vendor_name, invoice_number, total_cents, match_status, match_variance_cents")
+          .eq("workspace_id", workspaceId)
+          .limit(200);
+        if (billErr) throw new Error("Failed to query vendor_bills for SOP simulation");
+
+        for (const bill of (billRows ?? []) as Array<{
+          id: string;
+          vendor_name?: string;
+          invoice_number?: string;
+          total_cents?: number;
+          match_status?: string;
+          match_variance_cents?: number;
+        }>) {
+          if (bill.match_status === "paid") continue;
+          const totalCents = Math.max(0, Math.trunc(bill.total_cents ?? 0));
+          const varianceCents = Math.max(0, Math.trunc(bill.match_variance_cents ?? 0));
+          const baseCents = Math.max(1, totalCents - varianceCents);
+          const bps = varianceCents > 0 ? Math.round((varianceCents * 10000) / baseCents) : 0;
+          const matches =
+            bill.match_status === "exception_flagged" ||
+            bill.match_status === "disputed" ||
+            bps >= minBps;
+          if (!matches) continue;
+          const impact = varianceCents > 0 ? varianceCents : totalCents;
+          cards.push({
+            record_id: bill.id,
+            record_ref: bill.invoice_number ?? bill.id,
+            counterparty: bill.vendor_name ?? "Vendor",
+            impact_cents: impact,
+            within_safety_cap: impact <= safetyCapCents,
+            proof_summary: `Bill ${bill.invoice_number ?? bill.id} (${bill.vendor_name ?? "Vendor"}) variance ${formatCentsUsd(impact)} (${(bps / 100).toFixed(1)}% vs ${(minBps / 100).toFixed(1)}% threshold).`,
+          });
+        }
+      } else if (trigger === "cashflow_threshold") {
+        const floorCents = thresholdCents ?? 1500000;
+        const [ledgerRes, invRes, billRes] = await Promise.all([
+          admin
+            .from("ledger_entries")
+            .select("entry_type, amount_cents")
+            .eq("workspace_id", workspaceId)
+            .limit(500),
+          admin
+            .from("invoices")
+            .select("total_cents, amount_paid_cents, due_date, status")
+            .eq("workspace_id", workspaceId)
+            .limit(500),
+          admin
+            .from("vendor_bills")
+            .select("total_cents, due_date, match_status")
+            .eq("workspace_id", workspaceId)
+            .limit(500),
+        ]);
+        if (ledgerRes.error || invRes.error || billRes.error) {
+          throw new Error("Failed to query cashflow data for SOP simulation");
+        }
+        let running = 0;
+        for (const le of (ledgerRes.data ?? []) as Array<{ entry_type?: string; amount_cents?: number }>) {
+          const amt = Math.abs(Math.trunc(le.amount_cents ?? 0));
+          if (le.entry_type === "revenue") running += amt;
+          else if (le.entry_type === "cogs" || le.entry_type === "expense") running -= amt;
+        }
+        const periodIn: Record<30 | 60 | 90, number> = { 30: 0, 60: 0, 90: 0 };
+        const periodOut: Record<30 | 60 | 90, number> = { 30: 0, 60: 0, 90: 0 };
+        for (const inv of (invRes.data ?? []) as InvoiceRowForAr[]) {
+          if (inv.status === "paid" || inv.status === "void") continue;
+          const rem = Math.max(0, (inv.total_cents ?? 0) - (inv.amount_paid_cents ?? 0));
+          if (rem === 0) continue;
+          const dueMs = Date.parse(`${(inv.due_date || asOfDate).slice(0, 10)}T00:00:00Z`);
+          const days = Number.isFinite(dueMs) ? Math.round((dueMs - startMs) / 86_400_000) : 0;
+          if (days <= 30) periodIn[30] += rem;
+          else if (days <= 60) periodIn[60] += rem;
+          else if (days <= 90) periodIn[90] += rem;
+        }
+        for (const bill of (billRes.data ?? []) as Release2VendorBillRow[]) {
+          const amt = Math.max(0, bill.total_cents ?? 0);
+          if (amt === 0 || bill.match_status === "paid" || bill.match_status === "disputed" || bill.match_status === "exception_flagged") {
+            continue;
+          }
+          const dueMs = Date.parse(`${(bill.due_date || asOfDate).slice(0, 10)}T00:00:00Z`);
+          const days = Number.isFinite(dueMs) ? Math.round((dueMs - startMs) / 86_400_000) : 0;
+          if (days <= 30) periodOut[30] += amt;
+          else if (days <= 60) periodOut[60] += amt;
+          else if (days <= 90) periodOut[90] += amt;
+        }
+        for (const horizon of [30, 60, 90] as const) {
+          running = running + periodIn[horizon] - periodOut[horizon];
+          if (running < floorCents) {
+            const shortfall = floorCents - running;
+            cards.push({
+              record_id: `cash-win-${horizon}`,
+              record_ref: `${horizon}D Runway`,
+              counterparty: "Operating Cash",
+              impact_cents: shortfall,
+              within_safety_cap: shortfall <= safetyCapCents,
+              proof_summary: `${horizon}-Day projected cash ${formatCentsUsd(running)} falls ${formatCentsUsd(shortfall)} below ${formatCentsUsd(floorCents)} threshold.`,
+            });
+          }
+        }
+      } else if (trigger === "contract_expiring") {
+        const winDays = thresholdDays ?? 30;
+        const { data: vaultRows, error: vaultErr } = await admin
+          .from("compliance_vault_items")
+          .select("id, doc_type, title, counterparty, expires_on, annual_value_cents, status")
+          .eq("workspace_id", workspaceId)
+          .limit(200);
+        if (vaultErr) throw new Error("Failed to query compliance_vault_items for SOP simulation");
+        for (const item of (vaultRows ?? []) as Array<{
+          id: string;
+          doc_type?: string;
+          title?: string;
+          counterparty?: string;
+          expires_on?: string;
+          annual_value_cents?: number;
+          status?: string;
+        }>) {
+          if (item.status === "cancelled") continue;
+          const expMs = Date.parse(`${(item.expires_on || asOfDate).slice(0, 10)}T00:00:00Z`);
+          const daysRemaining = Number.isFinite(expMs) ? Math.round((expMs - startMs) / 86_400_000) : 0;
+          if (daysRemaining > winDays) continue;
+          const impact = Math.max(0, Math.trunc(item.annual_value_cents ?? 0));
+          cards.push({
+            record_id: item.id,
+            record_ref: String(item.doc_type ?? "CONTRACT").toUpperCase(),
+            counterparty: `${item.title ?? "Contract"} (${item.counterparty ?? "Vendor"})`,
+            impact_cents: impact,
+            within_safety_cap: impact <= safetyCapCents,
+            proof_summary: `${item.title ?? "Item"} expires ${item.expires_on ?? asOfDate} (${daysRemaining}d <= ${winDays}d); value ${formatCentsUsd(impact)}.`,
+          });
+        }
+      } else {
+        const minDays = thresholdDays ?? 3;
+        const minCents = thresholdCents ?? 0;
+        const { data: invRows, error: invErr } = await admin
+          .from("invoices")
+          .select("id, invoice_number, customer_name, total_cents, amount_paid_cents, due_date, status")
+          .eq("workspace_id", workspaceId)
+          .limit(200);
+        if (invErr) throw new Error("Failed to query invoices for SOP simulation");
+        for (const inv of (invRows ?? []) as Array<{
+          id: string;
+          invoice_number?: string;
+          customer_name?: string;
+          total_cents?: number;
+          amount_paid_cents?: number;
+          due_date?: string | null;
+          status?: string;
+        }>) {
+          if (inv.status === "paid" || inv.status === "void" || inv.status === "draft") continue;
+          const balance = Math.max(0, Math.trunc(inv.total_cents ?? 0) - Math.trunc(inv.amount_paid_cents ?? 0));
+          if (balance === 0 || balance < minCents) continue;
+          const dueMs = inv.due_date ? Date.parse(`${inv.due_date.slice(0, 10)}T00:00:00Z`) : startMs;
+          const daysPast = Number.isFinite(dueMs) ? Math.round((startMs - dueMs) / 86_400_000) : 0;
+          if (daysPast < minDays) continue;
+          cards.push({
+            record_id: inv.id,
+            record_ref: inv.invoice_number ?? inv.id,
+            counterparty: inv.customer_name ?? "Customer",
+            impact_cents: balance,
+            within_safety_cap: balance <= safetyCapCents,
+            proof_summary: `Invoice ${inv.invoice_number ?? inv.id} (${inv.customer_name ?? "Customer"}) ${daysPast}d past due with ${formatCentsUsd(balance)} open.`,
+          });
+        }
+      }
+
+      cards.sort((a, b) => b.impact_cents - a.impact_cents);
+      const totalImpactCents = cards.reduce((s, c) => s + c.impact_cents, 0);
+      const withinCapCards = cards.filter((c) => c.within_safety_cap);
+      const sopClean = promptRaw.replace(/^automate\s*:\s*/i, "").trim();
+      const sopName = sopClean.length > 64 ? `${sopClean.slice(0, 61)}...` : sopClean;
+
+      toolResult = {
+        workspace_id: workspaceId,
+        as_of_date: asOfDate,
+        sop_name: sopName,
+        plain_english_prompt: promptRaw,
+        rule: {
+          trigger,
+          action,
+          autonomy_action_key: autonomyActionKey,
+          threshold_bps: thresholdBps,
+          threshold_cents: thresholdCents,
+          threshold_days: thresholdDays,
+          safety_cap_cents: safetyCapCents,
+        },
+        matched_count: cards.length,
+        within_cap_count: withinCapCards.length,
+        cap_exceeded_count: cards.length - withinCapCards.length,
+        total_impact_cents: totalImpactCents,
+        executable_impact_cents: withinCapCards.reduce((s, c) => s + c.impact_cents, 0),
+        proof_cards: cards.slice(0, 10),
+      };
+    } else if (toolName === "get_owner_morning_brief") {
+      auditBotRole = "chief_of_staff";
+      const asOfDate =
+        typeof args.as_of_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.as_of_date.trim())
+          ? args.as_of_date.trim()
+          : new Date().toISOString().slice(0, 10);
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 10;
+      const limit = Number.isFinite(rawLimit) ? Math.min(10, Math.max(1, rawLimit)) : 10;
+      const startingCashCents =
+        typeof args.starting_cash_cents === "number" &&
+        Number.isSafeInteger(args.starting_cash_cents) &&
+        args.starting_cash_cents >= 0
+          ? args.starting_cash_cents
+          : 0;
+      const safetyBufferCents =
+        typeof args.safety_buffer_cents === "number" &&
+        Number.isSafeInteger(args.safety_buffer_cents) &&
+        args.safety_buffer_cents >= 0
+          ? args.safety_buffer_cents
+          : 500000;
+
+      const startMs = Date.parse(`${asOfDate}T00:00:00Z`);
+      const yesterdayIso = new Date(startMs - 86_400_000).toISOString().slice(0, 10);
+
+      const [ledgerRes, invRes, billRes, fraudRes, colRes] = await Promise.all([
+        admin
+          .from("ledger_entries")
+          .select("id, entry_type, amount_cents, occurred_on, source_ref")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+        admin
+          .from("invoices")
+          .select("id, invoice_number, status, total_cents, amount_paid_cents, due_date, updated_at, created_at")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+        admin
+          .from("vendor_bills")
+          .select("id, total_cents, due_date, match_status")
+          .eq("workspace_id", workspaceId)
+          .limit(500),
+        admin
+          .from("vendor_fraud_alerts")
+          .select("id, workspace_id, bill_id, vendor_name, alert_type, variance_cents, proof_summary, status, created_at")
+          .eq("workspace_id", workspaceId)
+          .order("created_at", { ascending: false })
+          .limit(500),
+        admin
+          .from("collection_touches")
+          .select("id, workspace_id, invoice_id, stage, status, amount_due_cents, proof_summary, created_at")
+          .eq("workspace_id", workspaceId)
+          .order("created_at", { ascending: false })
+          .limit(500),
+      ]);
+
+      if (ledgerRes.error || invRes.error || billRes.error || fraudRes.error || colRes.error) {
+        throw new Error("Failed to query workspace records for owner morning brief");
+      }
+
+      let netLedgerCents = 0;
+      let collectedYesterdayCents = 0;
+      const countedRefs = new Set<string>();
+
+      for (const row of (ledgerRes.data ?? []) as Array<{
+        entry_type?: string;
+        amount_cents?: number;
+        occurred_on?: string;
+        source_ref?: string | null;
+      }>) {
+        const amt = Math.abs(Math.trunc(row.amount_cents ?? 0));
+        if (row.entry_type === "revenue") {
+          netLedgerCents += amt;
+          const occ = (row.occurred_on || "").slice(0, 10);
+          if (occ === yesterdayIso || occ === asOfDate) {
+            collectedYesterdayCents += amt;
+            if (typeof row.source_ref === "string" && row.source_ref.trim()) {
+              countedRefs.add(row.source_ref.trim().toLowerCase());
+            }
+          }
+        } else if (row.entry_type === "cogs" || row.entry_type === "expense") {
+          netLedgerCents -= amt;
+        }
+      }
+
+      let openArCents = 0;
+      const periodIn: Record<30 | 60 | 90, number> = { 30: 0, 60: 0, 90: 0 };
+      const periodOut: Record<30 | 60 | 90, number> = { 30: 0, 60: 0, 90: 0 };
+
+      for (const inv of (invRes.data ?? []) as Array<{
+        invoice_number?: string;
+        status?: string;
+        total_cents?: number;
+        amount_paid_cents?: number;
+        due_date?: string | null;
+        updated_at?: string | null;
+        created_at?: string | null;
+      }>) {
+        if (inv.status === "paid") {
+          const refKey = String(inv.invoice_number ?? "").trim().toLowerCase();
+          const paidDate = (inv.updated_at || inv.created_at || "").slice(0, 10);
+          if (refKey && !countedRefs.has(refKey) && (paidDate === yesterdayIso || paidDate === asOfDate)) {
+            collectedYesterdayCents += Math.max(0, Math.trunc(inv.total_cents ?? 0));
+          }
+          continue;
+        }
+        if (inv.status === "void") continue;
+        const rem = Math.max(0, (inv.total_cents ?? 0) - (inv.amount_paid_cents ?? 0));
+        if (rem === 0) continue;
+        openArCents += rem;
+        const dueMs = Date.parse(`${(inv.due_date || asOfDate).slice(0, 10)}T00:00:00Z`);
+        const days = Number.isFinite(dueMs) ? Math.round((dueMs - startMs) / 86_400_000) : 0;
+        if (days <= 30) periodIn[30] += rem;
+        else if (days <= 60) periodIn[60] += rem;
+        else if (days <= 90) periodIn[90] += rem;
+      }
+
+      for (const bill of (billRes.data ?? []) as Release2VendorBillRow[]) {
+        const amt = Math.max(0, bill.total_cents ?? 0);
+        if (amt === 0 || bill.match_status === "paid" || bill.match_status === "disputed" || bill.match_status === "exception_flagged") {
+          continue;
+        }
+        const dueMs = Date.parse(`${(bill.due_date || asOfDate).slice(0, 10)}T00:00:00Z`);
+        const days = Number.isFinite(dueMs) ? Math.round((dueMs - startMs) / 86_400_000) : 0;
+        if (days <= 30) periodOut[30] += amt;
+        else if (days <= 60) periodOut[60] += amt;
+        else if (days <= 90) periodOut[90] += amt;
+      }
+
+      const cashPositionCents = startingCashCents + netLedgerCents;
+      let running = cashPositionCents;
+      let lowestRunwayCents = cashPositionCents;
+      let anyBufferBreach = cashPositionCents < safetyBufferCents;
+      for (const horizon of [30, 60, 90] as const) {
+        running = running + periodIn[horizon] - periodOut[horizon];
+        if (running < lowestRunwayCents) lowestRunwayCents = running;
+        if (running < safetyBufferCents) anyBufferBreach = true;
+      }
+
+      const approvalItems: Array<{
+        id: string;
+        workspace_id: string;
+        kind: "vendor_fraud_freeze" | "staged_collection";
+        title: string;
+        subtitle: string;
+        amount_cents: number;
+      }> = [];
+
+      let frozenFraudCount = 0;
+      for (const alert of (fraudRes.data ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        vendor_name?: string;
+        variance_cents?: number;
+        proof_summary?: string;
+        status?: string;
+      }>) {
+        if (alert.status !== "frozen") continue;
+        frozenFraudCount += 1;
+        approvalItems.push({
+          id: alert.id,
+          workspace_id: alert.workspace_id,
+          kind: "vendor_fraud_freeze",
+          title: `Frozen Bill Guard: ${alert.vendor_name ?? "Vendor"}`,
+          subtitle: alert.proof_summary ?? "",
+          amount_cents: Math.max(0, Math.trunc(alert.variance_cents ?? 0)),
+        });
+      }
+
+      let stagedCollectionCount = 0;
+      for (const touch of (colRes.data ?? []) as Array<{
+        id: string;
+        workspace_id: string;
+        stage?: string;
+        status?: string;
+        amount_due_cents?: number;
+        proof_summary?: string;
+      }>) {
+        if (touch.status !== "staged") continue;
+        stagedCollectionCount += 1;
+        approvalItems.push({
+          id: touch.id,
+          workspace_id: touch.workspace_id,
+          kind: "staged_collection",
+          title: `Collection Touch (${touch.stage ?? "staged"})`,
+          subtitle: touch.proof_summary ?? "",
+          amount_cents: Math.max(0, Math.trunc(touch.amount_due_cents ?? 0)),
+        });
+      }
+
+      const pendingApprovalTotalCents = approvalItems.reduce((s, item) => s + item.amount_cents, 0);
+      toolResult = {
+        workspace_id: workspaceId,
+        as_of_date: asOfDate,
+        cash_position_cents: cashPositionCents,
+        collected_yesterday_cents: collectedYesterdayCents,
+        open_ar_cents: openArCents,
+        pending_approval_count: approvalItems.length,
+        pending_approval_total_cents: pendingApprovalTotalCents,
+        frozen_fraud_count: frozenFraudCount,
+        staged_collection_count: stagedCollectionCount,
+        runway_90d_lowest_cents: lowestRunwayCents,
+        safety_buffer_cents: safetyBufferCents,
+        runway_status: anyBufferBreach ? "buffer_breach" : "healthy",
+        approval_items: approvalItems.slice(0, limit),
       };
     }
 

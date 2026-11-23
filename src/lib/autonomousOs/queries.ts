@@ -724,6 +724,45 @@ export async function reverseLedgerEntryInDb(params: {
     }
   }
 
+  if (
+    entry.action_type === 'execute_compiled_sop' &&
+    restoredState &&
+    typeof restoredState.executable_sop_id === 'string' &&
+    restoredState.executable_sop_id
+  ) {
+    const prevStatus =
+      typeof restoredState.sop_status === 'string' ? restoredState.sop_status : 'paused'
+    const prevRuns =
+      typeof restoredState.run_count === 'number' ? restoredState.run_count : 0
+    await supabase
+      .from('executable_sops')
+      .update({
+        status: prevStatus,
+        run_count: prevRuns,
+        updated_at: updatedEntry.reversed_at,
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('id', restoredState.executable_sop_id)
+  }
+
+  if (
+    entry.action_type === 'override_vendor_fraud_alert' &&
+    restoredState &&
+    typeof restoredState.alert_id === 'string' &&
+    restoredState.alert_id
+  ) {
+    const prevAlertStatus =
+      typeof restoredState.alert_status === 'string' ? restoredState.alert_status : 'frozen'
+    await supabase
+      .from('vendor_fraud_alerts')
+      .update({
+        status: prevAlertStatus,
+        updated_at: updatedEntry.reversed_at,
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('id', restoredState.alert_id)
+  }
+
   const { data, error } = await supabase
     .from('agent_action_ledger')
     .update({

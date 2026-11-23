@@ -6,4 +6,7 @@ export * from './enterpriseEngine'
 export * from './shadowEngine'
 export * from './cpaPacketEngine'
 export * from './collectionsEngine'
+export * from './sopCompiler'
+export * from './vendorFraudEngine'
+export * from './morningBriefEngine'
 
