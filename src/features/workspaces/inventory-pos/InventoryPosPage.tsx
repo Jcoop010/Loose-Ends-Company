@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Barcode,
   Boxes,
+  ClipboardCheck,
   FileCheck2,
   History,
+  MapPin,
   Plus,
   QrCode,
   RefreshCw,
+  ShieldAlert,
   ShoppingCart,
   Sparkles,
   Upload,
@@ -20,6 +24,11 @@ import {
 import { fetchWorkspaceAutonomySettings } from '../../../lib/autonomousOs/queries'
 import * as release2Queries from '../../../lib/autonomousOs/release2Queries'
 import type { Release2InventoryBundle } from '../../../lib/autonomousOs/release2Queries'
+import {
+  fetchMission12InventoryBundle,
+  type Mission12InventoryBundle,
+} from '../../../lib/inventory/inventoryQueries'
+import type { InventorySkuSnapshot } from '../../../lib/inventory'
 import { fetchAllWorkspaceRows } from '../../../lib/queries'
 import { useWorkspaceRealtime } from '../../../lib/realtime'
 import { useAppRouter } from '../../../state/RouterContext'
@@ -33,14 +42,28 @@ import { Badge, MetricCard, MetricCardSkeleton } from '../../../components/ui/Me
 import { useToast } from '../../../components/ui/Toast'
 import { BarcodeReceivingPanel } from './BarcodeReceivingPanel'
 import { InventoryCsvImport } from './InventoryCsvImport'
+import { Mission12InventorySuite, type Mission12SubTab } from './Mission12InventorySuite'
 import { PurchaseOrdersPanel } from './PurchaseOrdersPanel'
 import { StockTable } from './StockTable'
 import { ThreeWayMatchPanel } from './ThreeWayMatchPanel'
 
-type InventoryTab = 'catalog' | 'receiving' | 'matching' | 'orders' | 'movements'
+type InventoryTab =
+  | 'catalog'
+  | 'locations'
+  | 'cycle_audit'
+  | 'reconciliation'
+  | 'reorder_queue'
+  | 'receiving'
+  | 'matching'
+  | 'orders'
+  | 'movements'
 
 function parseInventoryTab(raw: string | null): InventoryTab {
   if (
+    raw === 'locations' ||
+    raw === 'cycle_audit' ||
+    raw === 'reconciliation' ||
+    raw === 'reorder_queue' ||
     raw === 'receiving' ||
     raw === 'matching' ||
     raw === 'orders' ||
@@ -56,6 +79,7 @@ interface InventoryWorkspaceData {
   purchaseOrders: OpsPurchaseOrder[]
   draftJobs: OpsJob[]
   r2: Release2InventoryBundle
+  m12: Mission12InventoryBundle
   autonomyConfig: WorkspaceAutonomyConfig
 }
 
@@ -104,7 +128,7 @@ export function InventoryPosPage(): React.ReactElement {
       setError(null)
 
       try {
-        const [items, purchaseOrders, jobs, r2, autonomyConfig] = await Promise.all([
+        const [items, purchaseOrders, jobs, r2, m12, autonomyConfig] = await Promise.all([
           fetchAllWorkspaceRows<InventoryItem>({
             table: 'inventory_items',
             workspaceId,
@@ -123,6 +147,16 @@ export function InventoryPosPage(): React.ReactElement {
             shouldAbort,
           }),
           release2Queries.fetchRelease2InventoryData(workspaceId),
+          fetchMission12InventoryBundle(workspaceId).catch(
+            (): Mission12InventoryBundle => ({
+              locations: [],
+              balances: [],
+              audits: [],
+              auditLinesByAuditId: {},
+              reorderDrafts: [],
+              movements: [],
+            }),
+          ),
           fetchWorkspaceAutonomySettings(workspaceId).catch(() => DEFAULT_AUTONOMY_CONFIG),
         ])
 
@@ -134,6 +168,7 @@ export function InventoryPosPage(): React.ReactElement {
           purchaseOrders,
           draftJobs: jobs.filter(j => j.status === 'draft'),
           r2,
+          m12,
           autonomyConfig,
         })
         setStockRefreshSignal(prev => prev + 1)
@@ -296,11 +331,37 @@ export function InventoryPosPage(): React.ReactElement {
     icon: React.ComponentType<{ className?: string }>
   }> = [
     { id: 'catalog', label: 'SKU Catalog & Auto-PO', icon: Boxes },
+    { id: 'locations', label: 'Stock & Locations', icon: MapPin },
+    { id: 'cycle_audit', label: 'Cycle Audit & Scanner', icon: Barcode },
+    { id: 'reconciliation', label: 'Reconciliation & Discrepancies', icon: ShieldAlert },
+    { id: 'reorder_queue', label: 'Autonomous Reorder Queue', icon: ClipboardCheck },
     { id: 'receiving', label: 'Barcode / QR Receiving', icon: QrCode },
     { id: 'matching', label: '3-Way Match Queue', icon: FileCheck2 },
     { id: 'orders', label: 'Purchase Orders', icon: ShoppingCart },
     { id: 'movements', label: 'Movement History', icon: History },
   ]
+
+  const m12SkuSnapshots: InventorySkuSnapshot[] = useMemo(
+    () =>
+      (data?.r2.inventoryItems ?? []).map(item => ({
+        id: item.id,
+        workspace_id: workspaceId,
+        sku: item.sku,
+        name: item.name,
+        barcode: null,
+        category: null,
+        unit_of_measure: 'each',
+        unit_cost_cents: item.unit_cost_cents,
+        unit_price_cents: item.unit_price_cents,
+        reorder_point_qty: item.reorder_point_qty,
+        reorder_qty: item.reorder_qty,
+        preferred_vendor_name: item.preferred_vendor ?? null,
+        on_hand_qty: item.on_hand_qty,
+        reserved_qty: item.reserved_qty,
+        is_active: !item.archived,
+      })),
+    [data?.r2.inventoryItems, workspaceId],
+  )
 
   return (
     <div className="space-y-6">
@@ -648,6 +709,22 @@ export function InventoryPosPage(): React.ReactElement {
                 onStockChanged={() => loadInventoryWorkspace(true)}
               />
             </div>
+          ) : null}
+
+          {activeTab === 'locations' ||
+          activeTab === 'cycle_audit' ||
+          activeTab === 'reconciliation' ||
+          activeTab === 'reorder_queue' ? (
+            <Mission12InventorySuite
+              workspaceId={workspaceId}
+              isAdminOrOwner={isAdminOrOwner}
+              inventoryEnabled={settings?.inventory_enabled !== false}
+              activeSubTab={activeTab as Mission12SubTab}
+              skuSnapshots={m12SkuSnapshots}
+              r2={data.r2}
+              m12={data.m12}
+              onChanged={() => loadInventoryWorkspace(true)}
+            />
           ) : null}
 
           {activeTab === 'receiving' ? (

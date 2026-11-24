@@ -860,8 +860,11 @@ assert.equal(initRes.json.result.serverInfo.version, '2.6.0')
 const listRes = await callMcp(rawTokenA, 'tools/list')
 assert.equal(listRes.status, 200)
 const toolNames = listRes.json.result.tools.map(t => t.name)
-assert.equal(toolNames.length, 32)
+assert.equal(toolNames.length, 35)
 for (const reqTool of [
+  'get_inventory_summary',
+  'get_inventory_variance_report',
+  'stage_reorder_draft',
   'ops_readiness_audits',
   'save_ops_readiness_audit',
   'list_ops_readiness_audits',

@@ -1441,6 +1441,58 @@ const TOOL_CATALOG: readonly McpToolDefinition[] = [
       },
     },
   },
+  {
+    name: "get_inventory_summary",
+    requiredScope: "read_all",
+    description:
+      "Read-only Mission 12 inventory valuation and availability summary: active SKUs, per-location balances, integer-cent cost valuation, and low-stock items where available + incoming <= reorder_point.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        location_id: { type: "string" },
+        low_stock_only: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+    },
+  },
+  {
+    name: "get_inventory_variance_report",
+    requiredScope: "read_all",
+    description:
+      "Read-only Mission 12 cycle-count audit and 3-way stock variance report: returns pending_approval and recent inventory_audits with integer-cent variance totals and discrepancy counts.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["draft", "in_progress", "pending_approval", "reconciled", "cancelled"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 25 },
+      },
+    },
+  },
+  {
+    name: "stage_reorder_draft",
+    requiredScope: "stage_actions",
+    description:
+      "Stages a human-in-the-loop low-stock reorder draft into inventory_reorder_drafts (status='draft') for 1-tap owner approval. Blocked in observe mode; never auto-sends a purchase order.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["item_id", "vendor_name", "suggested_qty", "unit_cost_cents"],
+      properties: {
+        item_id: { type: "string", minLength: 1 },
+        location_id: { type: "string" },
+        vendor_name: { type: "string", minLength: 1, maxLength: 200 },
+        suggested_qty: { type: "integer", minimum: 1, maximum: 100000 },
+        unit_cost_cents: { type: "integer", minimum: 0 },
+        notes: { type: "string", maxLength: 500 },
+        idempotency_key: { type: "string", maxLength: 160 },
+      },
+    },
+  },
 ];
 
 const PUBLIC_MCP_TOOLS = TOOL_CATALOG.map(({ name, description, inputSchema }) => ({
@@ -1781,6 +1833,27 @@ function buildSanitizedAuditOutput(
       vendor_name: toolResult.vendor_name ?? null,
       extracted_total_cents: toolResult.extracted_total_cents ?? 0,
       match_status: toolResult.match_status ?? "needs_review",
+    };
+  }
+  if (toolName === "get_inventory_summary") {
+    return {
+      total_skus: toolResult.total_skus ?? 0,
+      low_stock_count: toolResult.low_stock_count ?? 0,
+      total_valuation_cents: toolResult.total_valuation_cents ?? 0,
+    };
+  }
+  if (toolName === "get_inventory_variance_report") {
+    return {
+      audit_count: toolResult.audit_count ?? 0,
+      pending_approval_count: toolResult.pending_approval_count ?? 0,
+      total_variance_cents: toolResult.total_variance_cents ?? 0,
+    };
+  }
+  if (toolName === "stage_reorder_draft") {
+    return {
+      status: toolResult.status ?? "draft",
+      draft_id: toolResult.draft_id ?? null,
+      estimated_total_cents: toolResult.estimated_total_cents ?? 0,
     };
   }
   if (toolName === "upsert_public_lead") {
@@ -5267,6 +5340,212 @@ Deno.serve(async (req: Request) => {
         match_status: spikeHit || duplicateHit ? "fraud_frozen" : "needs_review",
         proof_summary: proofSummary,
       };
+    } else if (toolName === "get_inventory_summary") {
+      auditBotRole = "buyer";
+      const locationFilter =
+        typeof args.location_id === "string" && args.location_id.trim()
+          ? args.location_id.trim()
+          : null;
+      const lowStockOnly = args.low_stock_only === true;
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 25;
+      const limit = Number.isFinite(rawLimit) ? Math.min(50, Math.max(1, rawLimit)) : 25;
+
+      const [{ data: itemsData, error: itemsErr }, { data: balData }, { data: locData }] =
+        await Promise.all([
+          admin
+            .from("inventory_items")
+            .select(
+              "id, sku, name, barcode, category, on_hand_qty, reserved_qty, reorder_point_qty, reorder_qty, unit_cost_cents, unit_price_cents, preferred_vendor, preferred_vendor_name, archived",
+            )
+            .eq("workspace_id", workspaceId)
+            .eq("archived", false)
+            .order("sku", { ascending: true })
+            .limit(200),
+          admin
+            .from("inventory_balances")
+            .select("item_id, location_id, on_hand_qty, reserved_qty, incoming_qty")
+            .eq("workspace_id", workspaceId),
+          admin
+            .from("inventory_locations")
+            .select("id, code, name, location_type, is_default")
+            .eq("workspace_id", workspaceId)
+            .eq("is_active", true),
+        ]);
+
+      if (itemsErr) {
+        throw new Error("Failed to query inventory_items");
+      }
+
+      const incomingByItem = new Map<string, number>();
+      for (const bal of (balData ?? []) as Array<{
+        item_id: string;
+        location_id: string;
+        incoming_qty?: number;
+      }>) {
+        if (locationFilter && bal.location_id !== locationFilter) continue;
+        incomingByItem.set(
+          bal.item_id,
+          (incomingByItem.get(bal.item_id) ?? 0) + Math.max(0, Math.trunc(bal.incoming_qty ?? 0)),
+        );
+      }
+
+      let totalValuationCents = 0;
+      let totalOnHandUnits = 0;
+      let lowStockCount = 0;
+
+      const evaluated = ((itemsData ?? []) as Array<Record<string, unknown>>).map((row) => {
+        const id = String(row.id ?? "");
+        const onHand = Math.trunc(Number(row.on_hand_qty ?? 0));
+        const reserved = Math.max(0, Math.trunc(Number(row.reserved_qty ?? 0)));
+        const incoming = incomingByItem.get(id) ?? 0;
+        const available = onHand - reserved;
+        const reorderPt = Math.max(0, Math.trunc(Number(row.reorder_point_qty ?? 0)));
+        const unitCostCents = Math.max(0, Math.trunc(Number(row.unit_cost_cents ?? 0)));
+        const valuationCents = onHand * unitCostCents;
+        const isLowStock = available + incoming <= reorderPt;
+
+        totalOnHandUnits += onHand;
+        totalValuationCents += valuationCents;
+        if (isLowStock) lowStockCount += 1;
+
+        return {
+          item_id: id,
+          sku: String(row.sku ?? ""),
+          name: String(row.name ?? ""),
+          on_hand_qty: onHand,
+          reserved_qty: reserved,
+          incoming_qty: incoming,
+          available_qty: available,
+          reorder_point_qty: reorderPt,
+          unit_cost_cents: unitCostCents,
+          valuation_cents: valuationCents,
+          is_low_stock: isLowStock,
+          preferred_vendor: String(row.preferred_vendor_name ?? row.preferred_vendor ?? "Preferred Vendor"),
+        };
+      });
+
+      const filtered = lowStockOnly ? evaluated.filter((r) => r.is_low_stock) : evaluated;
+
+      toolResult = {
+        workspace_id: workspaceId,
+        total_skus: evaluated.length,
+        total_on_hand_units: totalOnHandUnits,
+        total_valuation_cents: totalValuationCents,
+        low_stock_count: lowStockCount,
+        locations_count: (locData ?? []).length,
+        items: filtered.slice(0, limit),
+      };
+    } else if (toolName === "get_inventory_variance_report") {
+      auditBotRole = "qa";
+      const statusFilter =
+        typeof args.status === "string" && args.status.trim() ? args.status.trim() : null;
+      const rawLimit = typeof args.limit === "number" ? Math.trunc(args.limit) : 15;
+      const limit = Number.isFinite(rawLimit) ? Math.min(25, Math.max(1, rawLimit)) : 15;
+
+      let query = admin
+        .from("inventory_audits")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (statusFilter) {
+        query = query.eq("status", statusFilter);
+      }
+
+      const { data: auditsData, error: auditsErr } = await query;
+      if (auditsErr) {
+        throw new Error("Failed to query inventory_audits");
+      }
+
+      const audits = (auditsData ?? []) as Array<Record<string, unknown>>;
+      const pendingApprovalCount = audits.filter((a) => a.status === "pending_approval").length;
+      const totalVarianceCents = audits.reduce(
+        (sum, a) => sum + Math.trunc(Number(a.total_variance_cents ?? 0)),
+        0,
+      );
+
+      toolResult = {
+        workspace_id: workspaceId,
+        audit_count: audits.length,
+        pending_approval_count: pendingApprovalCount,
+        total_variance_cents: totalVarianceCents,
+        audits: audits.map((a) => ({
+          id: a.id,
+          audit_number: a.audit_number,
+          title: a.title,
+          status: a.status,
+          total_expected_qty: a.total_expected_qty,
+          total_counted_qty: a.total_counted_qty,
+          total_variance_qty: a.total_variance_qty,
+          total_variance_cents: a.total_variance_cents,
+          submitted_at: a.submitted_at,
+          reconciled_at: a.reconciled_at,
+        })),
+      };
+    } else if (toolName === "stage_reorder_draft") {
+      auditBotRole = "buyer";
+      const { data: buyerManual } = await admin
+        .from("bot_manuals")
+        .select("mode")
+        .eq("workspace_id", workspaceId)
+        .eq("bot_role", "buyer")
+        .maybeSingle();
+
+      if (buyerManual?.mode === "observe") {
+        toolResult = {
+          workspace_id: workspaceId,
+          status: "blocked_observe_mode",
+          draft_id: null,
+          estimated_total_cents: 0,
+          message:
+            "Buyer bot is in observe mode. Switch to draft_and_approve to stage reorder drafts.",
+        };
+      } else {
+        const itemId = String(args.item_id ?? "").trim();
+        const vendorName = String(args.vendor_name ?? "").trim();
+        const suggestedQty = Math.max(1, Math.trunc(Number(args.suggested_qty ?? 1)));
+        const unitCostCents = Math.max(0, Math.trunc(Number(args.unit_cost_cents ?? 0)));
+        const locationId =
+          typeof args.location_id === "string" && args.location_id.trim()
+            ? args.location_id.trim()
+            : null;
+        const notes =
+          typeof args.notes === "string" && args.notes.trim() ? args.notes.trim() : null;
+        const idempotencyKey =
+          typeof args.idempotency_key === "string" && args.idempotency_key.trim()
+            ? args.idempotency_key.trim()
+            : null;
+
+        const { data: draft, error: draftErr } = await admin
+          .from("inventory_reorder_drafts")
+          .insert({
+            workspace_id: workspaceId,
+            item_id: itemId,
+            location_id: locationId,
+            vendor_name: vendorName,
+            suggested_qty: suggestedQty,
+            unit_cost_cents: unitCostCents,
+            status: "draft",
+            source: "mcp_bot",
+            notes,
+            idempotency_key: idempotencyKey,
+          })
+          .select("id, status, estimated_total_cents")
+          .single();
+
+        if (draftErr || !draft) {
+          throw new Error(draftErr?.message ?? "Failed to stage reorder draft");
+        }
+
+        toolResult = {
+          workspace_id: workspaceId,
+          status: draft.status,
+          draft_id: draft.id,
+          estimated_total_cents: draft.estimated_total_cents,
+          requires_owner_approval: true,
+        };
+      }
     }
 
     await admin.from("bot_runs").insert({

@@ -64,6 +64,7 @@ import { formatCents, formatDateTime } from '../../lib/format'
 import { useDemoStore } from '../../state/DemoStoreContext'
 import { Badge } from '../../components/ui/MetricCard'
 import { useToast } from '../../components/ui/Toast'
+import { Mission12InventorySandbox } from './Mission12InventorySandbox'
 
 const DEMO_MODES: ReadonlyArray<{ mode: AutonomyMode; label: string }> = [
   { mode: 'manual', label: 'Manual' },
@@ -2301,6 +2302,9 @@ export function AutonomousSandboxPanel(): React.ReactElement {
           </div>
         </div>
       </div>
+
+      {/* Mission 12: Air-Gapped Inventory Audit & 3-Way Reconciliation Sandbox */}
+      <Mission12InventorySandbox />
     </section>
   )
 }

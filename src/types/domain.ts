@@ -27,6 +27,7 @@ export interface WorkspaceSettings {
   timezone: string
   onboarding_completed: boolean
   onboarding_completed_at?: string | null
+  inventory_enabled?: boolean | null
   modules_enabled?: Partial<WorkspaceModulesEnabled> | null
   autonomy_rules?: Partial<AutonomyRulesMap> | null
   auto_limit_cents?: number | null

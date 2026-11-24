@@ -145,11 +145,16 @@ export function AppShell({
   }
 
   const modules = normalizeModulesEnabled(settings?.modules_enabled)
+  const inventoryModuleVisible =
+    settings?.inventory_enabled !== undefined && settings?.inventory_enabled !== null
+      ? settings.inventory_enabled
+      : true
   const activeNavTitle = ALL_SECTION_TITLES[section] ?? 'Command Center'
 
-  const visibleRailItems = WORKSPACE_NAV_ITEMS.filter(item =>
-    item.moduleKey ? modules[item.moduleKey] : true,
-  )
+  const visibleRailItems = WORKSPACE_NAV_ITEMS.filter(item => {
+    if (item.moduleKey === 'inventory') return inventoryModuleVisible
+    return item.moduleKey ? modules[item.moduleKey] : true
+  })
 
   const handleSignOut = async () => {
     try {
