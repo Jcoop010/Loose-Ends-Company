@@ -53,6 +53,7 @@ jobs:
       - run: node tests/workflow-security.test.mjs
       - run: node tests/stripe-webhook-handler.test.mjs
       - run: node tests/launch-readiness.test.mjs
+      - run: node tests/entitlement-gate.test.mjs
       - run: node tests/launch-center-regression.test.mjs
       - run: node tests/autopilot-approval.test.mjs
       - run: node tests/recovery-delivery-preflight.test.mjs
